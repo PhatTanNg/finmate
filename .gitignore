@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+web/dist/
+server/public/
+
+# Dữ liệu cá nhân - TUYỆT ĐỐI không đẩy lên GitHub
+# Chứa toàn bộ giao dịch, số dư, mã PIN đã băm của bạn
+server/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Bản sao lưu
+backups/
+*.backup
+
+# Biến môi trường & bí mật
+.env
+.env.*
+!.env.example
+
+# Log
+*.log
+npm-debug.log*
+logs/
+
+# Hệ điều hành / IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Tạm
+tmp/
+temp/
+.cache/
