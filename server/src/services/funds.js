@@ -1,9 +1,70 @@
 /** Quỹ = "phong bì ảo" phủ lên tiền thật. Thu nhập vào -> tự động chia theo tỷ lệ/ưu tiên. */
 import { all, get, run, insert, update } from '../db.js';
-import { today } from '../util/date.js';
+import { today, monthsBetween } from '../util/date.js';
+import { normalizeCurrency } from '../util/currency.js';
+import { baseCurrency, convert } from './fx.js';
 
-export function listFunds() {
-  return all('SELECT * FROM funds ORDER BY priority ASC, id ASC');
+/**
+ * Danh sách quỹ, mặc định chỉ lấy quỹ đang hoạt động.
+ * @param {{includeArchived?:boolean}} [opts]
+ */
+export function listFunds(opts = {}) {
+  const rows = all('SELECT * FROM funds ORDER BY priority ASC, id ASC');
+  return opts.includeArchived ? rows : rows.filter((f) => !f.archived);
+}
+
+/**
+ * Kế hoạch của một quỹ có mục tiêu: còn thiếu bao nhiêu, còn mấy tháng,
+ * mỗi tháng cần bỏ vào bao nhiêu để kịp hạn.
+ */
+export function fundPlan(fund) {
+  const target = Number(fund.target_amount) || 0;
+  const bal = Number(fund.balance) || 0;
+  if (!target) return { has_target: false, remaining: 0, months_left: null, monthly_needed: 0, on_track: true };
+  const remaining = Math.max(0, target - bal);
+  const progress = target > 0 ? Math.min(1, bal / target) : 0;
+  if (!fund.target_date) {
+    return { has_target: true, target_amount: target, remaining, progress, months_left: null, monthly_needed: 0, on_track: remaining === 0, status: remaining === 0 ? 'done' : 'no_deadline' };
+  }
+  const months = monthsBetween(today(), fund.target_date);
+  const monthsLeft = Math.max(0, Math.round(months * 10) / 10);
+  const monthlyNeeded = remaining === 0 ? 0 : monthsLeft <= 0 ? remaining : Math.ceil(remaining / monthsLeft);
+  let status = 'on_track';
+  if (remaining === 0) status = 'done';
+  else if (months < 0) status = 'overdue';
+  else if (monthsLeft <= 1) status = 'urgent';
+  return {
+    has_target: true,
+    target_amount: target,
+    target_date: fund.target_date,
+    remaining,
+    progress,
+    months_left: monthsLeft,
+    monthly_needed: monthlyNeeded,
+    on_track: status === 'on_track' || status === 'done',
+    status,
+  };
+}
+
+/** Tổng số tiền cần bỏ vào tất cả quỹ có hạn trong tháng này. */
+export function monthlyFundLoad() {
+  const base = baseCurrency();
+  const items = listFunds()
+    .map((f) => ({ fund: f, plan: fundPlan(f) }))
+    .filter((x) => x.plan.has_target && x.plan.monthly_needed > 0);
+  return {
+    // Quỹ có thể khác đồng tiền nhau (euro ở Ireland, đồng ở Việt Nam)
+    // nên phải quy đổi trước khi cộng, không cộng thẳng đơn vị nhỏ nhất.
+    total: items.reduce((s, x) => s + convert(x.plan.monthly_needed, normalizeCurrency(x.fund.currency || base), base), 0),
+    currency: base,
+    items: items.map((x) => ({
+      id: x.fund.id,
+      name: x.fund.name,
+      currency: normalizeCurrency(x.fund.currency || base),
+      monthly_needed_base: convert(x.plan.monthly_needed, normalizeCurrency(x.fund.currency || base), base),
+      ...x.plan,
+    })),
+  };
 }
 
 export function fundBalance(fundId) {
@@ -12,7 +73,7 @@ export function fundBalance(fundId) {
 }
 
 export function recomputeFundBalances() {
-  for (const f of listFunds()) update('funds', f.id, { balance: fundBalance(f.id) });
+  for (const f of listFunds({ includeArchived: true })) update('funds', f.id, { balance: fundBalance(f.id) });
 }
 
 export function postFund({ fund_id, amount, date = today(), kind = 'adjust', ref_tx_id = null, goal_id = null, note = null }) {
@@ -111,18 +172,63 @@ export function fundGoalsFromFund(fundId, amount, date = today()) {
   return out;
 }
 
-/** Tổng quan quỹ kèm cảnh báo vượt/âm */
-export function fundsOverview() {
-  const funds = listFunds();
-  const totalPct = funds.reduce((s, f) => s + (f.percent || 0), 0);
+/** Tổng quan quỹ kèm cảnh báo vượt/âm và tiến độ theo hạn hoàn thành */
+export function fundsOverview(opts = {}) {
+  const base = baseCurrency();
+  const funds = listFunds({ includeArchived: opts.includeArchived });
+  const active = funds.filter((f) => !f.archived);
+  const totalPct = active.reduce((s, f) => s + (f.percent || 0), 0);
+  const inBase = (f) => convert(f.balance, normalizeCurrency(f.currency || base), base);
   return {
     funds: funds.map((f) => ({
       ...f,
+      archived: Boolean(f.archived),
+      currency: normalizeCurrency(f.currency || base),
+      balance_base: inBase(f),
+      plan: fundPlan(f),
       goals: all("SELECT id, name, target_amount, current_amount, deadline FROM goals WHERE fund_id = ? AND status = 'active'", [f.id]),
       status: f.balance < 0 ? 'over' : f.cap > 0 && f.balance >= f.cap ? 'full' : 'ok',
     })),
-    total_balance: funds.reduce((s, f) => s + f.balance, 0),
+    base_currency: base,
+    total_balance: active.reduce((s, f) => s + inBase(f), 0),
     total_percent: totalPct,
     balanced: Math.abs(totalPct - 100) < 0.01,
+    monthly_load: monthlyFundLoad(),
   };
+}
+
+/**
+ * Đóng quỹ: ngừng nhận phân bổ tự động nhưng giữ nguyên lịch sử.
+ * Số dư còn lại được chuyển sang quỹ khác để tiền không bị "kẹt".
+ * @param {number} fundId
+ * @param {{to_fund_id?:number, date?:string}} [opts]
+ */
+export function archiveFund(fundId, opts = {}) {
+  const f = get('SELECT * FROM funds WHERE id = ?', [fundId]);
+  if (!f) return { ok: false, error: 'Không tìm thấy quỹ' };
+  if (f.archived) return { ok: false, error: `Quỹ "${f.name}" đã đóng từ trước` };
+  const date = opts.date || today();
+  let moved = null;
+  if (f.balance !== 0) {
+    const target = opts.to_fund_id
+      ? get('SELECT * FROM funds WHERE id = ? AND archived = 0', [opts.to_fund_id])
+      : listFunds().find((x) => x.id !== fundId && x.currency === f.currency);
+    if (!target) return { ok: false, error: `Quỹ "${f.name}" còn số dư, cần chọn quỹ nhận số dư trước khi đóng` };
+    moveBetweenFunds({ from_fund_id: fundId, to_fund_id: target.id, amount: f.balance, date, note: `Đóng quỹ ${f.name}` });
+    moved = { to: target.name, amount: f.balance };
+  }
+  // Trả % phân bổ về 0 để phần thu nhập đó chảy sang các quỹ còn lại.
+  update('funds', fundId, { archived: 1, archived_at: date, percent: 0 });
+  return { ok: true, fund: f.name, moved, freed_percent: f.percent || 0 };
+}
+
+/** Mở lại quỹ đã đóng. */
+export function reopenFund(fundId, percent = null) {
+  const f = get('SELECT * FROM funds WHERE id = ?', [fundId]);
+  if (!f) return { ok: false, error: 'Không tìm thấy quỹ' };
+  if (!f.archived) return { ok: false, error: `Quỹ "${f.name}" đang mở` };
+  const patch = { archived: 0, archived_at: null };
+  if (percent != null) patch.percent = Number(percent) || 0;
+  update('funds', fundId, patch);
+  return { ok: true, fund: f.name, percent: patch.percent ?? f.percent };
 }

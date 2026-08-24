@@ -12,7 +12,7 @@ import { today, monthKey, monthStart, monthEnd, addMonths } from '../../util/dat
 import { toMinor, normalizeCurrency } from '../../util/currency.js';
 import { baseCurrency, convert, getRate, rateTable } from '../fx.js';
 import { createTransaction, deleteTransaction, listTransactions } from '../ledger.js';
-import { listFunds, fundsOverview, moveBetweenFunds } from '../funds.js';
+import { listFunds, fundsOverview, moveBetweenFunds, fundPlan, monthlyFundLoad, archiveFund, reopenFund } from '../funds.js';
 import { budgetStatus, upsertBudget, suggestBudgets } from '../budgets.js';
 import { portfolio, realEstate, upsertHolding, setPrice as setHoldingPrice, guessSymbolCurrency } from '../investments.js';
 import { debtSummary, payoffPlan } from '../debts.js';
@@ -238,9 +238,94 @@ function dat_phan_bo_quy({ phan_bo }) {
 function chuyen_quy({ tu_quy, den_quy, so_tien, dong_tien, ly_do }) {
   const a = findFund(tu_quy); const b = findFund(den_quy);
   if (!a || !b) return { ok: false, error: 'Không tìm thấy quỹ nguồn hoặc quỹ đích.', quy_hop_le: listFunds().map((f) => f.name) };
-  const { value } = minor(so_tien, dong_tien || baseCurrency());
-  moveBetweenFunds(a.id, b.id, value, ly_do || 'Chuyển theo yêu cầu trong chat');
-  return { ok: true, mutates: true, tu: a.name, den: b.name, so_tien: value };
+  if (a.id === b.id) return { ok: false, error: 'Quỹ nguồn và quỹ đích trùng nhau.' };
+  const { value } = minor(so_tien, dong_tien || a.currency || baseCurrency());
+  if (value <= 0) return { ok: false, error: 'Số tiền phải lớn hơn 0.' };
+  moveBetweenFunds({ from_fund_id: a.id, to_fund_id: b.id, amount: value, note: ly_do || 'Chuyển theo yêu cầu trong chat' });
+  return { ok: true, mutates: true, tu: a.name, den: b.name, so_tien: value, so_du_moi: { [a.name]: a.balance - value, [b.name]: b.balance + value } };
+}
+
+const FUND_TYPES = ['necessity', 'freedom', 'education', 'fun', 'giving', 'ltss', 'emergency', 'goal'];
+
+/** Tạo quỹ mới hoặc cập nhật quỹ đã có (khớp theo tên). */
+function tao_quy({ ten, loai = 'goal', phan_tram, muc_tieu, han_hoan_thanh, uu_tien, tran, tieu_duoc, dong_tien, ghi_chu, icon, mau }) {
+  if (!ten) return { ok: false, error: 'Cần tên quỹ.' };
+  const code = normalizeCurrency(dong_tien || baseCurrency());
+  const exist = findFund(ten);
+  const patch = {};
+  if (phan_tram != null) patch.percent = num(phan_tram) || 0;
+  if (muc_tieu != null) patch.target_amount = minor(muc_tieu, code).value;
+  if (han_hoan_thanh != null) patch.target_date = String(han_hoan_thanh).slice(0, 10);
+  if (uu_tien != null) patch.priority = Math.round(num(uu_tien));
+  if (tran != null) patch.cap = minor(tran, code).value;
+  if (tieu_duoc != null) patch.spendable = tieu_duoc ? 1 : 0;
+  if (ghi_chu != null) patch.note = ghi_chu;
+  if (icon != null) patch.icon = icon;
+  if (mau != null) patch.color = mau;
+
+  if (exist) {
+    if (exist.archived) patch.archived = 0;
+    update('funds', exist.id, patch);
+    const f = get('SELECT * FROM funds WHERE id = ?', [exist.id]);
+    return { ok: true, mutates: true, da_cap_nhat: f.name, ke_hoach: fundPlan(f) };
+  }
+  if (!FUND_TYPES.includes(loai)) loai = 'goal';
+  const id = insert('funds', {
+    name: ten, type: loai, currency: code, balance: 0,
+    percent: patch.percent ?? 0,
+    target_amount: patch.target_amount ?? 0,
+    target_date: patch.target_date ?? null,
+    priority: patch.priority ?? 100,
+    cap: patch.cap ?? 0,
+    spendable: patch.spendable ?? (loai === 'necessity' || loai === 'fun' ? 1 : 0),
+    note: patch.note ?? null, icon: patch.icon ?? null, color: patch.color ?? null,
+  });
+  const f = get('SELECT * FROM funds WHERE id = ?', [id]);
+  return { ok: true, mutates: true, da_tao: f.name, id, ke_hoach: fundPlan(f) };
+}
+
+/** Đặt mục tiêu + hạn hoàn thành, trả lại số tiền cần bỏ mỗi tháng. */
+function dat_muc_tieu_quy({ quy, so_tien_muc_tieu, han_hoan_thanh, uu_tien, dong_tien }) {
+  const f = findFund(quy);
+  if (!f) return { ok: false, error: 'Không tìm thấy quỹ.', quy_hop_le: listFunds({ includeArchived: true }).map((x) => x.name) };
+  const code = normalizeCurrency(dong_tien || f.currency || baseCurrency());
+  const patch = {};
+  if (so_tien_muc_tieu != null) patch.target_amount = minor(so_tien_muc_tieu, code).value;
+  if (han_hoan_thanh != null) patch.target_date = String(han_hoan_thanh).slice(0, 10);
+  if (uu_tien != null) patch.priority = Math.round(num(uu_tien));
+  if (!Object.keys(patch).length) return { ok: false, error: 'Cần ít nhất mục tiêu, hạn hoặc độ ưu tiên.' };
+  update('funds', f.id, patch);
+  const nf = get('SELECT * FROM funds WHERE id = ?', [f.id]);
+  return { ok: true, mutates: true, quy: nf.name, ke_hoach: fundPlan(nf), ghi_chu: 'monthly_needed là số tiền cần bỏ vào mỗi tháng để kịp hạn.' };
+}
+
+/** Đóng quỹ: ngừng phân bổ, dồn số dư sang quỹ khác. */
+function dong_quy({ quy, chuyen_so_du_sang }) {
+  const f = findFund(quy);
+  if (!f) return { ok: false, error: 'Không tìm thấy quỹ.', quy_hop_le: listFunds().map((x) => x.name) };
+  const target = chuyen_so_du_sang ? findFund(chuyen_so_du_sang) : null;
+  if (chuyen_so_du_sang && !target) return { ok: false, error: 'Không tìm thấy quỹ nhận số dư.', quy_hop_le: listFunds().map((x) => x.name) };
+  const res = archiveFund(f.id, { to_fund_id: target?.id });
+  if (!res.ok) return { ...res, quy_hop_le: listFunds().map((x) => x.name) };
+  const tong = listFunds().reduce((s, x) => s + (x.percent || 0), 0);
+  return { ...res, mutates: true, tong_phan_tram_con_lai: tong, canh_bao: tong < 100 ? `Tổng phân bổ chỉ còn ${tong}%, nên chia lại ${(100 - tong).toFixed(0)}% cho các quỹ khác.` : null };
+}
+
+/** Mở lại quỹ đã đóng. */
+function mo_lai_quy({ quy, phan_tram }) {
+  const f = findFund(quy) || match(listFunds({ includeArchived: true }), quy);
+  if (!f) return { ok: false, error: 'Không tìm thấy quỹ.', quy_da_dong: listFunds({ includeArchived: true }).filter((x) => x.archived).map((x) => x.name) };
+  const res = reopenFund(f.id, phan_tram != null ? num(phan_tram) : null);
+  return res.ok ? { ...res, mutates: true } : res;
+}
+
+/** Xoá hẳn quỹ — chỉ cho phép khi quỹ rỗng và không phải quỹ hệ thống. */
+function xoa_quy({ quy }) {
+  const f = findFund(quy) || match(listFunds({ includeArchived: true }), quy);
+  if (!f) return { ok: false, error: 'Không tìm thấy quỹ.' };
+  if (f.balance !== 0) return { ok: false, error: `Quỹ "${f.name}" còn số dư ${f.balance}. Hãy dùng dong_quy để đóng và dồn số dư sang quỹ khác.` };
+  run('DELETE FROM funds WHERE id = ?', [f.id]);
+  return { ok: true, mutates: true, da_xoa: f.name };
 }
 
 function them_nguon_thu({ ten, loai = 'salary', so_tien_net, so_tien_gross, dong_tien, tan_suat = 'monthly', ngay_nhan, noi_lam }) {
@@ -358,7 +443,24 @@ function liet_ke_tai_khoan() {
   };
 }
 
-const liet_ke_quy = () => ({ ok: true, quy: listFunds().map((f) => ({ id: f.id, ten: f.name, phan_tram: f.percent, so_du: f.balance, tieu_duoc: Boolean(f.spendable) })) });
+const liet_ke_quy = ({ gom_quy_dong } = {}) => ({
+  ok: true,
+  quy: listFunds({ includeArchived: Boolean(gom_quy_dong) }).map((f) => {
+    const p = fundPlan(f);
+    return {
+      id: f.id, ten: f.name, loai: f.type, dong_tien: f.currency,
+      phan_tram: f.percent, so_du: f.balance, tieu_duoc: Boolean(f.spendable),
+      uu_tien: f.priority, dang_dong: Boolean(f.archived),
+      muc_tieu: p.has_target ? p.target_amount : null,
+      han_hoan_thanh: f.target_date || null,
+      con_thieu: p.has_target ? p.remaining : null,
+      con_lai_thang: p.months_left,
+      can_bo_moi_thang: p.monthly_needed || null,
+      tinh_trang: p.status || null,
+    };
+  }),
+  tong_can_bo_moi_thang: monthlyFundLoad().total,
+});
 const liet_ke_danh_muc = () => ({
   ok: true,
   chi: all("SELECT name, icon FROM categories WHERE kind='expense' ORDER BY name").map((c) => c.name),
@@ -446,6 +548,7 @@ const N = (description) => ({ type: 'number', description });
 export const TOOL_IMPL = {
   ghi_giao_dich, xoa_giao_dich, hoan_tac_gan_nhat, tao_tai_khoan, capnhat_so_du,
   tao_muc_tieu, gop_tien_muc_tieu, dat_ngan_sach, dat_phan_bo_quy, chuyen_quy,
+  tao_quy, dat_muc_tieu_quy, dong_quy, mo_lai_quy, xoa_quy,
   them_nguon_thu, them_no, tra_no, them_dau_tu, cap_nhat_gia, tao_giao_dich_dinh_ky,
   cap_nhat_ho_so, hoan_tat_thiet_lap,
   liet_ke_tai_khoan, liet_ke_quy, liet_ke_danh_muc, liet_ke_muc_tieu, liet_ke_nguon_thu,
@@ -507,6 +610,35 @@ export const TOOLS = [
     tu_quy: S('Quỹ nguồn'), den_quy: S('Quỹ đích'), so_tien: N('Số tiền'), dong_tien: S('VND/EUR/USD/GBP'), ly_do: S('Lý do'),
   }, ['tu_quy', 'den_quy', 'so_tien']),
 
+  T('tao_quy', 'Tạo quỹ mới hoặc sửa quỹ đã có: %, mục tiêu, hạn hoàn thành, độ ưu tiên, trần.', {
+    ten: S('Tên quỹ, ví dụ "Quỹ mua nhà"'),
+    loai: S('Loại quỹ', { enum: FUND_TYPES }),
+    phan_tram: N('% thu nhập tự động chảy vào quỹ này'),
+    muc_tieu: N('Số tiền mục tiêu cần đạt'),
+    han_hoan_thanh: S('Hạn hoàn thành YYYY-MM-DD, dùng để tính số tiền cần bỏ mỗi tháng'),
+    uu_tien: N('Độ ưu tiên, số càng nhỏ càng ưu tiên (1 = cao nhất)'),
+    tran: N('Trần quỹ, vượt thì tiền chảy sang quỹ kế tiếp'),
+    tieu_duoc: { type: 'boolean', description: 'true = quỹ để chi tiêu, false = quỹ tích luỹ' },
+    dong_tien: S('VND/EUR/USD/GBP'), ghi_chu: S('Ghi chú'), icon: S('Emoji'), mau: S('Mã màu hex'),
+  }, ['ten']),
+
+  T('dat_muc_tieu_quy', 'Đặt số tiền mục tiêu + hạn hoàn thành cho quỹ; trả về số tiền cần bỏ mỗi tháng.', {
+    quy: S('Tên hoặc id quỹ'), so_tien_muc_tieu: N('Số tiền cần đạt'),
+    han_hoan_thanh: S('Hạn YYYY-MM-DD'), uu_tien: N('Độ ưu tiên, nhỏ = ưu tiên cao'),
+    dong_tien: S('VND/EUR/USD/GBP'),
+  }, ['quy']),
+
+  T('dong_quy', 'Đóng một quỹ: ngừng nhận phân bổ, dồn số dư sang quỹ khác, giữ nguyên lịch sử.', {
+    quy: S('Tên hoặc id quỹ cần đóng'),
+    chuyen_so_du_sang: S('Quỹ nhận số dư còn lại; bỏ trống thì tự chọn quỹ cùng đồng tiền'),
+  }, ['quy']),
+
+  T('mo_lai_quy', 'Mở lại một quỹ đã đóng.', {
+    quy: S('Tên hoặc id quỹ'), phan_tram: N('% phân bổ mới, bỏ trống thì giữ nguyên'),
+  }, ['quy']),
+
+  T('xoa_quy', 'Xoá hẳn một quỹ rỗng khỏi app.', { quy: S('Tên hoặc id quỹ') }, ['quy']),
+
   T('them_nguon_thu', 'Thêm/cập nhật nguồn thu nhập: lương, cho thuê, cổ tức, lãi ngân hàng, freelance…', {
     ten: S('Tên nguồn thu'), loai: S('Loại', { enum: INCOME_TYPES }),
     so_tien_net: N('Thực nhận mỗi kỳ'), so_tien_gross: N('Trước thuế mỗi kỳ'),
@@ -549,7 +681,9 @@ export const TOOLS = [
   T('hoan_tat_thiet_lap', 'Đánh dấu đã thiết lập xong hồ sơ. CHỈ gọi khi đã có: thông tin cá nhân cơ bản, ít nhất 1 tài khoản kèm số dư, và ít nhất 1 nguồn thu.'),
 
   T('liet_ke_tai_khoan', 'Xem toàn bộ tài khoản kèm số dư và đồng tiền.'),
-  T('liet_ke_quy', 'Xem các quỹ (phong bì) và % phân bổ.'),
+  T('liet_ke_quy', 'Xem các quỹ (phong bì): % phân bổ, số dư, mục tiêu, hạn hoàn thành và số tiền cần bỏ mỗi tháng.', {
+    gom_quy_dong: { type: 'boolean', description: 'true = hiện cả quỹ đã đóng' },
+  }),
   T('liet_ke_danh_muc', 'Xem tên các danh mục thu/chi hợp lệ.'),
   T('liet_ke_muc_tieu', 'Xem các mục tiêu tài chính.'),
   T('liet_ke_nguon_thu', 'Xem các nguồn thu nhập.'),
@@ -596,6 +730,11 @@ const ALIASES = {
   tao_muc_tieu: { so_tien_muc_tieu: 'so_tien', muc_tieu: 'so_tien', target: 'so_tien', ten_muc_tieu: 'ten', deadline: 'han', han_chot: 'han' },
   dat_ngan_sach: { category: 'danh_muc', ten: 'danh_muc', han_muc: 'so_tien', gioi_han: 'so_tien' },
   chuyen_quy: { tu: 'tu_quy', den: 'den_quy', quy_nguon: 'tu_quy', quy_dich: 'den_quy' },
+  tao_quy: { name: 'ten', ten_quy: 'ten', percent: 'phan_tram', ty_le: 'phan_tram', muc_tieu_so_tien: 'muc_tieu', so_tien_muc_tieu: 'muc_tieu', target: 'muc_tieu', han: 'han_hoan_thanh', deadline: 'han_hoan_thanh', han_chot: 'han_hoan_thanh', ngay_hoan_thanh: 'han_hoan_thanh', priority: 'uu_tien', do_uu_tien: 'uu_tien', cap: 'tran' },
+  dat_muc_tieu_quy: { quy_ten: 'quy', ten: 'quy', fund: 'quy', muc_tieu: 'so_tien_muc_tieu', target: 'so_tien_muc_tieu', so_tien: 'so_tien_muc_tieu', han: 'han_hoan_thanh', deadline: 'han_hoan_thanh', han_chot: 'han_hoan_thanh', priority: 'uu_tien' },
+  dong_quy: { ten: 'quy', fund: 'quy', quy_ten: 'quy', chuyen_sang: 'chuyen_so_du_sang', den_quy: 'chuyen_so_du_sang', to: 'chuyen_so_du_sang' },
+  mo_lai_quy: { ten: 'quy', fund: 'quy', percent: 'phan_tram' },
+  xoa_quy: { ten: 'quy', fund: 'quy' },
   tao_giao_dich_dinh_ky: { chu_ky: 'tan_suat', ngay: 'ngay_trong_thang', frequency: 'tan_suat' },
   tinh_thue: { thu_nhap_nam: 'luong_gross', thu_nhap: 'luong_gross', luong: 'luong_gross', nuoc: 'quoc_gia' },
   tu_van_tien_du: { tien_du: 'so_tien', amount: 'so_tien' },

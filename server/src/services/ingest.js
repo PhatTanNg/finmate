@@ -6,12 +6,24 @@ import crypto from 'node:crypto';
 import { all, get, insert, update, run } from '../db.js';
 import { today, toISO } from '../util/date.js';
 import { norm } from '../util/vi.js';
+import { parseNumberFor, toMinor, normalizeCurrency, decimalsOf } from '../util/currency.js';
+import { baseCurrency } from './fx.js';
 import { createTransaction, defaultAccountId } from './ledger.js';
 
-const CREDIT_WORDS = ['ghi co', 'nhan duoc', 'nhan tien', 'cong tien', 'tien vao', 'credit', 'nhan chuyen khoan', 'da nhan'];
-const DEBIT_WORDS = ['ghi no', 'thanh toan', 'chuyen tien', 'rut tien', 'mua hang', 'tru tien', 'debit', 'da chi', 'thanh toán'];
+const CREDIT_WORDS = [
+  'ghi co', 'nhan duoc', 'nhan tien', 'cong tien', 'tien vao', 'credit', 'nhan chuyen khoan', 'da nhan',
+  'received', 'credited', 'lodgement', 'lodged', 'deposit', 'refund', 'refunded', 'salary', 'wages',
+  'money in', 'transfer in', 'incoming', 'cashback', 'dividend', 'interest paid',
+];
+const DEBIT_WORDS = [
+  'ghi no', 'thanh toan', 'chuyen tien', 'rut tien', 'mua hang', 'tru tien', 'debit', 'da chi',
+  'you spent', 'spent', 'payment of', 'paid', 'card payment', 'purchase', 'debited', 'withdrawal',
+  'withdrew', 'direct debit', 'standing order', 'point of sale', 'atm', 'money out', 'outgoing',
+  'contactless', 'transaction of',
+];
 
 const BANKS = [
+  // Việt Nam
   { key: 'vietcombank', names: ['vietcombank', 'vcb'] },
   { key: 'techcombank', names: ['techcombank', 'tcb'] },
   { key: 'mbbank', names: ['mbbank', 'mb bank', 'quan doi'] },
@@ -28,80 +40,157 @@ const BANKS = [
   { key: 'shopeepay', names: ['shopeepay', 'airpay'] },
   { key: 'cake', names: ['cake'] },
   { key: 'timo', names: ['timo'] },
+  // Ireland / châu Âu — người Việt ở nước ngoài dùng nhiều
+  { key: 'aib', names: ['aib', 'allied irish'] },
+  { key: 'boi', names: ['bank of ireland', 'boi365', 'boi '] },
+  { key: 'revolut', names: ['revolut'] },
+  { key: 'n26', names: ['n26'] },
+  { key: 'ptsb', names: ['permanent tsb', 'ptsb'] },
+  { key: 'wise', names: ['wise', 'transferwise'] },
+  { key: 'monzo', names: ['monzo'] },
+  { key: 'starling', names: ['starling'] },
+  { key: 'creditunion', names: ['credit union'] },
+  { key: 'anpost', names: ['an post'] },
+  { key: 'paypal', names: ['paypal'] },
+  { key: 'stripe', names: ['stripe'] },
 ];
 
-function parseMoney(s) {
-  if (!s) return null;
-  const cleaned = String(s).replace(/[^\d.,]/g, '');
-  if (!cleaned) return null;
-  // 1,234,567.00 hoặc 1.234.567,00 hoặc 1234567
-  let v = cleaned;
-  const lastDot = v.lastIndexOf('.');
-  const lastComma = v.lastIndexOf(',');
-  const decSep = lastDot > lastComma ? '.' : lastComma > lastDot ? ',' : null;
-  if (decSep && v.length - v.lastIndexOf(decSep) - 1 <= 2 && (v.match(/[.,]/g) || []).length > 0 && v.length - v.lastIndexOf(decSep) - 1 !== 3) {
-    const intPart = v.slice(0, v.lastIndexOf(decSep)).replace(/[.,]/g, '');
-    const frac = v.slice(v.lastIndexOf(decSep) + 1);
-    return Math.round(Number(`${intPart}.${frac}`));
+/** Ký hiệu/mã tiền tệ nhận diện được trong tin nhắn ngân hàng. */
+const CUR_TOKENS = [
+  { code: 'EUR', re: /^(?:€|eur|euro?s?)$/i },
+  { code: 'GBP', re: /^(?:£|gbp|stg)$/i },
+  { code: 'USD', re: /^(?:\$|usd|us\$)$/i },
+  { code: 'VND', re: /^(?:₫|vnd|vnđ|đ|d|dong|đồng)$/i },
+];
+
+const codeOf = (token) => CUR_TOKENS.find((c) => c.re.test(String(token).trim()))?.code || null;
+
+/** Từ khoá đứng ngay trước một con số nghĩa là "đây là số dư", không phải số tiền giao dịch. */
+const BAL_HINT = /(?:balance|bal|available|remaining|so du|số dư|sd|con lai|còn lại)[^\d€£$₫]{0,14}$/i;
+/** Từ khoá cho biết con số phía sau là số thẻ/tài khoản — tuyệt đối không được coi là tiền. */
+const ID_HINT = /(?:card|thẻ|the|ending|acc(?:ount)?|a\/c|tk|tai khoan|tài khoản|ref|no\.?|number|iban|bin)[^\d]{0,10}$/i;
+
+/**
+ * Tìm mọi cụm tiền tệ trong tin nhắn: "EUR 45.20", "45,20 EUR", "€1,450.00", "-350,000VND".
+ * Trả kèm vị trí để phân biệt số tiền giao dịch với số dư.
+ */
+function findMoneyTokens(raw) {
+  const out = [];
+  const re = /(?:(€|£|\$|₫|EUR|USD|GBP|VND|VNĐ|Euros?)\s*([+-]?\d[\d.,]*)|([+-]?\d[\d.,]*)\s*(€|£|\$|₫|EUR|USD|GBP|VND|VNĐ|Euros?|đ|d)(?![a-z]))/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const token = m[1] || m[4];
+    const numStr = m[2] || m[3];
+    const code = codeOf(token);
+    if (!code) continue;
+    const before = raw.slice(Math.max(0, m.index - 24), m.index);
+    if (ID_HINT.test(before)) continue;
+    const value = parseNumberFor(numStr.replace(/^[+-]/, ''), code);
+    if (value == null || !Number.isFinite(value) || value <= 0) continue;
+    out.push({
+      code,
+      minor: toMinor(value, code),
+      sign: /^-/.test(numStr) ? 'debit' : /^\+/.test(numStr) ? 'credit' : null,
+      isBalance: BAL_HINT.test(before),
+      index: m.index,
+    });
   }
-  return Math.round(Number(v.replace(/[.,]/g, '')));
+  return out;
+}
+
+/** Không có ký hiệu tiền tệ nào: bám vào từ khoá số tiền, và loại thẳng số thẻ/tài khoản. */
+function fallbackAmount(raw, code) {
+  const re = /(?:amount|so tien|số tiền|spent|payment of|paid|transaction of|gd|ps)[^\d]{0,12}(\d[\d.,]*)/i;
+  const m = raw.match(re);
+  if (m) {
+    const v = parseNumberFor(m[1], code);
+    if (v > 0) return toMinor(v, code);
+  }
+  // Chuỗi số dài không đi kèm từ khoá định danh nào — thường là tiền trong tin nhắn rút gọn.
+  const re2 = /(?:^|[^\d.,])(\d[\d.,]{3,})(?![\d.,])/g;
+  let x;
+  while ((x = re2.exec(raw)) !== null) {
+    const before = raw.slice(Math.max(0, x.index - 24), x.index + x[0].indexOf(x[1]));
+    if (ID_HINT.test(before) || BAL_HINT.test(before)) continue;
+    const v = parseNumberFor(x[1], code);
+    if (v > 0) return toMinor(v, code);
+  }
+  return null;
 }
 
 function parseWhen(text) {
-  const m = String(text).match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-  if (!m) return { date: today(), time: null };
-  let [, d, mo, y, hh, mi] = m;
-  y = Number(y);
-  if (y < 100) y += 2000;
-  const date = `${y}-${String(Number(mo)).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`;
-  return { date, time: hh ? `${hh}:${mi}` : null };
+  const s = String(text);
+  // 24/08/2026 hoặc 24-08-26
+  const dmy = s.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (dmy) {
+    let [, d, mo, y, hh, mi] = dmy;
+    y = Number(y);
+    if (y < 100) y += 2000;
+    return { date: `${y}-${String(Number(mo)).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`, time: hh ? `${hh}:${mi}` : null };
+  }
+  // 2026-08-24
+  const iso = s.match(/(20\d{2})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?/);
+  if (iso) return { date: `${iso[1]}-${iso[2]}-${iso[3]}`, time: iso[4] ? `${iso[4]}:${iso[5]}` : null };
+  // 24 Aug 2026 / Aug 24, 2026
+  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const txt = s.match(/(\d{1,2})\s+([a-z]{3,9})\.?\s+(20\d{2})/i) || s.match(/([a-z]{3,9})\.?\s+(\d{1,2}),?\s+(20\d{2})/i);
+  if (txt) {
+    const isDayFirst = /^\d/.test(txt[1]);
+    const d = isDayFirst ? txt[1] : txt[2];
+    const mi = MONTHS.indexOf(String(isDayFirst ? txt[2] : txt[1]).slice(0, 3).toLowerCase());
+    if (mi >= 0) return { date: `${txt[3]}-${String(mi + 1).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`, time: null };
+  }
+  return { date: today(), time: null };
 }
 
 function detectBank(text) {
   const n = norm(text);
-  for (const b of BANKS) if (b.names.some((x) => n.includes(x))) return b.key;
+  for (const b of BANKS) if (b.names.some((x) => n.includes(x.trim()))) return b.key;
   return null;
 }
 
 function extractDescription(text) {
   const patterns = [
     /(?:ND|N\.D|Noi dung|Nội dung|Mo ta|Description|Content|ND CK|Ref)\s*[:\-]\s*(.+)$/im,
+    /\b(?:at|to|from)\s+([A-Z0-9][A-Za-z0-9\s\-&'.]{3,40})/,
     /(?:tai|tại)\s+([A-Z0-9\s\-\.]{4,40})/,
   ];
   for (const p of patterns) {
     const m = String(text).match(p);
-    if (m && m[1]) return m[1].split(/\s{2,}|\.\s|\|/)[0].trim().slice(0, 160);
+    if (m && m[1]) return m[1].split(/\s{2,}|\.\s|\|| on \d|\. Your| Your /)[0].trim().slice(0, 160);
   }
   return String(text).replace(/\s+/g, ' ').trim().slice(0, 160);
 }
 
-/** Đọc 1 tin nhắn/email ngân hàng thành cấu trúc giao dịch. */
+/**
+ * Đọc 1 tin nhắn/email ngân hàng thành cấu trúc giao dịch.
+ * Nhận diện được cả tin tiếng Việt (VND) lẫn tiếng Anh (EUR/GBP/USD) — quan trọng
+ * với người sống ở nước ngoài, vì đọc sai đồng tiền là sai số tiền 100 lần.
+ */
 export function parseBankMessage(text, hint = {}) {
   const raw = String(text || '').trim();
   if (!raw) return null;
   const n = norm(raw);
 
-  // số dư sau giao dịch
-  const balMatch = raw.match(/(?:SD|So du|Số dư|Balance|SD hien tai|So du hien tai|So du kha dung)[^\d+-]{0,12}([\d.,]+)/i);
-  const balance = balMatch ? parseMoney(balMatch[1]) : null;
+  const tokens = findMoneyTokens(raw);
+  const hintCur = hint.currency ? normalizeCurrency(hint.currency) : null;
+  // Đồng tiền của tin nhắn: ưu tiên thứ xuất hiện trong chính tin nhắn.
+  const code = tokens[0]?.code || hintCur || baseCurrency();
 
-  // số tiền giao dịch: ưu tiên dạng có dấu +/- và đơn vị tiền
-  let amount = null;
-  let sign = null;
-  const signed = raw.match(/(?:GD|PS|thay doi|thay đổi|amount|so tien|số tiền)?\s*[:\s]\s*([+-])\s*([\d.,]+)\s*(?:VND|VNĐ|đ|d)\b/i)
-    || raw.match(/([+-])\s*([\d.,]+)\s*(?:VND|VNĐ|đ|d)\b/i);
-  if (signed) {
-    sign = signed[1] === '-' ? 'debit' : 'credit';
-    amount = parseMoney(signed[2]);
-  } else {
-    const plainAmt = raw.match(/([\d.,]{4,})\s*(?:VND|VNĐ|đ|d)\b/i);
-    if (plainAmt) amount = parseMoney(plainAmt[1]);
-  }
-  if (!amount && balance) {
-    const other = raw.match(/([\d.,]{4,})/g)?.map(parseMoney).filter((x) => x && x !== balance);
-    if (other && other.length) amount = other[0];
-  }
+  const spend = tokens.filter((t) => !t.isBalance);
+  const balTok = tokens.find((t) => t.isBalance);
+
+  let amount = spend[0]?.minor ?? null;
+  let sign = spend[0]?.sign ?? null;
+  let balance = balTok?.minor ?? null;
+
+  // Chỉ có một con số và nó là số dư -> tin nhắn báo số dư, không phải giao dịch.
+  if (amount == null && tokens.length && !balTok) amount = tokens[0].minor;
+  if (amount == null) amount = fallbackAmount(raw, code);
   if (!amount || amount <= 0) return null;
+
+  // Số dư không được nhỏ hơn số tiền giao dịch một cách vô lý -> nhiều khả năng đọc nhầm.
+  if (balance != null && balance === amount) balance = null;
 
   if (!sign) {
     if (CREDIT_WORDS.some((w) => n.includes(w))) sign = 'credit';
@@ -109,7 +198,7 @@ export function parseBankMessage(text, hint = {}) {
     else sign = 'debit';
   }
 
-  const acctMatch = raw.match(/(?:TK|Tai khoan|Tài khoản|Account|the|thẻ)\s*[:\s]?\s*([0-9xX*]{4,20})/i);
+  const acctMatch = raw.match(/(?:TK|Tai khoan|Tài khoản|Account|a\/c|card|the|thẻ)\s*(?:ending|no\.?|number)?\s*[:\s]?\s*([0-9xX*]{4,20})/i);
   const when = parseWhen(raw);
   const bank = detectBank(raw) || hint.bank || null;
   const description = extractDescription(raw);
@@ -117,6 +206,7 @@ export function parseBankMessage(text, hint = {}) {
   return {
     type: sign === 'credit' ? 'income' : 'expense',
     amount,
+    currency: code,
     balance,
     date: hint.date || when.date,
     time: when.time,
@@ -136,15 +226,22 @@ function matchAccount(parsed) {
     }
   }
   if (parsed.bank) {
-    const acc = all('SELECT * FROM accounts WHERE institution IS NOT NULL').find((a) => norm(a.institution).includes(parsed.bank));
-    if (acc) return acc.id;
+    const byBank = all('SELECT * FROM accounts WHERE institution IS NOT NULL').filter((a) => norm(a.institution).includes(parsed.bank));
+    // Cùng ngân hàng nhưng khác đồng tiền thì chọn tài khoản khớp đồng tiền của tin nhắn.
+    const same = byBank.find((a) => normalizeCurrency(a.currency) === parsed.currency);
+    if (same || byBank[0]) return (same || byBank[0]).id;
+  }
+  // Không nhận ra ngân hàng: ít nhất đừng ghi tiền euro vào tài khoản VND.
+  if (parsed.currency) {
+    const byCur = all('SELECT * FROM accounts').filter((a) => normalizeCurrency(a.currency) === parsed.currency);
+    if (byCur.length === 1) return byCur[0].id;
   }
   return defaultAccountId(parsed.type);
 }
 
 function fingerprint(parsed, accountId) {
   const h = crypto.createHash('sha1');
-  h.update([accountId, parsed.date, parsed.time || '', parsed.amount, parsed.type, (parsed.description || '').slice(0, 40)].join('|'));
+  h.update([accountId, parsed.date, parsed.time || '', parsed.amount, parsed.currency || '', parsed.type, (parsed.description || '').slice(0, 40)].join('|'));
   return `ing:${h.digest('hex').slice(0, 16)}`;
 }
 
@@ -154,7 +251,7 @@ function fingerprint(parsed, accountId) {
  */
 export function ingestMessage(payload = {}) {
   const channel = payload.channel || 'sms';
-  const parsed = parseBankMessage(payload.text, { date: payload.date, bank: payload.bank });
+  const parsed = parseBankMessage(payload.text, { date: payload.date, bank: payload.bank, currency: payload.currency });
   if (!parsed) {
     insert('ingest_log', { channel, payload: payload.text || '', parsed: null, status: 'ignored', message: 'Không đọc được số tiền' });
     return { status: 'ignored', reason: 'Không nhận diện được số tiền trong tin nhắn' };
@@ -167,6 +264,7 @@ export function ingestMessage(payload = {}) {
   const res = createTransaction({
     type: parsed.type,
     amount: parsed.amount,
+    currency: parsed.currency,
     date: parsed.date,
     account_id: accountId,
     note: parsed.description,
@@ -209,7 +307,10 @@ export function reconcile(accountId, reportedBalance, date = today()) {
   if (!acc) return null;
   const diff = Math.round(reportedBalance - acc.balance);
   update('accounts', accountId, { last_synced_at: date });
-  if (Math.abs(diff) < 1000) return { diff: 0, adjusted: false };
+  // Ngưỡng bỏ qua phải theo đồng tiền: 1.000 đồng và 0,50 euro là hai chuyện khác nhau.
+  const code = normalizeCurrency(acc.currency);
+  const threshold = decimalsOf(code) === 0 ? 1000 : 50;
+  if (Math.abs(diff) < threshold) return { diff: 0, adjusted: false };
   const res = createTransaction({
     type: diff > 0 ? 'income' : 'expense',
     amount: Math.abs(diff),

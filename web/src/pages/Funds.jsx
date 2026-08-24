@@ -8,19 +8,34 @@ export default function Funds({ onRefresh }) {
   const [move, setMove] = useState(false);
   const [edit, setEdit] = useState(null);
   const [alloc, setAlloc] = useState(false);
+  const [closing, setClosing] = useState(null);
+  const [showClosed, setShowClosed] = useState(false);
   const [ledger, setLedger] = useState([]);
 
   const load = () => {
-    api.get('/funds').then(setD);
+    api.get('/funds?all=1').then(setD);
     api.get('/funds/ledger?limit=40').then((r) => setLedger(r.entries));
   };
   useEffect(() => { load(); }, []);
   if (!d) return <Loading />;
 
-  const funds = d.funds || [];
+  const allFunds = d.funds || [];
+  const funds = allFunds.filter((f) => !f.archived);
+  const closed = allFunds.filter((f) => f.archived);
+  const shown = showClosed ? allFunds : funds;
   const totalPct = funds.reduce((s, f) => s + (f.percent || 0), 0);
-  const total = funds.reduce((s, f) => s + (f.balance || 0), 0);
-  const opts = funds.map((f) => ({ value: String(f.id), label: `${f.icon} ${f.name}` }));
+  const total = d.total_balance || 0;
+  const monthly = d.monthly_load?.total || 0;
+  const opts = funds.map((f) => ({ value: String(f.id), label: `${f.icon || '•'} ${f.name}` }));
+
+  const PLAN_TONE = { overdue: 'down', urgent: 'warn', done: 'up' };
+  const PLAN_TEXT = {
+    overdue: 'Quá hạn',
+    urgent: 'Sắp tới hạn',
+    done: 'Đã đạt mục tiêu 🎉',
+    on_track: 'Đúng tiến độ',
+    no_deadline: 'Chưa đặt hạn',
+  };
 
   return (
     <>
@@ -36,14 +51,14 @@ export default function Funds({ onRefresh }) {
       </div>
 
       <div className="grid g3">
-        <Stat label="Tổng trong các quỹ" value={short(total)} sub={`${funds.length} quỹ`} />
+        <Stat label="Tổng trong các quỹ" value={short(total)} sub={`${funds.length} quỹ đang mở`} />
         <Stat label="Tổng tỷ lệ phân bổ" value={`${totalPct}%`} tone={totalPct === 100 ? 'up' : 'warn'} sub={totalPct === 100 ? 'Cân bằng' : 'Nên chỉnh về 100%'} />
-        <Stat label="Quỹ có thể tiêu" value={short(funds.filter((f) => f.spendable).reduce((s, f) => s + f.balance, 0))} sub="Không tính quỹ khẩn cấp & đầu tư" />
+        <Stat label="Cần bỏ vào quỹ mỗi tháng" value={short(monthly)} sub={monthly ? `${d.monthly_load.items.length} quỹ có hạn hoàn thành` : 'Chưa quỹ nào đặt hạn'} />
       </div>
 
       <div className="grid g2" style={{ marginTop: 14 }}>
         <Card title="Cơ cấu quỹ">
-          <Donut items={funds.filter((f) => f.balance > 0).map((f) => ({ label: f.name, value: f.balance, color: f.color }))} />
+          <Donut items={funds.filter((f) => f.balance_base > 0).map((f) => ({ label: f.name, value: f.balance_base, color: f.color }))} />
         </Card>
         <Card title="Tỷ lệ chia thu nhập">
           {funds.map((f) => (
@@ -52,7 +67,7 @@ export default function Funds({ onRefresh }) {
                 <span>{f.icon} {f.name}</span>
                 <span className="row" style={{ gap: 8 }}>
                   <b>{f.percent}%</b>
-                  <button className="btn sm ghost" onClick={() => setEdit(f)}>✎</button>
+                  <button className="btn sm ghost" onClick={() => setEdit(f)} aria-label={`Chỉnh quỹ ${f.name}`}>✎</button>
                 </span>
               </div>
               <Progress value={(f.percent || 0) / 100} />
@@ -62,31 +77,73 @@ export default function Funds({ onRefresh }) {
         </Card>
       </div>
 
+      {closed.length > 0 && (
+        <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
+          <button className="btn sm ghost" onClick={() => setShowClosed((v) => !v)}>
+            {showClosed ? 'Ẩn' : 'Hiện'} {closed.length} quỹ đã đóng
+          </button>
+        </div>
+      )}
+
       <div className="grid g2" style={{ marginTop: 14 }}>
-        {funds.map((f) => (
-          <div className="card" key={f.id}>
-            <div className="between">
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>{f.icon} {f.name}</div>
-                <div className="mini">{f.note}</div>
+        {shown.map((f) => {
+          const p = f.plan || {};
+          return (
+            <div className={`card${f.archived ? ' muted-card' : ''}`} key={f.id}>
+              <div className="between">
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 600 }}>
+                    {f.icon} {f.name}
+                    {f.archived && <span className="tag" style={{ marginLeft: 6 }}>đã đóng</span>}
+                  </div>
+                  <div className="mini">{f.note}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 19, fontWeight: 700 }} className={f.balance < 0 ? 'down' : ''}>{fmt(f.balance, f.currency)}</div>
+                  {f.currency !== d.base_currency && <div className="mini">≈ {short(f.balance_base, d.base_currency)}</div>}
+                  <div className="mini">{f.percent}% thu nhập · ưu tiên {f.priority}</div>
+                </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 19, fontWeight: 700 }} className={f.balance < 0 ? 'down' : ''}>{fmt(f.balance)}</div>
-                <div className="mini">{f.percent}% thu nhập</div>
+
+              {p.has_target && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="between mini">
+                    <span>🎯 {short(f.balance, f.currency)} / {short(p.target_amount, f.currency)}</span>
+                    <span className={PLAN_TONE[p.status] || ''}>{PLAN_TEXT[p.status] || ''}</span>
+                  </div>
+                  <Progress value={p.progress || 0} tone={PLAN_TONE[p.status] === 'down' ? 'warn' : 'ok'} />
+                  {p.monthly_needed > 0 && (
+                    <div className="mini" style={{ marginTop: 6 }}>
+                      Cần bỏ <b>{fmt(p.monthly_needed, f.currency)}</b>/tháng
+                      {p.months_left != null && <> · còn <b>{p.months_left}</b> tháng</>}
+                      {f.target_date && <> · hạn {vnDate(f.target_date)}</>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {f.goals?.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  {f.goals.map((g) => (
+                    <div key={g.id} style={{ marginBottom: 6 }}>
+                      <div className="between mini"><span>🎯 {g.name}</span><span>{short(g.current_amount)} / {short(g.target_amount)}</span></div>
+                      <Progress value={g.current_amount / (g.target_amount || 1)} tone="ok" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="row" style={{ marginTop: 10, gap: 8 }}>
+                <button className="btn sm ghost" onClick={() => setEdit(f)}>Chỉnh</button>
+                {f.archived ? (
+                  <button className="btn sm" onClick={async () => { await api.post(`/funds/${f.id}/reopen`, {}); load(); onRefresh?.(); }}>Mở lại</button>
+                ) : (
+                  <button className="btn sm ghost" onClick={() => setClosing(f)}>Đóng quỹ</button>
+                )}
               </div>
             </div>
-            {f.goals?.length > 0 && (
-              <div style={{ marginTop: 10 }}>
-                {f.goals.map((g) => (
-                  <div key={g.id} style={{ marginBottom: 6 }}>
-                    <div className="between mini"><span>🎯 {g.name}</span><span>{short(g.current_amount)} / {short(g.target_amount)}</span></div>
-                    <Progress value={g.current_amount / (g.target_amount || 1)} tone="ok" />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <Card title="Lịch sử phân bổ">
@@ -114,12 +171,49 @@ export default function Funds({ onRefresh }) {
             fields={[
               { k: 'name', label: 'Tên quỹ' },
               { k: 'percent', label: '% thu nhập', type: 'number' },
-              { k: 'cap', label: `Trần tối đa (${baseCurrency()}, 0 = không giới hạn)`, type: 'number' },
+              { k: 'target_amount', label: `Mục tiêu cần đạt (${edit.currency || baseCurrency()})`, type: 'number' },
+              { k: 'target_date', label: 'Hạn hoàn thành', type: 'date' },
+              { k: 'priority', label: 'Ưu tiên (1 = cao nhất)', type: 'number' },
+              { k: 'cap', label: `Trần tối đa (0 = không giới hạn)`, type: 'number' },
               { k: 'note', label: 'Ghi chú', full: true },
             ]}
-            initial={{ ...edit, cap: toMajor(edit.cap) }}
-            onSubmit={async (v) => { await api.patch(`/funds/${edit.id}`, { ...v, percent: Number(v.percent), cap: toMinor(v.cap) }); setEdit(null); load(); onRefresh?.(); }}
+            initial={{ ...edit, cap: toMajor(edit.cap, edit.currency), target_amount: toMajor(edit.target_amount, edit.currency) }}
+            onSubmit={async (v) => {
+              await api.patch(`/funds/${edit.id}`, {
+                name: v.name,
+                note: v.note,
+                percent: Number(v.percent) || 0,
+                priority: Number(v.priority) || 100,
+                cap: toMinor(v.cap, edit.currency),
+                target_amount: toMinor(v.target_amount, edit.currency),
+                target_date: v.target_date || null,
+              });
+              setEdit(null); load(); onRefresh?.();
+            }}
             onCancel={() => setEdit(null)}
+          />
+          <p className="mini" style={{ marginTop: 10 }}>
+            Đặt mục tiêu kèm hạn hoàn thành để app tự tính số tiền cần bỏ vào mỗi tháng.
+          </p>
+        </Modal>
+      )}
+
+      {closing && (
+        <Modal title={`Đóng quỹ ${closing.name}`} onClose={() => setClosing(null)}>
+          <p className="mini">
+            Quỹ sẽ ngừng nhận phân bổ tự động nhưng vẫn giữ nguyên lịch sử.
+            {closing.balance !== 0 && <> Số dư <b>{fmt(closing.balance, closing.currency)}</b> cần được chuyển sang quỹ khác.</>}
+          </p>
+          <Form
+            fields={closing.balance !== 0
+              ? [{ k: 'to_fund_id', label: 'Chuyển số dư sang quỹ', type: 'select', options: opts.filter((o) => o.value !== String(closing.id)) }]
+              : []}
+            submit="Đóng quỹ"
+            onSubmit={async (v) => {
+              await api.post(`/funds/${closing.id}/archive`, v.to_fund_id ? { to_fund_id: Number(v.to_fund_id) } : {});
+              setClosing(null); load(); onRefresh?.();
+            }}
+            onCancel={() => setClosing(null)}
           />
         </Modal>
       )}

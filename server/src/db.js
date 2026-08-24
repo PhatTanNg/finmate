@@ -389,6 +389,11 @@ const ADD_COLUMNS = [
   ['recurring', 'counter_amount', 'INTEGER'],
   ['properties', 'currency', "TEXT DEFAULT 'VND'"],
   ['funds', 'currency', "TEXT DEFAULT 'VND'"],
+  // Quỹ có hạn hoàn thành -> tự suy ra số tiền cần bỏ mỗi tháng và mức khẩn cấp
+  ['funds', 'target_date', 'TEXT'],
+  // Quỹ đã đóng: giữ lịch sử nhưng ngừng nhận phân bổ tự động
+  ['funds', 'archived', 'INTEGER DEFAULT 0'],
+  ['funds', 'archived_at', 'TEXT'],
   ['budgets', 'currency', "TEXT DEFAULT 'VND'"],
   ['profile', 'country', "TEXT DEFAULT 'VN'"],
   ['profile', 'tax_country', "TEXT DEFAULT 'VN'"],

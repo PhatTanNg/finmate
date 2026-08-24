@@ -49,10 +49,13 @@ Có hai chế độ, tự chọn theo cấu hình:
 
 **A. Cố vấn AI thật sự** (khi có `FINMATE_LLM_KEY` — [xem cách bật](#kết-nối-llm-tuỳ-chọn))
 
-Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **37 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **42 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+
+**App là công cụ làm việc của AI.** Nó không chỉ tra cứu và khuyên — nó tự dựng và vận hành cấu trúc tài chính cho bạn: tạo tài khoản, mở quỹ mới, đặt mục tiêu và hạn hoàn thành, đổi tỷ lệ phân bổ, sắp xếp lại độ ưu tiên, đóng quỹ không còn phù hợp và dồn số dư sang quỹ khác. Việc nào hoàn tác được thì nó làm luôn rồi báo lại; chỉ những việc xoá vĩnh viễn mới hỏi bạn trước.
 
 - **Onboarding bằng hội thoại tự nhiên**: lần đầu mở app, AI trò chuyện để tìm hiểu bạn — tên, tuổi, đang sống ở đâu, thu nhập, các tài khoản và số dư, nợ, mục tiêu — và **ghi ngay vào app trong lúc nói chuyện**. Bạn kể một lúc nhiều thứ cũng được, nó lưu hết.
 - **Tự thao tác trong app**: bạn nói "AIB còn 5000 euro" → nó cập nhật số dư; "đặt ngân sách ăn uống 400 euro" → nó tạo ngân sách; "mình vừa trả 300 euro thẻ tín dụng" → nó ghi trả nợ và tính lại dư nợ. Mỗi thao tác đều hiện chip xác nhận dưới câu trả lời (✍️ Đã ghi giao dịch, 💰 Đã cập nhật số dư…).
+- **Quản lý quỹ theo mục tiêu và thời hạn**: "mở quỹ đổi xe 30.000 euro trước hè 2028" → nó tạo quỹ, đặt hạn, tính ra bạn cần bỏ vào bao nhiêu mỗi tháng, xếp độ ưu tiên so với các quỹ khác, và cảnh báo nếu tổng gánh nặng hàng tháng vượt quá khả năng của bạn.
 - **Lời khuyên gắn với số của bạn**: nó tra tài sản ròng, tỷ lệ tiết kiệm, quỹ khẩn cấp, ngày FIRE… trước khi khuyên, nên không nói chung chung.
 - **Chủ động cảnh báo** khi thấy rủi ro thật: sắp âm tiền, nợ lãi cao, quỹ khẩn cấp mỏng.
 - Câu trả lời được tối ưu để **đọc trên điện thoại**: ngắn, ít bảng, in đậm con số quan trọng.
@@ -82,8 +85,10 @@ Onboarding theo từng bước, hiểu ~30 loại ý định và tự phát hi�
 Ngoài ra còn **19 chủ đề kiến thức** trả lời gắn với số liệu thật của bạn: lạm phát, lãi kép, vàng, crypto, mua nhà hay thuê, bảo hiểm, ETF, quy tắc 50/30/20, thị trường giảm mạnh, thuế TNCN, cho bạn vay tiền, tiêu tiền cho bản thân sao cho hợp lý...
 
 ### 2. Tự động hoá — không nhập tay
-- **Webhook `/api/ingest`**: đẩy SMS/thông báo ngân hàng từ điện thoại vào (xem [Tự động hoá](#tự-động-hoá-thu-chi) bên dưới).
-- **Parser SMS ngân hàng VN**: đọc được số tiền, ngày, số dư, nội dung, tự nhận biết tiền vào/ra.
+- **Webhook `/api/ingest`**: đẩy SMS/thông báo ngân hàng từ điện thoại vào (xem [Tự động hoá](#tự-động-hoá-thu-chi) bên dưới). Luôn cần token riêng, không ai trong mạng LAN đẩy giao dịch giả vào được.
+- **Parser tin nhắn ngân hàng đa quốc gia**: đọc được tin tiếng Anh lẫn tiếng Việt. Ireland & châu Âu: AIB, Bank of Ireland, Revolut, N26, Permanent TSB, Wise, Monzo, Starling, An Post, PayPal. Việt Nam: Vietcombank, Techcombank, BIDV, ACB, MB, VPBank, TPBank, Sacombank, VietinBank, Agribank, MoMo, ZaloPay, ShopeePay, VNPay, Cake, Timo.
+- **Hiểu đúng từng đồng tiền**: `EUR 45.20` → 4.520 cent, `8,99 EUR` (dấu phẩy kiểu Đức) → 899 cent, `-350,000VND` → 350.000đ. Tự bỏ qua số thẻ, số tài khoản, mã tham chiếu để không nhầm thành số tiền; tự tách số dư còn lại ra khỏi số tiền giao dịch.
+- **Tự khớp tài khoản theo đồng tiền**: tin nhắn euro vào tài khoản euro, tin nhắn đồng vào tài khoản đồng.
 - **Import CSV sao kê** (có xem trước, tự dò cột, chống trùng lặp).
 - **Khoản định kỳ**: lương, tiền trọ, trả góp, subscription... tự ghi sổ khi tới hạn, bù cả kỳ bị bỏ lỡ.
 - **Luật phân loại**: tự gán danh mục theo tên người bán, học dần từ thao tác của bạn.
@@ -91,7 +96,7 @@ Ngoài ra còn **19 chủ đề kiến thức** trả lời gắn với số li�
 
 ### 3. Quản lý tiền
 - **Tài khoản & ví**: ngân hàng, tiền mặt, ví điện tử, tiết kiệm có kỳ hạn, chứng khoán, thẻ tín dụng (số dư âm), tự cân bằng lại số dư khi lệch.
-- **Quỹ (hũ)**: chia thu nhập tự động theo tỷ lệ — thiết yếu / tự do tài chính / mục tiêu lớn / hưởng thụ / học tập / dự phòng.
+- **Quỹ (hũ)**: chia thu nhập tự động theo tỷ lệ — thiết yếu / tự do tài chính / mục tiêu lớn / hưởng thụ / học tập / dự phòng. Mỗi quỹ có thể đặt **số tiền mục tiêu + hạn hoàn thành**, app tự tính **cần bỏ vào bao nhiêu mỗi tháng** và cảnh báo khi trễ tiến độ. **Độ ưu tiên** (1 = thiết yếu → 5+ = hưởng thụ) quyết định quỹ nào được ưu tiên khi tiền không đủ. Quỹ không còn phù hợp thì **đóng** (giữ nguyên lịch sử, dồn số dư sang quỹ khác) thay vì xoá, và mở lại bất cứ lúc nào.
 - **Mục tiêu**: tiến độ, còn bao nhiêu tháng, cần để dành bao nhiêu/tháng, cảnh báo chậm tiến độ, tự nạp từ quỹ.
 - **Ngân sách** theo danh mục, cảnh báo khi sắp vượt, có rollover.
 - **Nợ**: kế hoạch trả **avalanche** vs **snowball**, ngày sạch nợ, tổng lãi tiết kiệm được.
@@ -131,21 +136,54 @@ Trang **Tiền tệ & chuyển tiền** cho xem tỷ giá, sửa tỷ giá tay, 
 
 ## Tự động hoá thu chi
 
-Bật webhook trong tab **Tự động hoá**, lấy URL + token, rồi cấu hình trên điện thoại:
+Vào tab **Tự động hoá** để lấy địa chỉ webhook + token (token tự sinh, có nút chép sẵn và nút đổi token).
 
-**Android (MacroDroid / Tasker):** trigger khi có SMS từ ngân hàng → HTTP POST
+### iPhone — cách duy nhất chạy được
+
+> **Sự thật cần biết trước:** iOS **không cho phép bất kỳ app nào đọc SMS hoặc thông báo của app khác**. Không có API nào làm được, kể cả app trên App Store. Đường duy nhất là để **Shortcuts** đẩy nội dung tin nhắn sang FinMate.
+
+**Cách 1 — Tự động hoàn toàn (áp dụng cho tin nhắn SMS)**
+
+1. Mở app **Shortcuts** → tab **Automation** → **+** → **Message**
+2. **Sender**: nhập tên/đầu số ngân hàng (AIB, BOI, Revolut, Vietcombank…). Có thể thêm nhiều automation cho nhiều ngân hàng.
+3. Chọn **Run Immediately** và **tắt** "Notify When Run" (iOS 17+) để nó chạy im lặng
+4. Thêm hành động **Get Contents of URL**
+5. Điền:
+   - **URL**: `http://<địa-chỉ-máy-chạy-FinMate>:4000/api/ingest`
+   - **Method**: `POST`
+   - **Headers**: `x-finmate-token` = token trong tab Tự động hoá
+   - **Request Body**: `Text` → chọn biến **Shortcut Input**
+6. Xong. Từ giờ mỗi SMS ngân hàng tự thành giao dịch trong app.
+
+**Cách 2 — Bán tự động (cho app ngân hàng chỉ gửi push notification)**
+
+Revolut, N26, Monzo… gửi **push notification** chứ không gửi SMS, mà **push notification không trigger được Automation**. Với các app này:
+
+1. Tạo một Shortcut thường (không phải Automation) tên "Gửi FinMate", nội dung y hệt bước 4–5 ở trên nhưng lấy body từ **Shortcut Input**
+2. Bật **Show in Share Sheet** trong phần cài đặt của Shortcut
+3. Khi nhận thông báo giao dịch: giữ để copy → mở Share Sheet → chọn "Gửi FinMate" (2 chạm)
+
+Hoặc: bật email thông báo giao dịch trong app ngân hàng, rồi dùng Automation loại **Email** thay cho **Message**.
+
+**Cách 3 — Không cài gì**
+
+Vào tab **Tự động hoá** → dán nội dung tin nhắn vào ô "Thử nhận diện tin nhắn" (có sẵn 4 mẫu AIB/Revolut/BOI/Vietcombank để bấm thử), hoặc **import CSV sao kê** tải từ app ngân hàng.
+
+### Android (MacroDroid / Tasker)
+
+Trigger khi có SMS từ ngân hàng → HTTP POST:
 
 ```
-POST http://<ip-máy-bạn>:4000/api/ingest
+POST http://<địa-chỉ-máy-bạn>:4000/api/ingest
 Header: x-finmate-token: <token trong tab Tự động hoá>
 Body:   {"text": "<nội dung SMS>", "sender": "VCB"}
 ```
 
-**iOS (Shortcuts):** Automation → khi nhận tin nhắn từ ngân hàng → Get Contents of URL với cùng nội dung trên.
+### Lưu ý mạng
 
-**Không muốn cài gì:** vào tab **Tự động hoá** → dán nội dung SMS vào ô "Thử tin nhắn", hoặc **import CSV sao kê** tải từ app ngân hàng.
+`localhost` chỉ chạy khi điện thoại và máy chủ **cùng wifi**. Nếu muốn dùng khi ra ngoài, cần một địa chỉ truy cập được từ internet — **Tailscale** (đơn giản nhất, miễn phí) hoặc **Cloudflare Tunnel** — rồi thay `localhost` bằng địa chỉ đó.
 
-Mọi giao dịch nạp vào đều được tự phân loại, tự trừ ngân sách, tự phân bổ quỹ nếu là thu nhập.
+Mọi giao dịch nạp vào đều được tự phân loại, tự trừ ngân sách, tự phân bổ quỹ nếu là thu nhập, và tự chống trùng nếu cùng một tin nhắn bị gửi hai lần.
 
 ---
 
@@ -160,7 +198,7 @@ FINMATE_LLM_MODEL=gpt-4o-mini                                # cần hỗ trợ 
 FINMATE_AGENT=off                                            # tuỳ chọn: tắt agent dù đã có key
 ```
 
-Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **37 công cụ** (18 công cụ ghi dữ liệu, 19 công cụ tra cứu). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, tạo mục tiêu — rồi mới trả lời.
+Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **42 công cụ** (23 công cụ ghi/sửa dữ liệu, 19 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
 
 - **Mọi con số vẫn tính từ dữ liệu trong máy bạn.** LLM không được phép tự bịa số; nó chỉ diễn đạt kết quả công cụ trả về.
 - **Gửi đi cái gì:** nội dung hội thoại + số liệu tóm tắt (không gửi toàn bộ lịch sử giao dịch). Nếu không muốn gửi gì ra ngoài, cứ để trống key — app vẫn đủ tính năng.
@@ -197,14 +235,14 @@ finmate/
 │  │  │  ├─ remittance.js     # kiều hối: chi phí thật, báo giá, tư vấn thời điểm
 │  │  │  ├─ tax.js / tax_ie.js / tax_router.js   # thuế Việt Nam & Ireland
 │  │  │  ├─ funds.js          # phân bổ thu nhập vào quỹ
-│  │  │  ├─ ingest.js         # parser SMS + CSV
+│  │  │  ├─ ingest.js         # parser tin nhắn ngân hàng VN + EU/Ireland, import CSV
 │  │  │  ├─ recurring.js      # khoản định kỳ, bù kỳ bỏ lỡ
 │  │  │  ├─ goals/budgets/debts/investments/networth/...
 │  │  │  ├─ fire.js           # FIRE, quỹ khẩn cấp, giả định theo đồng tiền
 │  │  │  ├─ forecast.js       # dòng tiền 90 ngày, số tiền an toàn để tiêu
 │  │  │  ├─ advisor.js        # điểm sức khoẻ, thác nước tiền dư
 │  │  │  ├─ insights.js       # phát hiện bất thường
-│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (37 công cụ)
+│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (42 công cụ)
 │  │  │                       # llm.js · nlu.js · handlers.js · knowledge.js · onboarding.js
 │  │  └─ scripts/{seed,seed_ie,reset}.js
 │  └─ test/
@@ -233,8 +271,8 @@ npm run start:lan          # nghe trên 0.0.0.0, in sẵn địa chỉ LAN
 
 Mặc định server **chỉ nghe 127.0.0.1** để an toàn. Chỉ mở ra LAN sau khi đã đặt PIN — server sẽ cảnh báo nếu chưa. Mở `http://<ip-máy>:4000` trên điện thoại rồi "Thêm vào màn hình chính" để dùng như app.
 
-### 3. Bật webhook SMS
-Tab **Tự động hoá** → tạo token → cấu hình Shortcuts/MacroDroid như phần [Tự động hoá](#tự-động-hoá-thu-chi). Endpoint `/api/ingest` dùng token riêng nên điện thoại không cần giữ PIN.
+### 3. Bật webhook nhận giao dịch
+Tab **Tự động hoá** → chép địa chỉ + token → cấu hình iOS Shortcuts (có hướng dẫn 6 bước ngay trong app) hoặc MacroDroid, xem phần [Tự động hoá](#tự-động-hoá-thu-chi). Endpoint `POST /api/ingest` dùng token riêng nên điện thoại không cần giữ PIN — nhưng **luôn bắt buộc có token đúng**, kể cả khi chưa đặt PIN. Token có thể đổi bất cứ lúc nào bằng nút "Đổi token".
 
 ### 4. Sao lưu
 - Tự động mỗi ngày vào `server/data/backups/` (giữ 14 bản gần nhất).
@@ -265,7 +303,7 @@ Windows: dùng Task Scheduler chạy `npm start` lúc đăng nhập. macOS/Linux
 | `FINMATE_AGENT` | – | Đặt `off` để tắt agent dù đã có key |
 
 ### Những việc chỉ bạn làm được
-- **Kết nối ngân hàng tự động**: Việt Nam chưa có Open Banking mở cho cá nhân. Cách khả thi nhất vẫn là webhook SMS/thông báo như trên, hoặc import CSV sao kê định kỳ.
+- **Kết nối ngân hàng tự động (Open Banking)**: ở châu Âu có PSD2 — các nhà cung cấp như GoCardless Bank Account Data (Nordigen cũ) cho phép đọc trực tiếp giao dịch từ AIB, BOI, Revolut, N26… mà không cần Shortcuts. Cần bạn tự đăng ký tài khoản nhà cung cấp và lấy khoá; sau đó nối vào `services/ingest.js`. Việt Nam chưa có Open Banking mở cho cá nhân nên vẫn phải dùng webhook tin nhắn hoặc import CSV.
 - **Giá chứng khoán/vàng tự cập nhật**: hiện nhập tay hoặc qua chat (`giá HPG 30`). Nếu có nguồn API bạn được phép dùng, có thể nối vào `services/investments.js` → `setPrice()`.
 - **Nhiều người dùng**: app thiết kế cho một người. Muốn dùng chung cho gia đình thì cần thêm bảng `users` và tách dữ liệu theo `user_id`.
 
@@ -279,7 +317,7 @@ cd server && node test/smoke-auth.mjs      # PIN, phiên, sao lưu, xuất dữ 
 cd server && node test/smoke-ui.mjs        # mọi field frontend dùng đều tồn tại trong API
 cd server && node test/smoke-chat.mjs      # 29 ý định chat
 cd server && node test/smoke-knowledge.mjs # 19 câu hỏi tài chính mở
-cd server && node test/smoke-tools.mjs     # 37 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
+cd server && node test/smoke-tools.mjs     # 42 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
 cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
 cd web    && node test/render.mjs          # render thật 16 trang trong jsdom với API thật
 ```

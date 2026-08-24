@@ -43,3 +43,5 @@ temp/
 
 # Ảnh chụp màn hình khi kiểm thử giao diện
 .shots/
+
+.commitmsg

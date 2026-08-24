@@ -3,7 +3,9 @@
  * đều phải có phiên hợp lệ, trừ:
  *  - /auth/*   : để đặt PIN và đăng nhập
  *  - /health   : để kiểm tra server sống
- *  - /ingest/* : dùng token webhook riêng (điện thoại không giữ được PIN)
+ *  - /ingest   : webhook nhận giao dịch từ điện thoại — KHÔNG mở tự do,
+ *                phải kèm token bí mật (điện thoại không giữ được PIN).
+ *                Các đường /ingest/preview, /ingest/csv, /ingest/log vẫn cần PIN.
  */
 import crypto from 'node:crypto';
 import { setting } from '../db.js';
@@ -16,9 +18,30 @@ const LOCK_MS = 5 * 60 * 1000;
 const sessions = new Map();
 const fails = new Map();
 
-const OPEN_PATHS = [/^\/auth\b/, /^\/health\b/, /^\/ingest\b/];
+// Chỉ đúng POST /ingest được miễn PIN, và vẫn bị chặn bởi token webhook ở index.js.
+const OPEN_PATHS = [/^\/auth\b/, /^\/health\b/, /^\/ingest\/?$/];
 
 export const pinIsSet = () => Boolean(setting('app_pin'));
+
+/**
+ * Token bí mật cho webhook. Luôn tồn tại: sinh ngay lần gọi đầu tiên.
+ * Nhờ vậy không bao giờ có cửa sổ thời gian mà /ingest mở toang cho cả mạng LAN.
+ */
+export function ingestToken() {
+  let t = setting('ingest_token');
+  if (!t) {
+    t = crypto.randomBytes(24).toString('base64url');
+    setting('ingest_token', t);
+  }
+  return t;
+}
+
+/** Đổi token webhook (khi nghi bị lộ). */
+export function rotateIngestToken() {
+  const t = crypto.randomBytes(24).toString('base64url');
+  setting('ingest_token', t);
+  return t;
+}
 
 export function setPin(pin) {
   const clean = String(pin ?? '').trim();
@@ -26,6 +49,7 @@ export function setPin(pin) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(clean, salt, 64).toString('hex');
   setting('app_pin', `${salt}:${hash}`);
+  ingestToken();
   sessions.clear();
   return true;
 }
@@ -90,6 +114,9 @@ export function validSession(token) {
 
 const tokenOf = (req) =>
   req.get('x-finmate-key') || (req.get('authorization') || '').replace(/^Bearer\s+/i, '') || req.query.key;
+
+/** Người dùng đang thao tác trong app (đã mở khoá), hay chưa hề đặt PIN. */
+export const sessionOk = (req) => !pinIsSet() || validSession(tokenOf(req));
 
 export function requireAuth(req, res, next) {
   if (!pinIsSet()) return next();

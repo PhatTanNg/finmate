@@ -6,7 +6,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { router, runAutomation } from './routes/api.js';
 import { setting } from './db.js';
-import { requireAuth, pinIsSet } from './services/auth.js';
+import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
 import { ensureWelcome } from './services/chat/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,10 +41,14 @@ app.use(express.text({ type: 'text/plain', limit: '2mb' }));
 // Cho phép webhook gửi SMS thô dạng text/plain
 app.use('/api', (req, res, next) => {
   if (typeof req.body === 'string') req.body = { text: req.body };
-  const token = setting('ingest_token');
-  if (token && req.path.startsWith('/ingest')) {
+  // POST /api/ingest là cửa duy nhất mở ra ngoài (iOS Shortcuts gọi vào).
+  // Nó luôn phải kèm token bí mật — trừ khi người dùng đang thao tác trong app
+  // với phiên PIN hợp lệ.
+  if (/^\/ingest\/?$/.test(req.path)) {
     const given = req.get('x-finmate-token') || req.query.token;
-    if (given !== token) return res.status(401).json({ ok: false, error: 'token không hợp lệ' });
+    if (given !== ingestToken() && !sessionOk(req)) {
+      return res.status(401).json({ ok: false, error: 'token không hợp lệ' });
+    }
   }
   next();
 });

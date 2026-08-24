@@ -1,12 +1,12 @@
 import express from 'express';
 import fs from 'node:fs';
 import { all, get, insert, update, remove, run, setting } from '../db.js';
-import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess } from '../services/auth.js';
+import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken } from '../services/auth.js';
 import { BACKUP_DIR, listBackups, createBackup, snapshotToTemp, exportAll, autoBackup } from '../services/backup.js';
 import { today, monthKey, monthStart, monthEnd, lastMonths } from '../util/date.js';
 import { bootstrap } from '../bootstrap.js';
 import { createTransaction, updateTransaction, deleteTransaction, listTransactions, getTransaction, rebuildBalances } from '../services/ledger.js';
-import { listFunds, fundsOverview, moveBetweenFunds, allocateIncome, recomputeFundBalances, postFund } from '../services/funds.js';
+import { listFunds, fundsOverview, moveBetweenFunds, allocateIncome, recomputeFundBalances, postFund, archiveFund, reopenFund } from '../services/funds.js';
 import { learnRule } from '../services/categorize.js';
 import { createRecurring, runDueRecurring, upcoming, projectRecurring, monthlyFixed } from '../services/recurring.js';
 import { accrueInterest, projectedAnnualInterest } from '../services/interest.js';
@@ -228,7 +228,7 @@ router.patch('/categories/:id', wrap(async (req, res) => {
 
 // ---- quỹ ------------------------------------------------------------------
 
-router.get('/funds', wrap(async (req, res) => ok(res, fundsOverview())));
+router.get('/funds', wrap(async (req, res) => ok(res, fundsOverview({ includeArchived: req.query.all === '1' }))));
 router.patch('/funds/:id', wrap(async (req, res) => {
   update('funds', Number(req.params.id), req.body);
   ok(res, { fund: get('SELECT * FROM funds WHERE id = ?', [Number(req.params.id)]) });
@@ -236,6 +236,16 @@ router.patch('/funds/:id', wrap(async (req, res) => {
 router.post('/funds', wrap(async (req, res) => {
   const id = insert('funds', req.body);
   ok(res, { fund: get('SELECT * FROM funds WHERE id = ?', [id]) });
+}));
+router.post('/funds/:id/archive', wrap(async (req, res) => {
+  const r = archiveFund(Number(req.params.id), { to_fund_id: req.body?.to_fund_id ? Number(req.body.to_fund_id) : null });
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+  ok(res, { ...r, funds: fundsOverview() });
+}));
+router.post('/funds/:id/reopen', wrap(async (req, res) => {
+  const r = reopenFund(Number(req.params.id), req.body?.percent ?? null);
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+  ok(res, { ...r, funds: fundsOverview() });
 }));
 router.delete('/funds/:id', wrap(async (req, res) => ok(res, { removed: remove('funds', Number(req.params.id)) })));
 router.post('/funds/move', wrap(async (req, res) => {
@@ -440,9 +450,13 @@ router.get('/automation/status', wrap(async (req, res) => ok(res, {
   recurring: all('SELECT id, name, type, amount, next_date, auto_post, active FROM recurring ORDER BY next_date'),
   accounts_synced: all('SELECT id, name, auto_sync, last_synced_at FROM accounts WHERE is_active = 1'),
   webhook_url: `${req.protocol}://${req.get('host')}/api/ingest`,
-  token: setting('ingest_token') || null,
+  token: ingestToken(),
+  pin_set: pinIsSet(),
   log: ingestHistory(10),
 })));
+
+/** Đổi token webhook khi nghi bị lộ — Shortcut trên máy cũ sẽ ngừng gửi được. */
+router.post('/automation/rotate-token', wrap(async (req, res) => ok(res, { token: rotateIngestToken() })));
 
 // ---- thuế -----------------------------------------------------------------
 

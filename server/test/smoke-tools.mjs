@@ -47,6 +47,43 @@ t('dat_ngan_sach', { danh_muc: 'An uong', so_tien: 400 });
 t('dat_phan_bo_quy', { phan_bo: [{ quy: 'Thiet yeu', phan_tram: 45 }, { quy: 'Tu do tai chinh', phan_tram: 25 }] }, (o) => o.da_dat.length === 2);
 t('chuyen_quy', { tu_quy: 'Thiet yeu', den_quy: 'Huong thu', so_tien: 100 });
 
+console.log('\n— AI toàn quyền quản lý quỹ —');
+// chuyen_quy phải thực sự dịch chuyển tiền, không được im lặng bỏ qua
+{
+  const before = runTool('liet_ke_quy', {}).quy;
+  const bal = (list, ten) => list.find((x) => x.ten.toLowerCase().includes(ten))?.so_du ?? null;
+  runTool('chuyen_quy', { tu_quy: 'Thiet yeu', den_quy: 'Huong thu', so_tien: 50, dong_tien: 'EUR' });
+  const after = runTool('liet_ke_quy', {}).quy;
+  const moved = bal(after, 'hưởng thụ') - bal(before, 'hưởng thụ');
+  if (moved === 5000) { pass += 1; console.log('  ok   chuyen_quy thực sự chuyển tiền'); }
+  else { fail += 1; bad.push('chuyen_quy-effect'); console.log(`  FAIL chuyen_quy chỉ báo ok mà không chuyển: lệch ${moved}`); }
+}
+t('tao_quy', { ten: 'Quỹ mua nhà Dublin', loai: 'goal', phan_tram: 10, muc_tieu: 60000, han_hoan_thanh: '2029-12-31', uu_tien: 2, dong_tien: 'EUR' },
+  (o) => o.da_tao === 'Quỹ mua nhà Dublin' && o.ke_hoach.monthly_needed > 0);
+t('dat_muc_tieu_quy', { quy: 'Quy mua nha Dublin', so_tien_muc_tieu: 48000, han_hoan_thanh: '2028-08-01' },
+  (o) => o.ke_hoach.months_left > 0 && o.ke_hoach.monthly_needed > 0);
+// mục tiêu 48.000 € trong ~23 tháng -> số tiền/tháng nhân số tháng phải phủ được phần còn thiếu
+t('liet_ke_quy', {}, (o) => {
+  const f = o.quy.find((x) => x.ten === 'Quỹ mua nhà Dublin');
+  if (!f || f.han_hoan_thanh !== '2028-08-01' || f.con_thieu !== 4800000) return false;
+  const phu = f.can_bo_moi_thang * f.con_lai_thang;
+  return phu >= f.con_thieu && phu < f.con_thieu * 1.05;
+});
+t('tao_quy', { ten: 'Quỹ mua nhà Dublin', phan_tram: 12 }, (o) => o.da_cap_nhat === 'Quỹ mua nhà Dublin');
+t('dong_quy', { quy: 'Quy mua nha Dublin', chuyen_so_du_sang: 'Tu do tai chinh' }, (o) => o.ok === true);
+t('liet_ke_quy', {}, (o) => !o.quy.some((x) => x.ten === 'Quỹ mua nhà Dublin'));
+t('liet_ke_quy', { gom_quy_dong: true }, (o) => o.quy.some((x) => x.ten === 'Quỹ mua nhà Dublin' && x.dang_dong === true));
+t('mo_lai_quy', { quy: 'Quy mua nha Dublin', phan_tram: 8 }, (o) => o.percent === 8);
+t('liet_ke_quy', {}, (o) => o.quy.some((x) => x.ten === 'Quỹ mua nhà Dublin' && x.phan_tram === 8));
+t('tao_quy', { ten: 'Quỹ tạm bỏ', loai: 'fun' });
+t('xoa_quy', { quy: 'Quy tam bo' }, (o) => o.da_xoa === 'Quỹ tạm bỏ');
+{
+  // quỹ còn số dư thì không được xoá trắng
+  const out = runTool('xoa_quy', { quy: 'Huong thu' });
+  if (out.error) { pass += 1; console.log('  ok   xoa_quy chặn quỹ còn số dư'); }
+  else { fail += 1; bad.push('xoa_quy-guard'); console.log('  FAIL xoa_quy xoá mất quỹ còn tiền'); }
+}
+
 console.log('\n— Nợ, đầu tư, định kỳ —');
 t('them_no', { ten: 'Thẻ tín dụng Revolut', so_du: 1800, lai_suat: 19.9, tra_toi_thieu: 90, dong_tien: 'EUR' });
 t('tra_no', { no: 'Revolut', so_tien: 300 });

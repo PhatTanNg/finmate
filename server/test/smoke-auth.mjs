@@ -41,6 +41,30 @@ check('có khoá thì đọc được dữ liệu', (await call('/dashboard', { 
 check('ghi dữ liệu cũng cần khoá', (await call('/chat', { method: 'POST', body: { message: 'số dư của tôi' } })).status === 401);
 
 check('/health luôn mở để giám sát', (await call('/health')).status === 200);
+
+// --- webhook /ingest: cửa duy nhất mở ra ngoài cho iPhone Shortcuts ---
+{
+  const st = await call('/automation/status', { key });
+  const wtok = st.data.token;
+  check('webhook luôn có sẵn token bí mật', typeof wtok === 'string' && wtok.length >= 16, JSON.stringify(st.data).slice(0, 160));
+
+  const SMS = 'AIB: Your Visa Debit card ending 4321 was used for EUR 3.30 at SPAR on 24/08/2026';
+  const noTok = await call('/ingest', { method: 'POST', body: { text: SMS } });
+  check('bật PIN mà không có token thì webhook bị chặn', noTok.status === 401, `status ${noTok.status}`);
+
+  const badTok = await call('/ingest', { method: 'POST', body: { text: SMS }, token: 'token-gia-mao' });
+  check('token sai bị chặn', badTok.status === 401, `status ${badTok.status}`);
+
+  const good = await call('/ingest', { method: 'POST', body: { text: SMS }, token: wtok });
+  check('token đúng thì ghi được giao dịch', good.status === 200 && good.data.status !== 'ignored', JSON.stringify(good.data).slice(0, 160));
+  check('tin nhắn EUR được ghi đúng 3,30 € = 330 cent', good.data?.parsed?.amount === 330 && good.data?.parsed?.currency === 'EUR', JSON.stringify(good.data?.parsed).slice(0, 200));
+
+  const dup = await call('/ingest', { method: 'POST', body: { text: SMS }, token: wtok });
+  check('gửi lại cùng tin nhắn không tạo giao dịch trùng', dup.data.status === 'duplicate', JSON.stringify(dup.data).slice(0, 120));
+
+  const prev = await call('/ingest/preview', { method: 'POST', body: { text: SMS }, token: wtok });
+  check('token webhook KHÔNG mở được các đường khác của /ingest', prev.status === 401, `status ${prev.status}`);
+}
 check('đăng nhập sai PIN trả 401', (await call('/auth/login', { method: 'POST', body: { pin: 'sai' } })).status === 401);
 
 const login = await call('/auth/login', { method: 'POST', body: { pin: PIN } });
