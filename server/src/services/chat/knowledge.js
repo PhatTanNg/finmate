@@ -105,7 +105,7 @@ const TOPICS = [
       const price = Math.round(afford * 12 * 8);
       return B([
         `**Ba con số quyết định, tính theo hồ sơ của bạn:**`,
-        `• Tổng nợ phải trả mỗi tháng không nên vượt **40% thu nhập** = **${short(afford)}/tháng**. Bạn đang trả nợ ${short(c.debt.monthly_payment)} (${pct(c.debt.dti)} thu nhập).`,
+        `• Tổng nợ phải trả mỗi tháng không nên vượt **40% thu nhập** = **${short(afford)}/tháng**. Bạn đang trả nợ ${short(c.debt.monthly_payment)}${c.debt.dti == null ? '' : ` (${pct(c.debt.dti)} thu nhập)`}.`,
         `• Với mức trả đó, giá nhà hợp lý rơi vào khoảng **${short(price)}** (vay 70%, 20 năm).`,
         `• Cần sẵn **${short(price * 0.3)}** tiền mặt cho 30% vốn tự có + ~2% phí, thuế, nội thất. Bạn đang có ${short(c.nw.breakdown?.liquid ?? c.nw.liquid)} tiền lỏng.`,
         '',
@@ -132,6 +132,35 @@ const TOPICS = [
     ]),
   },
   {
+    key: 'hold_currency',
+    kw: ['giu euro hay', 'giu tien euro', 'giu ngoai te', 'doi het ve tien viet', 'doi het sang tien viet', 'nen giu tien nao', 'giu eur hay vnd', 'giu usd hay vnd', 'de tien o dau nuoc nao', 'giu tien o nuoc nao'],
+    title: '🌍 Giữ ngoại tệ hay đổi hết về tiền Việt?',
+    build: (c) => {
+      const cur = c.nw.by_currency || [];
+      const line = cur.length
+        ? cur.map((x) => `• **${x.currency}**: ${short(x.value)} (${pct(x.weight)})`).join('\n')
+        : '• Chưa đủ dữ liệu để tách theo đồng tiền.';
+      return B([
+        '**Nguyên tắc gốc: giữ tiền cùng đồng tiền với khoản bạn sắp phải chi.**',
+        'Sống và tiêu ở đâu thì quỹ khẩn cấp và tiền chi tiêu 1-2 năm tới nên nằm ở đồng tiền đó. Đổi tới đổi lui để "canh tỉ giá" là cách chắc chắn mất tiền vào phí và chênh lệch mua/bán.',
+        '',
+        '**Tài sản của bạn đang chia theo đồng tiền:**',
+        line,
+        '',
+        '**Khi nào nên chuyển bớt về Việt Nam:**',
+        '• Có khoản chi bằng tiền Việt đã chắc chắn: phụ giúp gia đình, trả góp nhà, học phí cho con.',
+        '• Đầu tư ở Việt Nam có lợi suất thực (đã trừ lạm phát) cao hơn hẳn nơi bạn đang sống, và bạn chấp nhận rủi ro tỉ giá.',
+        '',
+        '**Khi nào nên giữ ngoại tệ:**',
+        '• Chi phí sống, tiền thuê nhà, thuế đều bằng ngoại tệ đó.',
+        '• Bạn chưa chắc sẽ về hẳn — đổi về rồi đổi lại mất hai lần phí.',
+        '• Cần đủ 6 tháng chi phí sống tại chỗ trước khi tính chuyện chuyển đi đâu.',
+        '',
+        '⚠️ Rủi ro thật của người sống hai nơi không phải tỉ giá, mà là **tài sản dồn hết về một phía** trong khi nghĩa vụ chi tiêu lại nằm ở phía kia. Giữ tỉ trọng gần với nơi bạn thực sự sẽ tiêu tiền trong 5 năm tới.',
+      ]);
+    },
+  },
+  {
     key: 'saving_vs_invest',
     kw: ['gui tiet kiem hay dau tu', 'nen gui tiet kiem', 'tiet kiem hay dau tu', 'gui ngan hang hay'],
     title: '⚖️ Gửi tiết kiệm hay đầu tư?',
@@ -146,7 +175,7 @@ const TOPICS = [
   },
   {
     key: 'prepay_debt',
-    kw: ['tra no truoc han', 'tat toan som', 'nen tra no', 'tra het no hay dau tu', 'no truoc han', 'tra som', 'tra truoc han', 'tra xe som', 'tra nha som'],
+    kw: ['tra no truoc han', 'tat toan som', 'nen tra no', 'tra het no hay dau tu', 'no truoc han', 'tra som', 'tra truoc han', 'tra xe som', 'tra nha som', 'tra het no mua nha som', 'tra no som hay dau tu', 'tra no hay tiep tuc dau tu'],
     title: '💳 Trả nợ trước hạn hay đầu tư?',
     build: (c) => B([
       `So sánh đơn giản: **lãi vay ${c.debt.avg_rate ? c.debt.avg_rate.toFixed(1) + '%/năm' : '—'}** với **lợi suất đầu tư kỳ vọng ${pct(c.p.expected_return ?? 0.09, 1)}/năm**.`,

@@ -10,7 +10,7 @@ import { emergencyStatus, fireStats } from './fire.js';
 import { debtSummary } from './debts.js';
 import { netWorth } from './networth.js';
 import { upcoming } from './recurring.js';
-import { listFunds } from './funds.js';
+import { listFunds, fundFlow, suggestedPercent } from './funds.js';
 
 function push(list, key, kind, severity, title, body, data = {}, action = null) {
   list.push({ key, kind, severity, title, body, data, action });
@@ -109,10 +109,24 @@ export function generateInsights() {
       `Ngưỡng an toàn là dưới 40%. Trả nợ hàng tháng ${short(ds.monthly_payment)}.`, { dti: ds.dti });
   }
 
-  // 8. Quỹ bị âm
+  // 8. Quỹ bị âm — phân biệt "lỡ tay tháng này" với "tỉ lệ đặt sai từ đầu".
+  // Báo một con số âm tích luỹ nhiều năm thì người dùng không làm gì được với
+  // nó; phải nói rõ mỗi tháng thiếu bao nhiêu và chỉnh % lên bao nhiêu.
   for (const f of listFunds()) {
-    if (f.balance < 0) {
-      push(out, `fund_neg_${f.id}`, 'alert', 'warn', `Quỹ ${f.name} đang âm ${short(-f.balance)}`,
+    if (f.balance >= 0) continue;
+    const flow = fundFlow(f.id, 6);
+    const bump = suggestedPercent(f, 6);
+    if (bump) {
+      push(out, `fund_pct_${f.id}`, 'alert', 'warn',
+        `Quỹ ${f.name} thiếu ${short(flow.monthly_gap, f.currency)}/tháng`,
+        `Mỗi tháng quỹ nhận ${short(flow.monthly_in, f.currency)} nhưng chi ${short(flow.monthly_out, f.currency)}. `
+        + `Số dư âm ${short(-f.balance, f.currency)} là hệ quả tích tụ, không phải lỗi của riêng tháng này — `
+        + `gốc rễ nằm ở tỉ lệ phân bổ.`,
+        { fund_id: f.id, monthly_gap: flow.monthly_gap, suggested_percent: bump.percent },
+        `Nâng tỉ lệ quỹ ${f.name} từ ${bump.from}% lên ${bump.percent}%, bù lại bằng cách hạ quỹ linh hoạt.`);
+    } else {
+      push(out, `fund_neg_${f.id}`, 'alert', 'warn',
+        `Quỹ ${f.name} đang âm ${short(-f.balance, f.currency)}`,
         `Bạn đã tiêu vượt phần được phân bổ. Cần bù từ quỹ khác hoặc giảm chi.`, { fund_id: f.id });
     }
   }

@@ -25,7 +25,7 @@ export default function Debts({ onRefresh }) {
 
       <div className="grid g4">
         <Stat label="Tổng dư nợ" value={short(s.total_balance)} tone={s.total_balance ? 'down' : 'up'} sub={`${s.debts?.length || 0} khoản`} />
-        <Stat label="Trả mỗi tháng" value={short(s.monthly_payment)} sub={`DTI ${pct(s.dti)} thu nhập`} tone={s.dti > 0.4 ? 'down' : ''} />
+        <Stat label="Trả mỗi tháng" value={short(s.monthly_payment)} sub={s.dti == null ? 'chưa biết thu nhập' : `DTI ${pct(s.dti)} thu nhập`} tone={s.dti > 0.4 ? 'down' : ''} />
         <Stat label="Lãi suất bình quân" value={`${(s.avg_rate || 0).toFixed(1)}%`} />
         <Stat label="Ngày sạch nợ" value={s.debt_free_date ? vnDate(s.debt_free_date) : '—'} sub={`Còn phải trả lãi ${short(s.total_interest_remaining)}`} />
       </div>

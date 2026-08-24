@@ -139,13 +139,28 @@ async function answerNormally(message) {
   return { ...result, intent, score };
 }
 
+/**
+ * Người dùng có thể dựng xong dữ liệu mà không đi qua cuộc trò chuyện thiết
+ * lập: nhập tay ở các tab, khôi phục bản sao lưu, hay để tự động hoá đọc tin
+ * nhắn ngân hàng. Khi đó cờ `onboarded` vẫn bằng 0 và app sẽ hỏi lại "Tiền
+ * đang nằm ở đâu?" với một người đã có hàng trăm giao dịch — vừa vô duyên vừa
+ * nuốt mất câu hỏi thật của họ. Có đủ tài khoản và giao dịch thì coi như xong.
+ */
+function alreadySetUp() {
+  const accounts = get('SELECT COUNT(*) n FROM accounts WHERE is_active = 1')?.n || 0;
+  const tx = get('SELECT COUNT(*) n FROM transactions')?.n || 0;
+  const done = accounts >= 2 && tx >= 20;
+  if (done) update('profile', 1, { onboarded: 1, onboarding_step: 'done' });
+  return done;
+}
+
 export async function chat(text) {
   const message = String(text || '').trim();
   if (!message) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
   saveMessage('user', message);
 
   const p = get('SELECT * FROM profile WHERE id = 1') || {};
-  const isOnboarding = !p.onboarded;
+  const isOnboarding = !p.onboarded && !alreadySetUp();
 
   // Ưu tiên AI cố vấn: hiểu ngữ cảnh cả cuộc trò chuyện và tự thao tác trong app.
   // Không cấu hình LLM (hoặc gọi lỗi) thì lùi về bộ luật tiếng Việt bên dưới.

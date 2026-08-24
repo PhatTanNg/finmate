@@ -21,6 +21,15 @@ export function healthScore() {
   const nw = netWorth();
   const passive = passiveIncomeMonthly();
   const streams = all('SELECT * FROM income_streams WHERE active = 1');
+  // Đếm nguồn thu theo cả hai phía: nguồn người dùng tự khai VÀ nguồn suy ra từ
+  // giao dịch thật. Chỉ đếm khai báo thì người có lương + dạy thêm + cho thuê
+  // đều đặn suốt nhiều năm mà chưa mở tab Thu nhập vẫn bị chấm 0 điểm đa dạng.
+  const txSourceCount = get(
+    `SELECT COUNT(DISTINCT COALESCE(t.income_stream_id, 'c' || t.category_id)) n
+     FROM transactions t WHERE t.type='income' AND t.date >= ?`,
+    [addMonths(today(), -6)]
+  )?.n || 0;
+  const sourceCount = Math.max(streams.length, txSourceCount);
   const bs = budgetStatus();
 
   const savingsRate = avgIncome ? (avgIncome - avgExpense) / avgIncome : 0;
@@ -34,16 +43,23 @@ export function healthScore() {
       detail: ef.has_data ? `${num(ef.months_covered)} / ${ef.target_months} tháng chi phí` : 'Chưa đủ dữ liệu chi tiêu để tính' },
     { key: 'savings', label: 'Tỷ lệ tiết kiệm', weight: 20, score: clamp01(savingsRate / (p.savings_rate_target || 0.3)) * 100,
       detail: `${Math.round(num(savingsRate) * 100)}% thu nhập` },
-    { key: 'debt', label: 'Gánh nặng nợ', weight: 15, score: (1 - clamp01(ds.dti / 0.4)) * 100 * (ds.high_interest.length ? 0.6 : 1),
-      detail: ds.total_balance ? `Nợ ${short(ds.total_balance)}, DTI ${Math.round(clamp01(ds.dti) * 100)}%` : 'Không có nợ' },
+    { key: 'debt', label: 'Gánh nặng nợ', weight: 15,
+      // Chưa biết thu nhập thì không chấm được gánh nặng nợ. Có nợ mà cho điểm
+      // tối đa là ru ngủ người dùng, nên hạ về mức trung tính kèm giải thích.
+      score: ds.dti === null
+        ? (ds.total_balance ? 50 : 100)
+        : (1 - clamp01(ds.dti / 0.4)) * 100 * (ds.high_interest.length ? 0.6 : 1),
+      detail: !ds.total_balance ? 'Không có nợ'
+        : ds.dti === null ? `Nợ ${short(ds.total_balance)}, chưa biết thu nhập để tính gánh nặng`
+          : `Nợ ${short(ds.total_balance)}, DTI ${Math.round(clamp01(ds.dti) * 100)}%` },
     { key: 'invest', label: 'Tài sản sinh lời', weight: 15, score: clamp01(investRatio / 0.6) * 100,
       detail: `${Math.round(num(investRatio) * 100)}% tài sản đang sinh lời` },
     { key: 'passive', label: 'Thu nhập thụ động', weight: 10, score: clamp01(passive.total / Math.max(1, avgExpense)) * 100,
       detail: `${short(passive.total)}/tháng, phủ ${Math.round(clamp01(passive.total / Math.max(1, avgExpense)) * 100)}% chi phí` },
     { key: 'budget', label: 'Kỷ luật ngân sách', weight: 10, score: bs.items.length ? clamp01(1 - bs.over / bs.items.length) * 100 : 60,
       detail: bs.items.length ? `${bs.over}/${bs.items.length} danh mục vượt` : 'Chưa đặt ngân sách' },
-    { key: 'diversify', label: 'Đa dạng nguồn thu', weight: 10, score: clamp01(streams.length / 3) * 100,
-      detail: `${streams.length} nguồn thu nhập` },
+    { key: 'diversify', label: 'Đa dạng nguồn thu', weight: 10, score: clamp01(sourceCount / 3) * 100,
+      detail: `${sourceCount} nguồn thu nhập` },
   ];
   const total = Math.round(components.reduce((s, c) => s + (num(c.score) * c.weight) / 100, 0));
   const grade = total >= 85 ? 'A' : total >= 70 ? 'B' : total >= 55 ? 'C' : total >= 40 ? 'D' : 'E';

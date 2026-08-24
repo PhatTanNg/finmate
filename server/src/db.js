@@ -455,17 +455,73 @@ export function tx(fn) {
   }
 }
 
+/**
+ * Tên cột thật của một bảng (đọc một lần rồi nhớ).
+ *
+ * `insert`/`update` nối tên cột thẳng vào câu SQL, nên nếu để nguyên khoá do
+ * client gửi lên thì một body kiểu `{"balance = 777777, name": "x"}` sẽ ghi đè
+ * cột khác — chèn SQL thật sự. Lọc theo danh sách cột của bảng chặn hẳn đường
+ * đó, đồng thời không để thông báo lỗi lộ cấu trúc cơ sở dữ liệu ra ngoài.
+ */
+const columnCache = new Map();
+export function tableColumns(table) {
+  if (!columnCache.has(table)) {
+    columnCache.set(table, new Set(all(`PRAGMA table_info(${JSON.stringify(table)})`).map((c) => c.name)));
+  }
+  return columnCache.get(table);
+}
+
+/**
+ * Bí danh cho những tên trường mà người dùng — và nhất là AI cố vấn thao tác
+ * qua API — hay dùng thay cho tên cột thật. Không dịch thì `pickColumns` lặng
+ * lẽ vứt trường đó đi: khoản vay được lưu với lãi suất 0%, quỹ mất mục tiêu,
+ * nguồn thu mất số tiền — sai lệch âm thầm, không có thông báo lỗi nào.
+ */
+const COLUMN_ALIASES = {
+  debts: { rate: 'interest_rate', kind: 'type', apr: 'interest_rate', payment: 'monthly_payment' },
+  funds: { kind: 'type', target: 'target_amount', goal: 'target_amount', deadline: 'target_date' },
+  income_streams: { kind: 'type', amount: 'net_amount', net: 'net_amount', gross: 'gross_amount' },
+  accounts: { kind: 'type', amount: 'balance' },
+  goals: { target: 'target_amount', current: 'current_amount', target_date: 'deadline' },
+  budgets: { amount: 'limit_amount', limit: 'limit_amount' },
+};
+
+/** Đưa các bí danh về tên cột thật trước khi lọc. */
+function applyAliases(table, data) {
+  const map = COLUMN_ALIASES[table];
+  if (!map || !data) return data;
+  const cols = tableColumns(table);
+  const out = { ...data };
+  for (const [from, to] of Object.entries(map)) {
+    // Chỉ dịch khi bí danh không phải cột thật và cột đích chưa được đặt.
+    if (out[from] !== undefined && !cols.has(from) && out[to] === undefined) {
+      out[to] = out[from];
+      delete out[from];
+    }
+  }
+  return out;
+}
+
+/** Chỉ giữ những khoá là cột thật của bảng, bỏ qua phần còn lại. */
+function pickColumns(table, data) {
+  const cols = tableColumns(table);
+  return Object.keys(data || {}).filter((k) => data[k] !== undefined && cols.has(k));
+}
+
 /** Insert helper: insert(table, {col: val}) -> row id */
-export function insert(table, data) {
-  const cols = Object.keys(data).filter((k) => data[k] !== undefined);
+export function insert(table, raw) {
+  const data = applyAliases(table, raw);
+  const cols = pickColumns(table, data);
+  if (!cols.length) throw new Error('Không có trường hợp lệ nào để lưu.');
   const sql = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`;
   const res = run(sql, cols.map((c) => normVal(data[c])));
   return Number(res.lastInsertRowid);
 }
 
 /** Update helper: update(table, id, {col: val}) */
-export function update(table, id, data) {
-  const cols = Object.keys(data).filter((k) => data[k] !== undefined);
+export function update(table, id, raw) {
+  const data = applyAliases(table, raw);
+  const cols = pickColumns(table, data);
   if (!cols.length) return 0;
   const sql = `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`;
   return run(sql, [...cols.map((c) => normVal(data[c])), id]).changes;

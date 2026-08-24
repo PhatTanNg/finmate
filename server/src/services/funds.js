@@ -1,6 +1,6 @@
 /** Quỹ = "phong bì ảo" phủ lên tiền thật. Thu nhập vào -> tự động chia theo tỷ lệ/ưu tiên. */
 import { all, get, run, insert, update } from '../db.js';
-import { today, monthsBetween } from '../util/date.js';
+import { today, monthsBetween, addMonths } from '../util/date.js';
 import { normalizeCurrency } from '../util/currency.js';
 import { baseCurrency, convert } from './fx.js';
 
@@ -91,6 +91,53 @@ export function postFund({ fund_id, amount, date = today(), kind = 'adjust', ref
   const id = insert('fund_ledger', { fund_id, amount: amt, date, kind, ref_tx_id, goal_id, note });
   run('UPDATE funds SET balance = balance + ? WHERE id = ?', [amt, fund_id]);
   return id;
+}
+
+/**
+ * Nhịp tiền vào/ra thực tế của một quỹ trong N tháng gần nhất.
+ *
+ * Số dư âm tích luỹ tự nó gần như vô dụng với người dùng: một quỹ mở 5 năm
+ * trước có thể âm hàng chục nghìn chỉ vì tỉ lệ % đặt sai ngay từ đầu, và không
+ * ai "bù" lại được khoản âm của quá khứ. Cái cần biết là mỗi tháng đang thiếu
+ * bao nhiêu và nên nâng tỉ lệ lên bao nhiêu thì hết thiếu.
+ */
+export function fundFlow(fundId, months = 6) {
+  const since = addMonths(today(), -months);
+  const r = get(
+    `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS inflow,
+            COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS outflow,
+            COUNT(*) AS n
+     FROM fund_ledger WHERE fund_id = ? AND date >= ?`,
+    [fundId, since],
+  );
+  const inflow = r?.inflow || 0;
+  const outflow = r?.outflow || 0;
+  const monthlyIn = Math.round(inflow / months);
+  const monthlyOut = Math.round(outflow / months);
+  const gap = monthlyOut - monthlyIn;
+  return {
+    months,
+    entries: r?.n || 0,
+    inflow,
+    outflow,
+    monthly_in: monthlyIn,
+    monthly_out: monthlyOut,
+    monthly_gap: gap,
+    // Thiếu dai dẳng = lỗi tỉ lệ phân bổ, không phải lỡ tay tiêu quá tháng này.
+    chronic: gap > 0 && monthlyIn > 0 && gap > monthlyIn * 0.1,
+  };
+}
+
+/**
+ * Tỉ lệ % đề xuất cho một quỹ để tiền vào đủ bù tiền ra.
+ * Trả về null khi chưa đủ dữ liệu để nói gì có ích.
+ */
+export function suggestedPercent(fund, months = 6) {
+  const flow = fundFlow(fund.id, months);
+  if (!flow.entries || flow.monthly_in <= 0 || flow.monthly_gap <= 0) return null;
+  const ratio = flow.monthly_out / flow.monthly_in;
+  const next = Math.min(95, Math.ceil(fund.percent * ratio));
+  return next > fund.percent ? { percent: next, from: fund.percent, flow } : null;
 }
 
 export function clearFundEntriesForTx(txId) {

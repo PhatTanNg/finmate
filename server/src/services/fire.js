@@ -56,8 +56,35 @@ const PASSIVE_TYPES = {
   dividend: 'dividend', investment: 'dividend', stock: 'dividend',
   rental: 'rent', rent: 'rent', property: 'rent',
   royalty: 'other', passive: 'other',
+  // Lương hưu và trợ cấp là dòng tiền không cần đi làm — bỏ sót thì người đã
+  // nghỉ hưu bị app xếp vào nhóm "sống bằng thu nhập chủ động 100%".
+  pension: 'pension', retirement: 'pension', annuity: 'pension', social_security: 'pension',
 };
 const PER_MONTH = { monthly: 1, weekly: 52 / 12, biweekly: 26 / 12, quarterly: 1 / 3, yearly: 1 / 12, annual: 1 / 12, irregular: 1 };
+
+/** Số tiền mỗi tháng của một nguồn thu đã khai, quy về đồng tiền gốc. */
+export function streamMonthly(s) {
+  const amount = Number(s.net_amount) || Number(s.gross_amount) || 0;
+  if (amount <= 0) return 0;
+  const perMonth = amount * (PER_MONTH[String(s.frequency || 'monthly').toLowerCase()] ?? 1);
+  return convert(Math.round(perMonth), normalizeCurrency(s.currency) || baseCurrency(), baseCurrency());
+}
+
+/** Nguồn thu đã khai có phải thu nhập thụ động không. */
+export const isPassiveStream = (s) => Boolean(PASSIVE_TYPES[String(s?.type || '').toLowerCase()]);
+
+/** Tổng thu nhập mỗi tháng người dùng đã khai, tách chủ động / thụ động. */
+export function declaredIncomeMonthly() {
+  let active = 0;
+  let passive = 0;
+  for (const s of all('SELECT * FROM income_streams WHERE active = 1')) {
+    const m = streamMonthly(s);
+    if (!m) continue;
+    if (isPassiveStream(s)) passive += m;
+    else active += m;
+  }
+  return { active: Math.round(active), passive: Math.round(passive), total: Math.round(active + passive) };
+}
 
 /** Thu nhập thụ động do người dùng tự khai trong mục "Nguồn thu", quy về mỗi tháng. */
 function declaredPassiveByType() {

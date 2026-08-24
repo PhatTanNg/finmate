@@ -3,7 +3,7 @@ import { all, get, run, insert, update, remove, tx as transact } from '../db.js'
 import { today, nowISO } from '../util/date.js';
 import { autoCategorize } from './categorize.js';
 import { allocateIncome, postFund, clearFundEntriesForTx } from './funds.js';
-import { defaultFundIdForCategory } from '../bootstrap.js';
+import { defaultFundIdForCategory, categoryByName } from '../bootstrap.js';
 import { convert, getRate, baseCurrency } from './fx.js';
 import { currency as cur } from '../util/currency.js';
 
@@ -160,6 +160,29 @@ export function createTransaction(input = {}, opts = {}) {
   fillCurrency(data, input);
 
   const text = [input.note, input.merchant, input.raw].filter(Boolean).join(' ');
+  // Chỉ định danh mục bằng TÊN là cách tự nhiên nhất cho AI cố vấn, cho nhập
+  // liệu từ CSV và cho câu lệnh chat. Không hỗ trợ thì mọi khoản gửi lên kèm
+  // `category_name` đều bị máy tự đoán lại theo ghi chú — người dùng nói rõ
+  // "đây là tiền gửi bố mẹ" mà vẫn rơi vào "Chi khác".
+  if (!data.category_id && input.category_name && type !== 'transfer') {
+    const named = categoryByName(input.category_name, type === 'income' ? 'income' : 'expense');
+    // "Chi khác"/"Thu khác" là ngăn để đồ thừa, không phải một lựa chọn có chủ
+    // đích: người chọn nó đang nói "tôi không biết xếp vào đâu". Nếu ghi chú đủ
+    // rõ để máy xếp chính xác hơn thì tin vào ghi chú — nếu không, khoản 45
+    // triệu mua ETF sẽ nằm im trong "Chi khác" và dìm tỉ lệ tiết kiệm xuống.
+    const isCatchAll = named && /^(chi|thu)?\s*kh[áa]c$/i.test(named.name.trim());
+    if (named && !isCatchAll) {
+      data.category_id = named.id;
+      data.confidence = 1;
+      data.needs_review = 0;
+    } else if (isCatchAll) {
+      const guess = autoCategorize({ text, merchant: input.merchant, type, amount: data.base_amount, accountId: data.account_id });
+      data.category_id = guess.confidence >= 0.6 ? guess.category_id : named.id;
+      if (!data.fund_id && guess.fund_id) data.fund_id = guess.fund_id;
+      data.confidence = Math.max(guess.confidence, 0.6);
+      data.needs_review = 0;
+    }
+  }
   if (!data.category_id && type !== 'transfer') {
     const guess = autoCategorize({ text, merchant: input.merchant, type, amount: data.base_amount, accountId: data.account_id });
     data.category_id = guess.category_id;

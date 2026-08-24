@@ -15,6 +15,12 @@ const FALLBACK_EUR = {
   VND: 30500,
   USD: 1.08,
   GBP: 0.85,
+  JPY: 168,
+  KRW: 1470,
+  TWD: 34.5,
+  AUD: 1.64,
+  CAD: 1.47,
+  SGD: 1.45,
 };
 
 const SOURCE_URL = process.env.FINMATE_FX_URL || 'https://open.er-api.com/v6/latest/EUR';

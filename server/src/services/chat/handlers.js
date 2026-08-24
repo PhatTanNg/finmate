@@ -8,7 +8,7 @@ import { createTransaction, deleteTransaction, listTransactions } from '../ledge
 import { listFunds, fundsOverview, moveBetweenFunds } from '../funds.js';
 import { totals, categoryBreakdown, monthlyTrend, incomeSources, averageMonthlyExpense, averageMonthlyIncome, essentialSplit } from '../reports.js';
 import { netWorth } from '../networth.js';
-import { fireStats, emergencyStatus, passiveIncomeMonthly } from '../fire.js';
+import { fireStats, emergencyStatus, passiveIncomeMonthly, declaredIncomeMonthly, streamMonthly, isPassiveStream } from '../fire.js';
 import { debtSummary, payoffPlan } from '../debts.js';
 import { budgetStatus, upsertBudget, suggestBudgets } from '../budgets.js';
 import { dailyForecast, monthlyForecast, safeToSpend } from '../forecast.js';
@@ -233,7 +233,7 @@ function queryDebt() {
   const sn = payoffPlan('snowball', 0);
   return {
     reply: bullet([
-      `🏦 **Tổng nợ ${fmt(s.total_balance)}**, trả ${short(s.monthly_payment)}/tháng (${Math.round(s.dti * 100)}% thu nhập).`,
+      `🏦 **Tổng nợ ${fmt(s.total_balance)}**, trả ${short(s.monthly_payment)}/tháng${s.dti === null ? ' _(chưa biết thu nhập nên chưa tính được gánh nặng — khai nguồn thu giúp mình nhé)_' : ` (${Math.round(s.dti * 100)}% thu nhập)`}.`,
       s.debts.map((d) => `• ${d.name}: ${short(d.balance)} @ ${d.interest_rate}%/năm → hết nợ ${vnDate(d.payoff)}`).join('\n'),
       '',
       `📅 Ngày sạch nợ dự kiến: **${vnDate(s.debt_free_date)}**, còn phải trả ${short(s.total_interest_remaining)} tiền lãi.`,
@@ -300,13 +300,22 @@ function queryInvestment() {
   const pf = portfolio();
   const re = realEstate();
   if (!pf.holdings.length && !re.properties.length) return { reply: 'Chưa có khoản đầu tư nào được theo dõi. Nói _"mình có 1000 cổ phiếu HPG giá vốn 25"_ để mình ghi nhận.' };
+  // Giá và giá trị của từng mã nằm ở NGUYÊN TỆ của mã đó (FPT tính bằng đồng,
+  // VWCE tính bằng euro). Không truyền đồng tiền vào hàm định dạng thì 148.000₫
+  // một cổ phiếu FPT sẽ hiện thành "€1.5k".
+  const line = (h) => {
+    const c = h.currency;
+    const base = h.value_base != null && c !== pf.currency ? ` ≈ ${short(h.value_base)}` : '';
+    return `• ${h.symbol}: ${h.quantity} × ${short(h.last_price || h.avg_cost, c)} = ${short(h.value, c)}${base} (${h.pnl >= 0 ? '▲' : '▼'} ${Math.round(h.pnl_pct * 100)}%)`;
+  };
+  const prop = (p) => `• ${p.name}: ${short(p.current_value, p.currency)}${p.monthly_rent ? ` — thuê ${short(p.monthly_rent, p.currency)}/tháng` : ''}${p.yield_pct != null ? ` (lợi suất ${(p.yield_pct * 100).toFixed(1)}%/năm)` : ''}`;
   return {
     reply: bullet([
       `📈 **Danh mục đầu tư: ${fmt(pf.total_value)}**`,
-      pf.holdings.map((h) => `• ${h.symbol}: ${h.quantity} × ${short(h.last_price || h.avg_cost)} = ${short(h.value)} (${h.pnl >= 0 ? '▲' : '▼'} ${Math.round(h.pnl_pct * 100)}%)`).join('\n'),
+      pf.holdings.map(line).join('\n'),
       pf.total_cost ? `\nLãi/lỗ chưa thực hiện: **${pf.unrealized_pnl >= 0 ? '+' : ''}${fmt(pf.unrealized_pnl)}** (${Math.round(pf.unrealized_pct * 100)}%)` : null,
       pf.projected_dividend ? `Cổ tức dự kiến: ${short(pf.projected_dividend)}/năm` : null,
-      re.properties.length ? `\n🏡 Bất động sản: ${short(re.total_value)}, dòng tiền thuê ròng ${short(re.net_monthly)}/tháng` : null,
+      re.properties.length ? `\n🏡 **Bất động sản: ${short(re.total_value)}**\n${re.properties.map(prop).join('\n')}\nDòng tiền thuê ròng: **${short(re.net_monthly)}/tháng**` : null,
       `\n💡 Thu nhập thụ động tổng: ${short(passiveIncomeMonthly().total)}/tháng`,
     ]),
     data: { portfolio: pf, real_estate: re },
@@ -317,15 +326,33 @@ function queryIncome(text, ent) {
   const r = ent.range;
   const s = incomeSources(r.from, r.to);
   const streams = all('SELECT * FROM income_streams WHERE active = 1');
+  const declared = declaredIncomeMonthly();
+
+  // Chưa có khoản thu nào vào sổ nhưng đã khai nguồn thu (người sống bằng lãi,
+  // cổ tức, tiền thuê nhà...) thì trả lời theo số đã khai, chứ không báo "0đ".
+  if (!s.has_data && declared.total > 0) {
+    const ratio = declared.passive / declared.total;
+    return {
+      reply: bullet([
+        `💰 **Thu nhập đã khai: ${fmt(declared.total)}/tháng**`,
+        streams.map((x) => `• ${x.name}: ${fmt(streamMonthly(x))}/tháng${isPassiveStream(x) ? ' _(thụ động)_' : ''}`).join('\n'),
+        '',
+        `Chủ động ${Math.round((1 - ratio) * 100)}% · Thụ động ${Math.round(ratio * 100)}%`,
+        `\n⚠️ Chưa có khoản thu nào thực sự vào sổ ${r.label}. Con số trên là theo bạn khai — bật đọc tin nhắn ngân hàng ở tab Tự động hoá để app đối chiếu với tiền về thật.`,
+      ]),
+      data: { ...s, declared },
+    };
+  }
+
   return {
     reply: bullet([
       `💰 **Thu nhập ${r.label}: ${fmt(s.total)}**`,
       s.categories.map((c) => `• ${c.icon || ''} ${c.name}: ${fmt(c.amount)}`).join('\n'),
       s.streams.length ? s.streams.map((c) => `• ${c.name}: ${fmt(c.amount)}`).join('\n') : null,
       '',
-      `Chủ động ${Math.round((1 - s.passive_ratio) * 100)}% · Thụ động ${Math.round(s.passive_ratio * 100)}%`,
+      s.has_data ? `Chủ động ${Math.round((1 - s.passive_ratio) * 100)}% · Thụ động ${Math.round(s.passive_ratio * 100)}%` : null,
       `Đang theo dõi ${streams.length} nguồn thu: ${streams.map((x) => x.name).join(', ')}`,
-      s.passive_ratio < 0.2 ? `\n💡 Thu nhập thụ động còn thấp. Mỗi ${short(10_000_000)} bỏ vào kênh sinh lời 8%/năm tạo thêm ~${short((10_000_000 * 0.08) / 12)}/tháng.` : null,
+      s.has_data && s.passive_ratio < 0.2 ? `\n💡 Thu nhập thụ động còn thấp. Mỗi ${short(10_000_000)} bỏ vào kênh sinh lời 8%/năm tạo thêm ~${short((10_000_000 * 0.08) / 12)}/tháng.` : null,
     ]),
     data: s,
   };
@@ -708,6 +735,16 @@ function updateProfile(text) {
   return { reply: `✅ Đã cập nhật hồ sơ${patch.name ? `, chào ${patch.name}` : ''}${patch.birth_year ? ` (sinh ${patch.birth_year})` : ''}.`, refresh: true };
 }
 
+/**
+ * Câu KỂ HOÀN CẢNH RỒI XIN LỜI KHUYÊN — khác hẳn câu ra lệnh ghi sổ. Dấu hiệu
+ * là những cụm mở đầu một cuộc trò chuyện với cố vấn: "nên bắt đầu từ đâu",
+ * "tính lại thế nào", "vì sao", "phải làm sao".
+ */
+function asksForAdvice(text) {
+  const n = norm(text);
+  return /bat dau tu dau|nen lam gi|lam gi bay gio|phai lam sao|lam sao bay gio|tinh lai the nao|nen tinh sao|tinh sao|vi sao|tai sao|the nao bay gio|khuyen minh|tu van cho minh|giup minh voi|nen the nao|di tiep the nao|xoay so|goi y cho minh/.test(n);
+}
+
 function unknown(text, ent) {
   // Câu hỏi kiến thức tài chính -> trả lời gắn với số liệu thật của người dùng
   const topic = findTopic(text);
@@ -715,6 +752,17 @@ function unknown(text, ent) {
     return {
       reply: answerTopic(topic),
       quick: ['Tình hình tài chính của mình', 'Việc nên làm tiếp theo', 'Bao giờ tự do tài chính'],
+    };
+  }
+  // Người dùng KỂ HOÀN CẢNH rồi xin lời khuyên ("mình đang nợ 900 triệu và
+  // không còn gì, nên bắt đầu từ đâu"). Con số trong câu là bối cảnh, không
+  // phải khoản cần ghi sổ — hỏi lại "bạn muốn ghi thu hay chi" ở đây là bỏ rơi
+  // người dùng đúng lúc họ cần cố vấn nhất.
+  if (asksForAdvice(text)) {
+    const s = summary();
+    return {
+      ...s,
+      reply: `${s.reply}\n\n_Mình trả lời dựa trên toàn bộ số liệu đang có trong app. Muốn đi sâu hơn thì hỏi tiếp: "nên trả khoản nợ nào trước", "cắt chi tiêu ở đâu", "bao giờ mình tự do tài chính"._`,
     };
   }
   // Có tiền nhưng không rõ ý -> hỏi lại có định hướng

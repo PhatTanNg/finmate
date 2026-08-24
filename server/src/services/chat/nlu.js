@@ -12,6 +12,17 @@ const QUESTION_HINTS = ['bao nhieu', 'the nao', 'khi nao', 'bao gio', 'bao lau',
  * onboarding, người dùng hỏi "mình nên trả khoản nào trước" mà bị ghi thành
  * câu trả lời cho bước đang hỏi).
  */
+/**
+ * Câu SO SÁNH / XIN LỜI KHUYÊN chứ không phải lệnh ghi dữ liệu:
+ * "mua vàng hay mua ETF thì hiệu quả hơn", "nên gửi tiết kiệm hay mua cổ phiếu".
+ * Không loại trừ thì "mua ... etf" bị hiểu là lệnh mua và app ghi thẳng một
+ * khoản đầu tư 0 đơn vị vào danh mục của người dùng.
+ */
+function isComparison(n) {
+  return /\w+\s+hay\s+\w+/.test(n)
+    || /hieu qua hon|tot hon|loi hon|nen chon|so voi|khac nhau|cai nao hon|thi hon/.test(n);
+}
+
 export function looksLikeQuestion(text) {
   const n = norm(text);
   if (String(text).trim().endsWith('?')) return true;
@@ -91,7 +102,7 @@ const RULES = [
 
   // --- đa tiền tệ: tỷ giá & chuyển tiền quốc tế ---
   { intent: 'query_fx', w: 9, t: (n) => has(n, 'ty gia', 'ti gia', 'exchange rate', 'euro bang bao nhieu', 'euro bao nhieu tien', 'eur vnd', 'vnd eur', 'quy doi', 'doi tien', 'sang vnd', 'sang tien viet', 'sang euro', 'sang eur', 'sang usd', 'bang bao nhieu tien viet') && !has(n, 'sang tiet kiem', 'sang vi ', 'sang tai khoan', 'vao quy', 'sang quy', 'mo quy', 'tao quy', 'lap quy', 'them quy', 'mo mot quy') },
-  { intent: 'remittance', w: 9, t: (n) => has(n, 'gui tien ve', 'chuyen tien ve', 've viet nam', 've vn', 'gui ve nha', 'remit', 'kieu hoi', 'chuyen khoan quoc te', 'nen gui tien', 'gui ve que') },
+  { intent: 'remittance', w: 9, t: (n) => has(n, 'gui tien ve', 'chuyen tien ve', 've viet nam', 've vn', 'gui ve nha', 'remit', 'kieu hoi', 'chuyen khoan quoc te', 'nen gui tien', 'gui ve que', 'gui ve cho gia dinh', 'gui cho gia dinh', 'gui ve cho bo me', 'gui cho bo me', 'gui bao nhieu ve') && !has(n, 'du dung bao lau', 'song duoc bao lau', 've song', 've o han', 've han', 'song o viet nam', 've que song') },
   { intent: 'query_tax', w: 9, t: (n) => has(n, 'paye', 'usc', 'prsi', 'thue ireland', 'thue o ireland', 'dirt', 'tax credit', 'thue ben nay', 'thue tncn', 'thue thu nhap') || (has(n, 'thue') && has(n, 'luong', 'thu nhap', 'bao nhieu', 'tinh sao', 'phai nop', 'net', 'gross')) },
 
   // --- lệnh cấu hình (phải đứng trước ghi giao dịch) ---
@@ -103,22 +114,22 @@ const RULES = [
   { intent: 'add_account', w: 8, t: (n, e) => e.amount && has(n, 'them tai khoan', 'tao tai khoan', 'mo tai khoan', 'them vi', 'them the', 'them so tiet kiem', 'khai bao tai khoan', 'cap nhat so du', 'tai khoan moi') },
   { intent: 'add_income_stream', w: 8, t: (n, e) => has(n, 'them nguon thu', 'khai bao nguon thu', 'nguon thu moi', 'them thu nhap') || (e.amount && has(n, 'moi thang', 'hang thang', 'mot thang', '/thang') && has(n, 'luong', 'day hoc', 'freelance', 'cho thue', 'lam them', 'part time', 'kiem duoc', 'thu nhap', 'nguon thu')) },
   { intent: 'add_debt', w: 8, t: (n, e) => e.amount && has(n, 'them no', 'khai bao no', 'dang vay', 'minh vay', 'toi vay', 'khoan vay', 'vay ngan hang', 'tra gop', 'vay ban', 'no the', 'them khoan no') && !has(n, 'bao gio', 'khi nao', 'ke hoach', 'tinh hinh') },
-  { intent: 'add_holding', w: 8, t: (n, e) => has(n, 'co phieu', 'chung khoan', 'chung chi quy', ' cp ', 'ma ck', 'etf') && has(n, 'mua', 'ban ', 'dang giu', 'so huu', 'them', 'minh co', 'toi co', 'em co', 'dang co', 'gia von') && (e.symbol || e.amount) },
+  { intent: 'add_holding', w: 8, t: (n, e) => has(n, 'co phieu', 'chung khoan', 'chung chi quy', ' cp ', 'ma ck', 'etf') && has(n, 'mua', 'ban ', 'dang giu', 'so huu', 'them', 'minh co', 'toi co', 'em co', 'dang co', 'gia von') && (e.symbol || e.amount) && !isComparison(n) },
   { intent: 'add_recurring', w: 7, t: (n, e) => e.amount && has(n, 'hang thang', 'moi thang', 'dinh ky', 'hang tuan', 'moi tuan', 'hang nam', 'moi ngay', 'hang ngay', 'thue bao', 'subscription') },
 
   // --- tư vấn ---
   { intent: 'affordability', w: 8, t: (n) => has(n, 'co nen mua', 'nen mua khong', 'mua duoc khong', 'co du tien mua', 'co nen chi', 'co kham noi', 'co nen sam', 'du tien mua', 'co nen dau tu vao') },
   { intent: 'surplus_advice', w: 8, t: (n) => has(n, 'nen lam gi', 'lam gi voi', 'dau tu vao dau', 'nen dau tu gi', 'tien nhan roi', 'nhan roi', 'xai tien sao', 'tieu vao dau', 'dung tien sao', 'du tien', 'con du', 'dang du', 'tien du', 'thua tien', 'tien thua', 'toi du', 'minh du') && !has(n, 'nghi huu', 'tu do tai chinh', 'fire', 've huu') },
-  { intent: 'summary', w: 7, t: (n) => has(n, 'tinh hinh tai chinh', 'tong quan', 'suc khoe tai chinh', 'review tai chinh', 'bao cao tong the', 'diem tai chinh', 'tom tat', 'summary', 'tinh hinh cua minh', 'de danh duoc bao nhieu', 'tiet kiem duoc bao nhieu', 'du duoc bao nhieu') },
+  { intent: 'summary', w: 7, t: (n) => has(n, 'tinh hinh tai chinh', 'tong quan', 'suc khoe tai chinh', 'review tai chinh', 'bao cao tong the', 'diem tai chinh', 'tom tat', 'summary', 'tinh hinh cua minh') },
 
   // --- truy vấn ---
-  { intent: 'query_fire', w: 7, t: (n) => has(n, 'tu do tai chinh', 'nghi huu', 'fire', 'bao gio giau', 'khi nao du tien nghi', 'retire', 'khong can lam viec') },
-  { intent: 'query_networth', w: 7, t: (n) => has(n, 'tai san rong', 'net worth', 'tong tai san', 'tat ca tai san', 'giau co nao', 'bao nhieu tai san', 'tai san bao nhieu') },
+  { intent: 'query_fire', w: 7, t: (n) => has(n, 'tu do tai chinh', 'nghi huu', 'fire', 'bao gio giau', 'khi nao du tien nghi', 'retire', 'khong can lam viec', 'du dung bao lau', 'song duoc bao lau', 'du song bao lau', 'tien du dung', 'ngung lam viec', 'song bao nhieu nam', 'duoc bao nhieu nam', 'du bao nhieu nam', 'song them bao lau', 'cam cu duoc bao lau') },
+  { intent: 'query_networth', w: 7, t: (n) => has(n, 'tai san rong', 'net worth', 'tong tai san', 'tat ca tai san', 'giau co nao', 'bao nhieu tai san', 'tai san bao nhieu', 'tai san tang', 'tang bao nhieu', 'tien nam o dau', 'nam o dau', 'tien dang o dau', 'tien o dau nhieu nhat', 'phan bo tai san', 'co bao nhieu von') },
   { intent: 'query_debt', w: 7, t: (n) => has(n, 'bao gio het no', 'bao lau het no', 'bao lau thi het no', 'het no', 'thoat no', 'no bao nhieu', 'no tong cong', 'tong no', 'tra no', 'tra khoan nao', 'khoan nao truoc', 'khi nao tra xong', 'ke hoach tra no', 'tinh hinh no', 'du no', 'con no', 'khoan no') },
-  { intent: 'query_investment', w: 7, t: (n) => has(n, 'danh muc dau tu', 'danh muc', 'portfolio', 'co phieu cua', 'lai lo', 'dang lai bao nhieu', 'co phieu', 'chung khoan') },
+  { intent: 'query_investment', w: 7, t: (n) => has(n, 'danh muc dau tu', 'danh muc', 'portfolio', 'co phieu cua', 'lai lo', 'dang lai bao nhieu', 'co phieu', 'chung khoan', 'cho thue co loi', 'can ho cho thue', 'nha cho thue', 'bat dong san', 'loi suat cho thue', 'cho thue co lai') },
   { intent: 'query_income', w: 7, t: (n) => has(n, 'thu nhap bao nhieu', 'kiem duoc bao nhieu', 'tong thu nhap', 'nguon thu', 'thu nhap cua', 'thu nhap thang', 'luong cua minh', 'luong cua toi', 'thu nhap', 'thu dong', 'tien thu dong') },
   { intent: 'query_forecast', w: 7, t: (n) => has(n, 'du bao', 'thang sau', 'sap toi co du', 'co du tien khong', 'het tien khi nao', 'dong tien', 'cash flow', 'thang toi') },
-  { intent: 'query_spending', w: 7, t: (n) => has(n, 'tieu bao nhieu', 'chi bao nhieu', 'da xai', 'chi tieu', 'ton nhieu nhat', 'tieu gi nhieu', 'thong ke chi', 'chi nhieu vao dau', 'xai het bao nhieu', 'tieu het bao nhieu', 'da tieu', 'lai hay lo', 'cat khoan nao', 'cat giam', 'tiet kiem hon', 'de danh duoc bao nhieu', 'de danh bao nhieu') },
+  { intent: 'query_spending', w: 7, t: (n) => has(n, 'tieu bao nhieu', 'chi bao nhieu', 'da xai', 'chi tieu', 'ton nhieu nhat', 'tieu gi nhieu', 'tieu nhieu nhat', 'thong ke chi', 'chi nhieu vao dau', 'xai het bao nhieu', 'tieu het bao nhieu', 'da tieu', 'lai hay lo', 'cat khoan nao', 'cat giam', 'tiet kiem hon', 'de danh duoc bao nhieu', 'de danh bao nhieu', 'tiet kiem duoc bao nhieu', 'du duoc bao nhieu', 'con du bao nhieu') },
   { intent: 'query_balance', w: 7, t: (n) => has(n, 'con bao nhieu tien', 'so du', 'con nhieu tien khong', 'trong tai khoan', 'tien con lai', 'con xai duoc bao nhieu', 'tieu duoc bao nhieu', 'con bao nhieu', 'co bao nhieu tien', 'dang co bao nhieu', 'bao nhieu tien trong') },
 ];
 

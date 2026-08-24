@@ -7,6 +7,12 @@ export const CURRENCIES = {
   EUR: { code: 'EUR', name: 'Euro', symbol: '€', decimals: 2, locale: 'en-IE', flag: '🇪🇺', step: 1 },
   USD: { code: 'USD', name: 'Đô la Mỹ', symbol: '$', decimals: 2, locale: 'en-US', flag: '🇺🇸', step: 1 },
   GBP: { code: 'GBP', name: 'Bảng Anh', symbol: '£', decimals: 2, locale: 'en-GB', flag: '🇬🇧', step: 1 },
+  JPY: { code: 'JPY', name: 'Yên Nhật', symbol: '¥', decimals: 0, locale: 'ja-JP', flag: '🇯🇵', step: 100 },
+  KRW: { code: 'KRW', name: 'Won Hàn Quốc', symbol: '₩', decimals: 0, locale: 'ko-KR', flag: '🇰🇷', step: 1000 },
+  TWD: { code: 'TWD', name: 'Đài tệ', symbol: 'NT$', decimals: 0, locale: 'zh-TW', flag: '🇹🇼', step: 10 },
+  AUD: { code: 'AUD', name: 'Đô la Úc', symbol: 'A$', decimals: 2, locale: 'en-AU', flag: '🇦🇺', step: 1 },
+  CAD: { code: 'CAD', name: 'Đô la Canada', symbol: 'C$', decimals: 2, locale: 'en-CA', flag: '🇨🇦', step: 1 },
+  SGD: { code: 'SGD', name: 'Đô la Singapore', symbol: 'S$', decimals: 2, locale: 'en-SG', flag: '🇸🇬', step: 1 },
 };
 
 const LS_KEY = 'finmate.base_currency';

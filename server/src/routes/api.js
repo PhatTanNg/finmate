@@ -109,14 +109,18 @@ router.patch('/profile', wrap(async (req, res) => {
 
 const PRIVATE_SETTINGS = new Set(['app_pin']);
 const publicSettings = () => all('SELECT * FROM settings').filter((s) => !PRIVATE_SETTINGS.has(s.key));
+// POST /settings nhận object nên GET cũng phải trả về được dạng object, nếu
+// không thì client (và AI agent) phải tự dựng lại map từ mảng key/value.
+const settingsMap = () => Object.fromEntries(publicSettings().map((s) => [s.key, s.value]));
+const settingsPayload = () => ({ settings: publicSettings(), values: { ...settingsMap(), base_currency: baseCurrency() } });
 
-router.get('/settings', wrap(async (req, res) => ok(res, { settings: publicSettings() })));
+router.get('/settings', wrap(async (req, res) => ok(res, settingsPayload())));
 router.post('/settings', wrap(async (req, res) => {
   for (const [k, v] of Object.entries(req.body || {})) {
     if (PRIVATE_SETTINGS.has(k)) throw new Error('Mã PIN phải đổi qua /auth/change');
     setting(k, v);
   }
-  ok(res, { settings: publicSettings() });
+  ok(res, settingsPayload());
 }));
 
 // ---- chat -----------------------------------------------------------------

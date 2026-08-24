@@ -1,13 +1,14 @@
 /** Khởi tạo dữ liệu mặc định: hồ sơ, danh mục, quỹ (6 hũ tuỳ biến). */
 import { db, get, run, insert, all } from './db.js';
+import { norm } from './util/vi.js';
 
 export const DEFAULT_CATEGORIES = [
   // ----- CHI -----
   { name: 'Ăn uống', kind: 'expense', group_name: 'Sinh hoạt', icon: '🍜', essential: 1, keywords: 'an uong,com,pho,bun,tra sua,ca phe,cà phê,cafe,coffee,highlands,starbucks,phuc long,the coffee house,katinat,grabfood,shopeefood,baemin,nha hang,quan,an sang,an trua,an toi,do an,bakery,circle k,gs25,pizza,lau,nuong,buffet,tesco meal,boojum,camile,deliveroo,just eat,supermac,eddie rockets,centra,spar,bunsen,wagamama,chipotle,greggs,mcdonald,burger king,kfc,subway,dominos,nando' },
   { name: 'Đi chợ / Siêu thị', kind: 'expense', group_name: 'Sinh hoạt', icon: '🛒', essential: 1, keywords: 'sieu thi,bach hoa xanh,winmart,vinmart,coopmart,co.opmart,bigc,big c,lotte mart,aeon,go!,emart,di cho,thuc pham,rau cu,thit ca,ca tuoi,tesco,lidl,aldi,dunnes,supervalu,asia market,marks spencer,m&s food,grocery,fresh market' },
-  { name: 'Di chuyển', kind: 'expense', group_name: 'Sinh hoạt', icon: '🛵', essential: 1, keywords: 'grab,gojek,be,xanh sm,taxi,mai linh,vinasun,xang,petrolimex,pvoil,gui xe,ve xe,bus,metro,do xe,rua xe,sua xe,bao duong xe,leap card,dublin bus,irish rail,luas,go-ahead,freenow,bolt,uber,aircoach,applegreen,maxol,transport for ireland,tfi' },
+  { name: 'Di chuyển', kind: 'expense', group_name: 'Sinh hoạt', icon: '🛵', essential: 1, keywords: 'di lai,xe co,tau xe,grab,gojek,be,xanh sm,taxi,mai linh,vinasun,xang,petrolimex,pvoil,gui xe,ve xe,bus,metro,do xe,rua xe,sua xe,bao duong xe,leap card,dublin bus,irish rail,luas,go-ahead,freenow,bolt,uber,aircoach,applegreen,maxol,transport for ireland,tfi' },
   { name: 'Nhà ở', kind: 'expense', group_name: 'Cố định', icon: '🏠', essential: 1, keywords: 'tien nha,thue nha,thue phong,chung cu,phi quan ly,quan ly chung cu,tro,rent,daft,landlord,management fee,property tax,lpt' },
-  { name: 'Điện nước & Internet', kind: 'expense', group_name: 'Cố định', icon: '💡', essential: 1, keywords: 'tien dien,evn,tien nuoc,sawaco,cap nuoc,internet,wifi,fpt,vnpt,viettel telecom,truyen hinh,gas,electric ireland,esb,bord gais,sse airtricity,energia,virgin media,eir,sky ireland,pinergy,uisce,irish water' },
+  { name: 'Điện nước & Internet', kind: 'expense', group_name: 'Cố định', icon: '💡', essential: 1, keywords: 'hoa don,bill,tien dien,evn,tien nuoc,sawaco,cap nuoc,internet,wifi,fpt,vnpt,viettel telecom,truyen hinh,gas,electric ireland,esb,bord gais,sse airtricity,energia,virgin media,eir,sky ireland,pinergy,uisce,irish water' },
   { name: 'Điện thoại', kind: 'expense', group_name: 'Cố định', icon: '📱', essential: 1, keywords: 'dien thoai,nap the,topup,mobifone,vinaphone,viettel,vietnamobile,cuoc dt,three,48months,vodafone,gomo,tesco mobile,eir mobile,an post mobile' },
   { name: 'Mua sắm', kind: 'expense', group_name: 'Lối sống', icon: '🛍️', essential: 0, keywords: 'shopee,lazada,tiki,sendo,tiktok shop,uniqlo,zara,h&m,mua sam,quan ao,giay,dien may,thegioididong,fpt shop,cellphones,amazon,mall,penneys,primark,ikea,currys,harvey norman,argos,brown thomas,arnotts,dealz,tk maxx,decathlon,smyths' },
   { name: 'Sức khoẻ', kind: 'expense', group_name: 'Sinh hoạt', icon: '🩺', essential: 1, keywords: 'pharmacity,long chau,an khang,nha thuoc,thuoc,benh vien,phong kham,kham benh,nha khoa,rang,guardian,vitamin,xet nghiem,boots,hickeys,mccabes,lloyds pharmacy,vhi,laya,irish life health,gp visit,blackrock clinic,mater private,dentist' },
@@ -23,6 +24,7 @@ export const DEFAULT_CATEGORIES = [
   { name: 'Thuế & Phí', kind: 'expense', group_name: 'Cố định', icon: '🧾', essential: 1, keywords: 'thue,tncn,le phi,phi truoc ba,phi dich vu,phi thuong nien,phi sms,phi chuyen khoan,phi duy tri,revenue,paye,usc,prsi,dirt,cgt,local property tax,tv licence' },
   { name: 'Trả nợ & Lãi vay', kind: 'expense', group_name: 'Cố định', icon: '🏦', essential: 1, keywords: 'tra no,tra gop,lai vay,goc vay,thanh toan the,sao ke the,khoan vay,credit union,an post loan,avant money,ptsb loan,mortgage' },
   { name: 'Thú cưng', kind: 'expense', group_name: 'Lối sống', icon: '🐾', essential: 0, keywords: 'thu cung,cho,meo,pet,thuc an cho,thu y' },
+  { name: 'Tiết kiệm & Đầu tư', kind: 'expense', group_name: 'Tích luỹ', icon: '🌱', essential: 0, keywords: 'gui tiet kiem,bo quy,mua etf,mua vang,mua co phieu,mua chung chi quy,dau tu,tich luy,gui quy,nap quy,mua trai phieu,dca,gop quy huu,quy huu tri' },
   { name: 'Chi khác', kind: 'expense', group_name: 'Khác', icon: '📦', essential: 0, keywords: '' },
 
   // ----- THU -----
@@ -125,8 +127,41 @@ export function syncKeywords() {
   }
 }
 
+/**
+ * Tìm danh mục theo tên. Khớp chính xác trước, sau đó nới dần: bỏ dấu, khớp
+ * tiền tố, rồi khớp theo bộ từ khoá. Người dùng (và AI) hay gõ tên rút gọn —
+ * "Gia đình" thay vì "Gia đình & Con cái", "Ăn" thay vì "Ăn uống" — mà khớp
+ * chính xác thì mọi khoản đó lặng lẽ rơi hết vào "Chi khác" và báo cáo mất ý
+ * nghĩa.
+ *
+ * Nới lỏng phải có phanh: khớp chuỗi con thô bạo khiến từ khoá "tã" bắt trúng
+ * "không **tồ**n **tạ**i" và tên rác nào cũng ra một danh mục. Vì vậy mọi tầng
+ * nới lỏng đều đòi khớp trọn vẹn theo ranh giới từ.
+ */
+function hasWord(haystack, needle) {
+  if (!needle) return false;
+  return new RegExp(`(^|[^a-z0-9])${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(haystack);
+}
+
 export function categoryByName(name, kind = 'expense') {
-  return get('SELECT * FROM categories WHERE name = ? AND kind = ?', [name, kind]);
+  const raw = String(name || '').trim();
+  if (!raw) return null;
+  const exact = get('SELECT * FROM categories WHERE name = ? AND kind = ?', [raw, kind]);
+  if (exact) return exact;
+
+  const want = norm(raw);
+  const list = all('SELECT * FROM categories WHERE kind = ?', [kind]);
+  const byNorm = list.find((c) => norm(c.name) === want);
+  if (byNorm) return byNorm;
+
+  // "Gia đình" ⊂ "Gia đình & Con cái" — chọn tên ngắn nhất trong số các tên chứa nó.
+  const partial = list
+    .filter((c) => hasWord(norm(c.name), want) || hasWord(want, norm(c.name)))
+    .sort((a, b) => a.name.length - b.name.length)[0];
+  if (partial) return partial;
+
+  return list.find((c) => String(c.keywords || '').split(',')
+    .some((k) => k.trim() && hasWord(want, norm(k.trim())))) || null;
 }
 
 export function fundByName(name) {

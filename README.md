@@ -1,6 +1,6 @@
 # FinMate — Cố vấn tài chính cá nhân all-in-one
 
-Ứng dụng quản lý tài chính cá nhân cho người Việt — kể cả người Việt đang sống ở nước ngoài: **tự động theo dõi thu chi**, **tự phân bổ tiền vào quỹ**, **đa tiền tệ (VND / EUR / USD / GBP)**, và một **cố vấn tài chính AI** trò chuyện bằng tiếng Việt — không chỉ trả lời, mà còn **tự thao tác trong app** giúp bạn: ghi giao dịch, cập nhật số dư, tạo mục tiêu, chia lại quỹ ("trưa nay ăn 60k", "AIB còn 5000 euro", "gửi 800 euro về Việt Nam", "bao giờ mình tự do tài chính?").
+Ứng dụng quản lý tài chính cá nhân cho người Việt — kể cả người Việt đang sống ở nước ngoài: **tự động theo dõi thu chi**, **tự phân bổ tiền vào quỹ**, **đa tiền tệ (VND, EUR, USD, GBP, JPY, KRW, TWD, AUD, CAD, SGD)**, và một **cố vấn tài chính AI** trò chuyện bằng tiếng Việt — không chỉ trả lời, mà còn **tự thao tác trong app** giúp bạn: ghi giao dịch, cập nhật số dư, tạo mục tiêu, chia lại quỹ ("trưa nay ăn 60k", "AIB còn 5000 euro", "gửi 800 euro về Việt Nam", "bao giờ mình tự do tài chính?").
 
 Thiết kế cho **điện thoại** trước — mở app là vào thẳng cuộc trò chuyện với cố vấn của bạn.
 
@@ -118,7 +118,7 @@ Ngoài ra còn **19 chủ đề kiến thức** trả lời gắn với số li�
 ### 5. Đa tiền tệ & kiều hối
 Dành cho người Việt sống ở nước ngoài: sinh hoạt bằng EUR nhưng vẫn giữ tài sản và đầu tư ở Việt Nam.
 
-- **Mỗi tài khoản một đồng tiền riêng** — €8.237,06 ở AIB và 275.965.174đ ở Vietcombank cùng tồn tại, báo cáo tổng hợp tự quy đổi về **đồng tiền gốc** bạn chọn.
+- **Mỗi tài khoản một đồng tiền riêng** — €8.237,06 ở AIB và 275.965.174đ ở Vietcombank cùng tồn tại, báo cáo tổng hợp tự quy đổi về **đồng tiền gốc** bạn chọn. Hỗ trợ 10 đồng tiền: VND, EUR, USD, GBP, JPY, KRW, TWD, AUD, CAD, SGD — đủ cho cả người xuất khẩu lao động Nhật, Hàn, Đài lẫn người định cư Úc, Canada, Singapore.
 - **Mọi số tiền lưu bằng đơn vị nhỏ nhất** (VND: đồng, EUR: cent) nên không bao giờ sai lệch vì làm tròn.
 - **Tỷ giá theo ngày**: giao dịch ghi kèm tỷ giá tại thời điểm phát sinh, đổi đồng tiền gốc sau này không làm sai lịch sử.
 - **Tự cập nhật tỷ giá** mỗi ngày (open.er-api.com), có thể nhập tay khi offline.
@@ -323,10 +323,12 @@ cd server && node test/smoke-tools.mjs     # 42 công cụ AI ghi/đọc đúng 
 cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
 cd server && node test/scenarios.mjs       # 203 kịch bản người dùng thật, 17 nhóm tính năng
 cd server && node test/personas.mjs        # 8 hành trình người dùng đầu-cuối, 160 bước
+cd server && node test/journey5y.mjs       # 5 năm liên tục của một người Việt ở Ireland, 34 bước
+cd server && node test/lifetime.mjs        # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
 cd web    && node test/render.mjs          # render thật 16 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `scenarios` và `personas` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 
@@ -344,6 +346,31 @@ Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-to
 | 8 | 💑 Vợ chồng trẻ | Hai lương gộp, mục tiêu mua nhà, ví riêng không bị đụng, vàng cưới |
 
 Bộ này bắt được những lỗi mà kiểm thử theo tính năng bỏ sót — ví dụ câu hỏi thật của người dùng bị luồng thiết lập nuốt mất, hay app đề xuất việc vô nghĩa kiểu "nạp thêm 0đ" khi chưa có dữ liệu chi tiêu.
+
+### Mô phỏng dài hạn
+
+Hai bộ cuối không chỉ hỏi "đúng hay sai" mà còn thu thập **nhận xét sản phẩm**: mỗi lần phát hiện app trả lời vô nghĩa hay bỏ sót thứ người dùng thật cần, chúng ghi lại một `FINDINGS` kèm mức độ, in ra cuối phiên chạy.
+
+`journey5y.mjs` nén **60 tháng liên tục** của một kỹ sư Việt ở Dublin: lương EUR tăng dần, gửi tiền về cho bố mẹ hàng tháng, mua vàng và cổ phiếu VN, mua căn hộ cho thuê ở Việt Nam, vay mua nhà ở Ireland — rồi kiểm báo cáo xu hướng có đủ 60 tháng liền mạch không, tài sản ròng có đi lên đều không, và hỏi cố vấn 10 câu mà chỉ người sống xa xứ mới hỏi ("giữ euro hay đổi hết về tiền Việt", "nếu mình về Việt Nam sống thì tiền đủ dùng bao lâu").
+
+`lifetime.mjs` dựng **12 con người, mỗi người một server và một DB riêng**, đi trọn từ tuổi đi học đến lúc nghỉ hưu:
+
+| # | Nhân vật | Câu chuyện |
+|---|---|---|
+| 1 | Minh | Sinh viên vay học phí → kỹ sư → cưới → hai con → mua nhà → nghỉ hưu tuổi 60 |
+| 2 | Lan | Giáo viên lương thấp, không nợ, tích luỹ đều đặn 35 năm |
+| 3 | Tuấn | Công nhân mất việc 5 tháng mùa dịch rồi gây dựng lại |
+| 4 | Hà | Bác sĩ học 9 năm, thu nhập đến muộn nhưng rất cao |
+| 5 | Khoa | Khởi nghiệp thất bại, tài sản ròng âm, làm lại từ đầu |
+| 6 | Thảo | Nghỉ việc 6 năm nuôi con rồi quay lại thị trường lao động |
+| 7 | Dũng | Ly hôn chia đôi tài sản ở tuổi 40 |
+| 8 | Mai | Freelancer thu nhập bấp bênh, không có bảo hiểm xã hội |
+| 9 | Sơn | Xuất khẩu lao động Nhật (thu nhập JPY) rồi về mở xưởng |
+| 10 | Ngọc | Thừa kế đất: giàu tài sản nhưng nghèo dòng tiền |
+| 11 | An | Độc thân theo đuổi FIRE, tiết kiệm 60%, nghỉ hưu tuổi 42 |
+| 12 | Bình | Chủ doanh nghiệp đa tiền tệ USD, kết thúc bằng bán công ty |
+
+Mỗi chương đời chụp lại một ảnh tài sản ròng, cuối phiên in ra "đường đời tài sản ròng" của từng người — nếu con số nhảy cóc vô lý hay tụt không giải thích được thì lỗi nằm ở tầng báo cáo chứ không phải ở kịch bản.
 
 ---
 
