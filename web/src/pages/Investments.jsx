@@ -67,7 +67,7 @@ export default function Investments({ onRefresh }) {
                   <td className="num">{short(h.last_price, h.currency)}</td>
                   <td className="num">{fmt(h.value, h.currency)}</td>
                   <td className="num"><span className={h.pnl >= 0 ? 'up' : 'down'}>{h.pnl >= 0 ? '▲' : '▼'} {short(Math.abs(h.pnl), h.currency)} ({pct(h.pnl_pct, 1)})</span></td>
-                  <td className="num"><button className="btn sm ghost" onClick={() => setPrice(h)}>Giá</button></td>
+                  <td className="acts"><button className="btn sm ghost" onClick={() => setPrice(h)}>Giá</button></td>
                 </tr>
               ))}
             </tbody>

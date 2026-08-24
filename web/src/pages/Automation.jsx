@@ -111,7 +111,7 @@ export default function Automation({ onRefresh }) {
                   <td className="mini">{vnDate(r.next_date)}</td>
                   <td className="num">{fmt(r.amount)}</td>
                   <td>{r.auto_post ? '✅' : '—'}</td>
-                  <td className="num"><button className="btn sm ghost" onClick={async () => { await api.del(`/recurring/${r.id}`); load(); }}>🗑</button></td>
+                  <td className="acts"><button className="btn sm ghost" onClick={async () => { await api.del(`/recurring/${r.id}`); load(); }}>🗑</button></td>
                 </tr>
               ))}
             </tbody>

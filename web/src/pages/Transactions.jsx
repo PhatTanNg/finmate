@@ -86,9 +86,9 @@ export default function Transactions({ onRefresh }) {
                 <td className="mini">{t.account_name || '—'}</td>
                 <td><span className="tag">{t.source}</span></td>
                 <td className="num"><Money v={t.type === 'income' ? t.amount : t.type === 'transfer' ? 0 : -t.amount} sign /></td>
-                <td className="num">
-                  <button className="btn sm ghost" onClick={() => setEdit(t)}>✎</button>
-                  <button className="btn sm ghost" onClick={() => del(t.id)}>🗑</button>
+                <td className="acts">
+                  <button className="btn sm ghost" onClick={() => setEdit(t)} aria-label="Sửa giao dịch">✎</button>
+                  <button className="btn sm ghost" onClick={() => del(t.id)} aria-label="Xoá giao dịch">🗑</button>
                 </td>
               </tr>
             ))}

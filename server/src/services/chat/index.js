@@ -6,6 +6,7 @@ import { detectIntent } from './nlu.js';
 import { HANDLERS } from './handlers.js';
 import { handleOnboarding, startOnboarding } from './onboarding.js';
 import { llmEnabled, classify, answer } from './llm.js';
+import { runAgent, agentEnabled } from './agent.js';
 import { totals } from '../reports.js';
 import { netWorth } from '../networth.js';
 import { fireStats, emergencyStatus } from '../fire.js';
@@ -72,13 +73,47 @@ const WRITE_INTENTS = new Set([
   'update_profile', 'undo', 'contribute_goal', 'pay_debt',
 ]);
 
+/** Lượt hội thoại gần nhất (đúng thứ tự thời gian) — dùng làm ngữ cảnh cho AI. */
+function recent(limit = 30) {
+  return all('SELECT role, content FROM chat_messages ORDER BY id DESC LIMIT ?', [limit]).reverse();
+}
+
+/** Gợi ý nút bấm nhanh sau khi agent trả lời — tuỳ theo đang thiết lập hay dùng thường. */
+function quickFor(onboarding) {
+  return onboarding
+    ? ['Bỏ qua bước này', 'Mình chưa rõ, giải thích giúp', 'Xong rồi, xem tổng quan']
+    : ['Tình hình tài chính của mình', 'Tháng này tiêu bao nhiêu?', 'Mình nên làm gì tiếp theo?', 'Bao giờ mình tự do tài chính?'];
+}
+
 export async function chat(text) {
   const message = String(text || '').trim();
   if (!message) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
   saveMessage('user', message);
 
   const p = get('SELECT * FROM profile WHERE id = 1') || {};
-  if (!p.onboarded) {
+  const isOnboarding = !p.onboarded;
+
+  // Ưu tiên AI cố vấn: hiểu ngữ cảnh cả cuộc trò chuyện và tự thao tác trong app.
+  // Không cấu hình LLM (hoặc gọi lỗi) thì lùi về bộ luật tiếng Việt bên dưới.
+  if (agentEnabled()) {
+    const prior = recent(30).slice(0, -1); // bỏ chính câu vừa lưu
+    const res = await runAgent(message, prior, { onboarding: isOnboarding });
+    if (res) {
+      if (res.mutated) generateInsights();
+      saveMessage('assistant', res.reply, isOnboarding ? 'onboarding' : 'agent', { tools: res.calls });
+      return {
+        reply: res.reply,
+        intent: isOnboarding && !res.onboarded ? 'onboarding' : 'agent',
+        tools: res.calls,
+        refresh: res.mutated,
+        onboarding: isOnboarding && !res.onboarded,
+        onboarded: res.onboarded || undefined,
+        quick: quickFor(isOnboarding && !res.onboarded),
+      };
+    }
+  }
+
+  if (isOnboarding) {
     const res = handleOnboarding(message);
     saveMessage('assistant', res.reply, 'onboarding', { step: res.step });
     return { ...res, onboarding: !res.onboarded, intent: 'onboarding' };

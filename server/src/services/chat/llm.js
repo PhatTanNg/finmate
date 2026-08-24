@@ -7,8 +7,13 @@ const KEY = process.env.FINMATE_LLM_KEY || process.env.OPENAI_API_KEY || '';
 const MODEL = process.env.FINMATE_LLM_MODEL || 'gpt-4o-mini';
 
 export const llmEnabled = () => Boolean(KEY);
+export const llmModel = () => MODEL;
 
-async function call(messages, { json = false, timeout = 15000, temperature = 0.4 } = {}) {
+/**
+ * Gọi API chat. Trả về nguyên message của model (có thể chứa tool_calls)
+ * khi `raw: true`, ngược lại chỉ trả chuỗi nội dung.
+ */
+async function call(messages, { json = false, timeout = 25000, temperature = 0.4, tools = null, raw = false } = {}) {
   if (!KEY) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
@@ -20,18 +25,26 @@ async function call(messages, { json = false, timeout = 15000, temperature = 0.4
         model: MODEL,
         messages,
         temperature,
+        ...(tools ? { tools, tool_choice: 'auto' } : {}),
         ...(json ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal: ctrl.signal,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`LLM ${res.status}: ${body.slice(0, 200)}`);
+    }
     const data = await res.json();
-    return data?.choices?.[0]?.message?.content || null;
-  } catch {
-    return null;
+    const msg = data?.choices?.[0]?.message;
+    return raw ? msg || null : msg?.content || null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Một lượt gọi model có kèm danh sách công cụ. Trả message thô để agent xử lý tool_calls. */
+export async function complete(messages, tools, opts = {}) {
+  return call(messages, { ...opts, tools, raw: true });
 }
 
 const INTENT_LIST = [
@@ -43,13 +56,18 @@ const INTENT_LIST = [
 
 /** Nhờ LLM phân loại lại khi bộ luật không chắc chắn. */
 export async function classify(text) {
-  const content = await call(
-    [
-      { role: 'system', content: `Bạn phân loại ý định người dùng cho app tài chính cá nhân tiếng Việt. Chỉ trả JSON: {"intent": one of ${INTENT_LIST.join('|')}, "amount": number|null, "confidence": 0..1}. amount là số tiền VND nếu có (quy đổi "50k"=50000, "2 triệu"=2000000).` },
-      { role: 'user', content: String(text).slice(0, 500) },
-    ],
-    { json: true, temperature: 0 }
-  );
+  let content = null;
+  try {
+    content = await call(
+      [
+        { role: 'system', content: `Bạn phân loại ý định người dùng cho app tài chính cá nhân tiếng Việt. Chỉ trả JSON: {"intent": one of ${INTENT_LIST.join('|')}, "amount": number|null, "confidence": 0..1}. amount là số tiền VND nếu có (quy đổi "50k"=50000, "2 triệu"=2000000).` },
+        { role: 'user', content: String(text).slice(0, 500) },
+      ],
+      { json: true, temperature: 0 }
+    );
+  } catch {
+    return null;
+  }
   if (!content) return null;
   try {
     const p = JSON.parse(content);
@@ -62,17 +80,21 @@ export async function classify(text) {
 
 /** Nhờ LLM trả lời câu hỏi mở, dựa hoàn toàn trên số liệu thật của người dùng. */
 export async function answer(question, context) {
-  return call(
-    [
-      {
-        role: 'system',
-        content:
-          'Bạn là cố vấn tài chính cá nhân người Việt, thực tế và thẳng thắn. Chỉ dùng số liệu trong CONTEXT, không bịa. ' +
-          'Trả lời ngắn gọn (dưới 200 từ), dùng markdown, đơn vị VND rút gọn (triệu/tỷ). Không khuyên mua bán mã cổ phiếu cụ thể. ' +
-          'Nếu thiếu dữ liệu, nói rõ cần bổ sung gì.',
-      },
-      { role: 'user', content: `CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}\n\nCÂU HỎI: ${question}` },
-    ],
-    { temperature: 0.5 }
-  );
+  try {
+    return await call(
+      [
+        {
+          role: 'system',
+          content:
+            'Bạn là cố vấn tài chính cá nhân người Việt, thực tế và thẳng thắn. Chỉ dùng số liệu trong CONTEXT, không bịa. ' +
+            'Trả lời ngắn gọn (dưới 200 từ), dùng markdown, đơn vị VND rút gọn (triệu/tỷ). Không khuyên mua bán mã cổ phiếu cụ thể. ' +
+            'Nếu thiếu dữ liệu, nói rõ cần bổ sung gì.',
+        },
+        { role: 'user', content: `CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}\n\nCÂU HỎI: ${question}` },
+      ],
+      { temperature: 0.5 }
+    );
+  } catch {
+    return null;
+  }
 }

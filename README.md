@@ -1,8 +1,10 @@
 # FinMate — Cố vấn tài chính cá nhân all-in-one
 
-Ứng dụng quản lý tài chính cá nhân cho người Việt — kể cả người Việt đang sống ở nước ngoài: **tự động theo dõi thu chi**, **tự phân bổ tiền vào quỹ**, **đa tiền tệ (VND / EUR / USD / GBP)**, và một **cố vấn tài chính trò chuyện bằng tiếng Việt** hiểu lệnh tự nhiên ("trưa nay ăn 60k", "ăn trưa 12.50 euro", "gửi 800 euro về Việt Nam", "bao giờ mình tự do tài chính?").
+Ứng dụng quản lý tài chính cá nhân cho người Việt — kể cả người Việt đang sống ở nước ngoài: **tự động theo dõi thu chi**, **tự phân bổ tiền vào quỹ**, **đa tiền tệ (VND / EUR / USD / GBP)**, và một **cố vấn tài chính AI** trò chuyện bằng tiếng Việt — không chỉ trả lời, mà còn **tự thao tác trong app** giúp bạn: ghi giao dịch, cập nhật số dư, tạo mục tiêu, chia lại quỹ ("trưa nay ăn 60k", "AIB còn 5000 euro", "gửi 800 euro về Việt Nam", "bao giờ mình tự do tài chính?").
 
-Không cần internet, không cần tài khoản, không gửi dữ liệu đi đâu — mọi thứ nằm trong một file SQLite trên máy bạn. (Chỉ tỷ giá là lấy online, và có thể nhập tay nếu offline.)
+Thiết kế cho **điện thoại** trước — mở app là vào thẳng cuộc trò chuyện với cố vấn của bạn.
+
+Không cần tài khoản, không gửi dữ liệu đi đâu — mọi thứ nằm trong một file SQLite trên máy bạn. (Chỉ tỷ giá lấy online và có thể nhập tay; phần cố vấn AI là tuỳ chọn, tắt đi app vẫn chạy đủ tính năng offline.)
 
 ---
 
@@ -42,9 +44,22 @@ npm run reset          # xoá sạch, app sẽ tự chạy onboarding qua chat
 ## Tính năng
 
 ### 1. Chat — trái tim của app
-Onboarding hoàn toàn bằng hội thoại: app hỏi tuổi, thu nhập, tài khoản, nợ, mục tiêu... rồi **tự dựng kế hoạch tài chính** ngay khi bạn trả lời xong.
 
-Sau đó chat hiểu ~30 loại ý định, tự phát hiện số tiền kiểu Việt (`60k`, `1tr5`, `1,2 tỷ`, `3 củ`, `1 triệu rưỡi`):
+Có hai chế độ, tự chọn theo cấu hình:
+
+**A. Cố vấn AI thật sự** (khi có `FINMATE_LLM_KEY` — [xem cách bật](#kết-nối-llm-tuỳ-chọn))
+
+Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **37 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+
+- **Onboarding bằng hội thoại tự nhiên**: lần đầu mở app, AI trò chuyện để tìm hiểu bạn — tên, tuổi, đang sống ở đâu, thu nhập, các tài khoản và số dư, nợ, mục tiêu — và **ghi ngay vào app trong lúc nói chuyện**. Bạn kể một lúc nhiều thứ cũng được, nó lưu hết.
+- **Tự thao tác trong app**: bạn nói "AIB còn 5000 euro" → nó cập nhật số dư; "đặt ngân sách ăn uống 400 euro" → nó tạo ngân sách; "mình vừa trả 300 euro thẻ tín dụng" → nó ghi trả nợ và tính lại dư nợ. Mỗi thao tác đều hiện chip xác nhận dưới câu trả lời (✍️ Đã ghi giao dịch, 💰 Đã cập nhật số dư…).
+- **Lời khuyên gắn với số của bạn**: nó tra tài sản ròng, tỷ lệ tiết kiệm, quỹ khẩn cấp, ngày FIRE… trước khi khuyên, nên không nói chung chung.
+- **Chủ động cảnh báo** khi thấy rủi ro thật: sắp âm tiền, nợ lãi cao, quỹ khẩn cấp mỏng.
+- Câu trả lời được tối ưu để **đọc trên điện thoại**: ngắn, ít bảng, in đậm con số quan trọng.
+
+**B. Bộ luật tiếng Việt offline** (mặc định, không cần key, không cần internet)
+
+Onboarding theo từng bước, hiểu ~30 loại ý định và tự phát hiện số tiền kiểu Việt (`60k`, `1tr5`, `1,2 tỷ`, `3 củ`, `1 triệu rưỡi`). Đây cũng là lưới an toàn: nếu API AI lỗi hay hết hạn mức, app tự động rơi về chế độ này thay vì báo lỗi.
 
 | Bạn nhắn | App làm gì |
 |---|---|
@@ -136,15 +151,30 @@ Mọi giao dịch nạp vào đều được tự phân loại, tự trừ ngân
 
 ## Kết nối LLM (tuỳ chọn)
 
-App **chạy đầy đủ mà không cần LLM** — toàn bộ NLU là rule-based tiếng Việt. Nếu muốn câu trả lời tự nhiên hơn cho câu hỏi ngoài luồng, đặt biến môi trường (bất kỳ endpoint nào tương thích OpenAI):
+App **chạy đầy đủ mà không cần LLM** — toàn bộ NLU là rule-based tiếng Việt và chạy offline. Nhưng bật LLM sẽ đổi hẳn trải nghiệm chat: từ "hỏi A đáp A" thành một **cố vấn tài chính thật sự** biết tra cứu và tự thao tác trong app.
 
 ```bash
-FINMATE_LLM_URL=https://api.openai.com/v1/chat/completions
 FINMATE_LLM_KEY=sk-...
-FINMATE_LLM_MODEL=gpt-4o-mini
+FINMATE_LLM_URL=https://api.openai.com/v1/chat/completions   # hoặc Azure/Groq/OpenRouter/Ollama
+FINMATE_LLM_MODEL=gpt-4o-mini                                # cần hỗ trợ function calling
+FINMATE_AGENT=off                                            # tuỳ chọn: tắt agent dù đã có key
 ```
 
-LLM chỉ được dùng để diễn đạt; mọi con số vẫn tính từ dữ liệu trong máy.
+Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **37 công cụ** (18 công cụ ghi dữ liệu, 19 công cụ tra cứu). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, tạo mục tiêu — rồi mới trả lời.
+
+- **Mọi con số vẫn tính từ dữ liệu trong máy bạn.** LLM không được phép tự bịa số; nó chỉ diễn đạt kết quả công cụ trả về.
+- **Gửi đi cái gì:** nội dung hội thoại + số liệu tóm tắt (không gửi toàn bộ lịch sử giao dịch). Nếu không muốn gửi gì ra ngoài, cứ để trống key — app vẫn đủ tính năng.
+- **Hỏng thì sao:** hết hạn mức, mất mạng, model trả sai — app tự động rơi về bộ luật offline, không báo lỗi cho người dùng.
+- **Model gọi sai tên tham số** (rất hay xảy ra) được ánh xạ lại tự động; công cụ báo lỗi kèm danh sách giá trị hợp lệ để agent tự sửa ở vòng sau.
+
+---
+
+## Giao diện
+
+- **Thiết kế cho điện thoại trước**: thanh điều hướng dưới cùng 5 mục, ngăn kéo trượt cho 16 trang, ô nhập chat dính đáy màn hình, gợi ý trả lời nhanh cuộn ngang, tôn trọng `safe-area` của iPhone.
+- **Chủ đề sáng / tối / theo hệ thống** — bấm nút 🌗 ở góc trên, không chớp nền khi tải lại.
+- **Tìm nhanh `Ctrl/⌘ + K`** — nhảy tới bất kỳ trang nào, gõ không dấu vẫn ra.
+- Biểu đồ tự vẽ bằng SVG (không thư viện), skeleton khi tải, tôn trọng `prefers-reduced-motion`, có style riêng cho in ấn.
 
 ---
 
@@ -174,10 +204,13 @@ finmate/
 │  │  │  ├─ forecast.js       # dòng tiền 90 ngày, số tiền an toàn để tiêu
 │  │  │  ├─ advisor.js        # điểm sức khoẻ, thác nước tiền dư
 │  │  │  ├─ insights.js       # phát hiện bất thường
-│  │  │  └─ chat/             # nlu.js · handlers.js · knowledge.js · onboarding.js
+│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (37 công cụ)
+│  │  │                       # llm.js · nlu.js · handlers.js · knowledge.js · onboarding.js
 │  │  └─ scripts/{seed,seed_ie,reset}.js
 │  └─ test/
 └─ web/                       # React 18 + Vite, 16 trang, biểu đồ tự vẽ bằng SVG
+   ├─ src/lib/theme.js        # chủ đề sáng/tối/theo hệ thống
+   ├─ src/components/         # ui.jsx · CommandPalette.jsx (Ctrl+K)
    └─ src/pages/              # Chat, Dashboard, Transactions, Accounts, Funds, Goals,
                               # Budgets, Income, Investments, Debts, Fire, Advisor,
                               # Insights, Currency, Automation, Settings
@@ -226,7 +259,10 @@ Windows: dùng Task Scheduler chạy `npm start` lúc đăng nhập. macOS/Linux
 | `FINMATE_BACKUP_KEEP` | `14` | Số bản sao lưu giữ lại |
 | `FINMATE_FX_URL` | `https://open.er-api.com/v6/latest/EUR` | Nguồn tỷ giá (JSON có trường `rates`) |
 | `FINMATE_FX_OFFLINE` | – | Đặt `1` để tắt hẳn việc gọi mạng lấy tỷ giá |
-| `FINMATE_LLM_URL/KEY/MODEL` | – | Kết nối LLM tuỳ chọn |
+| `FINMATE_LLM_KEY` | – | Bật cố vấn AI (function calling). Trống = dùng bộ luật offline |
+| `FINMATE_LLM_URL` | OpenAI | Endpoint tương thích OpenAI |
+| `FINMATE_LLM_MODEL` | `gpt-4o-mini` | Model, cần hỗ trợ tool calling |
+| `FINMATE_AGENT` | – | Đặt `off` để tắt agent dù đã có key |
 
 ### Những việc chỉ bạn làm được
 - **Kết nối ngân hàng tự động**: Việt Nam chưa có Open Banking mở cho cá nhân. Cách khả thi nhất vẫn là webhook SMS/thông báo như trên, hoặc import CSV sao kê định kỳ.
@@ -243,10 +279,12 @@ cd server && node test/smoke-auth.mjs      # PIN, phiên, sao lưu, xuất dữ 
 cd server && node test/smoke-ui.mjs        # mọi field frontend dùng đều tồn tại trong API
 cd server && node test/smoke-chat.mjs      # 29 ý định chat
 cd server && node test/smoke-knowledge.mjs # 19 câu hỏi tài chính mở
+cd server && node test/smoke-tools.mjs     # 37 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
+cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
 cd web    && node test/render.mjs          # render thật 16 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`). `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools` và `smoke-agent` — hai lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 ---
 

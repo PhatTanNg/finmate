@@ -48,7 +48,7 @@ export default function Dashboard({ d, go }) {
 
       <div className="grid g2" style={{ marginTop: 14 }}>
         <Card title="Chi tiêu theo danh mục">
-          <Donut items={(d.categories || []).map((c) => ({ label: `${c.icon || ''} ${c.name}`.trim(), value: c.total }))} />
+          <Donut items={(d.categories || []).map((c) => ({ label: `${c.icon || ''} ${c.name}`.trim(), value: c.amount ?? c.total }))} />
         </Card>
         <Card title="Phân bổ quỹ" right={<button className="btn sm ghost" onClick={() => go('funds')}>Chi tiết →</button>}>
           <div className="list">
@@ -70,7 +70,7 @@ export default function Dashboard({ d, go }) {
           <div className="list">
             {(d.insights || []).slice(0, 6).map((i) => (
               <div key={i.id} className="item" style={{ padding: '9px 0' }}>
-                <div className="ic">{i.severity === 'high' ? '🔴' : i.severity === 'medium' ? '🟡' : '🔵'}</div>
+                <div className="ic">{i.severity === 'danger' ? '🔴' : i.severity === 'warn' ? '🟡' : i.severity === 'success' ? '🟢' : '🔵'}</div>
                 <div style={{ minWidth: 0 }}>
                   <div className="t" style={{ fontSize: 13.5 }}>{i.title}</div>
                   <div className="s">{i.body}</div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { short, fmt, mdToHtml, vnDate } from '../lib/format.js';
 
 export const Card = ({ title, children, right, className = '' }) => (
@@ -33,11 +33,45 @@ export const Loading = () => (
   <div className="loading"><div className="spin" /></div>
 );
 
+/** Khung chờ dữ liệu — giữ đúng chỗ nội dung sắp hiện, đỡ giật layout. */
+export const Skeleton = ({ h = 16, w = '100%', r = 8, style }) => (
+  <div className="sk" style={{ height: h, width: w, borderRadius: r, ...style }} />
+);
+
+export const SkeletonCard = ({ lines = 3 }) => (
+  <div className="card">
+    <Skeleton h={12} w="38%" style={{ marginBottom: 14 }} />
+    {Array.from({ length: lines }, (_, i) => (
+      <Skeleton key={i} h={14} w={i === lines - 1 ? '60%' : '100%'} style={{ marginBottom: 9 }} />
+    ))}
+  </div>
+);
+
+export const SkeletonStats = ({ n = 4 }) => (
+  <div className="grid g4">
+    {Array.from({ length: n }, (_, i) => (
+      <div className="card stat" key={i}>
+        <Skeleton h={10} w="52%" />
+        <Skeleton h={26} w="72%" style={{ margin: '10px 0 8px' }} />
+        <Skeleton h={10} w="44%" />
+      </div>
+    ))}
+  </div>
+);
+
 export function Modal({ title, onClose, children }) {
+  // Esc đóng modal và khoá cuộn nền trong lúc mở.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
   return (
     <div className="modal-bg" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="between"><h2>{title}</h2><button className="btn sm ghost" onClick={onClose}>✕</button></div>
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="between"><h2>{title}</h2><button className="btn sm ghost" onClick={onClose} aria-label="Đóng">✕</button></div>
         {children}
       </div>
     </div>
@@ -80,30 +114,58 @@ export function Form({ fields, initial = {}, submit = 'Lưu', onSubmit, onCancel
 
 // ---------- biểu đồ SVG tự vẽ (không cần thư viện) ----------
 
-export function LineChart({ series = [], height = 170, color = '#5b8cff', fill = true, labels = [] }) {
+export function LineChart({ series = [], height = 170, color = 'var(--acc)', fill = true, labels = [] }) {
   const data = series.map((n) => Number(n) || 0);
   if (data.length < 2) return <Empty>Chưa đủ dữ liệu</Empty>;
   const w = 600, h = height, pad = 8;
   const min = Math.min(...data, 0), max = Math.max(...data, 1);
   const x = (i) => pad + (i * (w - pad * 2)) / (data.length - 1);
-  const y = (v) => h - pad - ((v - min) / (max - min || 1)) * (h - pad * 2 - 14);
+  const y = (v) => h - pad - ((v - min) / (max - min || 1)) * (h - pad * 2);
   const d = data.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const id = `g${color.replace('#', '')}`;
+  const id = `g${String(color).replace(/[^a-z0-9]/gi, '')}`;
+  // Nhãn vẽ bằng HTML chứ không nhét vào SVG: preserveAspectRatio="none"
+  // sẽ kéo giãn chữ méo mó và cắt cụt nhãn ở hai đầu.
+  const step = Math.max(1, Math.ceil(data.length / 6));
+  const ticks = labels.length === data.length
+    ? labels.map((l, i) => (i % step === 0 || i === data.length - 1 ? { i, l } : null)).filter(Boolean)
+    : [];
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={height} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity=".38" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {fill && <path d={`${d} L${x(data.length - 1)},${h - pad} L${x(0)},${h - pad} Z`} fill={`url(#${id})`} />}
-      <path d={d} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
-      {data.map((v, i) => (i === data.length - 1 ? <circle key={i} cx={x(i)} cy={y(v)} r="4" fill={color} /> : null))}
-      {labels.length === data.length && labels.map((l, i) => (
-        i % Math.ceil(data.length / 6) === 0 ? <text key={i} x={x(i)} y={h - 1} fontSize="10" fill="#6b7aa3" textAnchor="middle">{l}</text> : null
-      ))}
-    </svg>
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={height} preserveAspectRatio="none" style={{ display: 'block' }}>
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity=".38" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {fill && <path d={`${d} L${x(data.length - 1)},${h - pad} L${x(0)},${h - pad} Z`} fill={`url(#${id})`} />}
+        <path d={d} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        <circle cx={x(data.length - 1)} cy={y(data[data.length - 1])} r="4" fill={color} />
+      </svg>
+      {ticks.length > 0 && (
+        <div style={{ position: 'relative', height: 15, marginTop: 2 }}>
+          {ticks.map(({ i, l }) => {
+            const p = (i / (data.length - 1)) * 100;
+            const edge = i === 0 ? 'left' : i === data.length - 1 ? 'right' : 'mid';
+            return (
+              <span
+                key={i}
+                className="mini"
+                style={{
+                  position: 'absolute',
+                  left: edge === 'right' ? undefined : `${p}%`,
+                  right: edge === 'right' ? 0 : undefined,
+                  transform: edge === 'mid' ? 'translateX(-50%)' : undefined,
+                  fontSize: 10.5, color: 'var(--dim2)', whiteSpace: 'nowrap',
+                }}
+              >
+                {l}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -149,8 +211,8 @@ export function Donut({ items = [], size = 168, unit = 'đ' }) {
             return el;
           })}
         </g>
-        <text x="80" y="76" textAnchor="middle" fontSize="11" fill="#93a0c4">Tổng</text>
-        <text x="80" y="94" textAnchor="middle" fontSize="17" fontWeight="700" fill="#e8ecf8">{unit === 'đ' ? short(total) : total}</text>
+        <text x="80" y="76" textAnchor="middle" fontSize="11" fill="var(--dim)">Tổng</text>
+        <text x="80" y="94" textAnchor="middle" fontSize="17" fontWeight="700" fill="var(--txt)">{unit === 'đ' ? short(total) : total}</text>
       </svg>
       <div style={{ flex: 1, minWidth: 150 }}>
         {items.slice(0, 9).map((it, i) => (
@@ -168,7 +230,7 @@ export function Donut({ items = [], size = 168, unit = 'đ' }) {
 }
 
 export const Money = ({ v, sign }) => (
-  <span className={v > 0 ? 'up' : v < 0 ? 'down' : ''}>{sign && v > 0 ? '+' : ''}{fmt(v)}</span>
+  <span className={v > 0 ? 'up' : v < 0 ? 'down' : ''} style={{ fontVariantNumeric: 'tabular-nums' }}>{sign && v > 0 ? '+' : ''}{fmt(v)}</span>
 );
 
 export const DateTxt = ({ v }) => <span className="mini">{vnDate(v)}</span>;
