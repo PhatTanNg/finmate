@@ -5,8 +5,8 @@ if (existsSync(process.env.FINMATE_DB)) rmSync(process.env.FINMATE_DB);
 
 const { bootstrap } = await import('../src/bootstrap.js');
 bootstrap();
-const { TOOLS, runTool } = await import('../src/services/chat/tools.js');
-const { get } = await import('../src/db.js');
+const { TOOLS, TOOL_IMPL, runTool } = await import('../src/services/chat/tools.js');
+const { get, all } = await import('../src/db.js');
 
 let pass = 0; let fail = 0;
 const bad = [];
@@ -174,6 +174,24 @@ runTool('dat_phan_bo_quy', { phan_bo: [{ quy: 'Cho đi', phan_tram: -30 }] });
 const neg = get("SELECT percent FROM funds WHERE name='Cho đi'")?.percent;
 if (neg === 0) { pass += 1; console.log('  ok   % phân bổ âm được kẹp về 0'); }
 else { fail += 1; bad.push('kẹp % âm'); console.log(`  FAIL % âm -> ${neg}`); }
+
+console.log('\n— Công cụ tái cân bằng phân bổ —');
+runTool('dat_phan_bo_quy', { phan_bo: [{ quy: 'Thiết yếu', phan_tram: 60 }, { quy: 'Cho đi', phan_tram: 65 }] });
+const tongTruoc = all('SELECT percent FROM funds WHERE archived=0').reduce((s, f) => s + (f.percent || 0), 0);
+const cb = runTool('can_bang_phan_bo', {});
+const tongSau = all('SELECT percent FROM funds WHERE archived=0').reduce((s, f) => s + (f.percent || 0), 0);
+if (cb.ok && Math.abs(tongSau - 100) < 0.5) { pass += 1; console.log(`  ok   cân bằng kéo tổng ${tongTruoc}% về ${tongSau}%`); }
+else { fail += 1; bad.push('cân bằng phân bổ'); console.log(`  FAIL cân bằng -> tổng ${tongSau} ${JSON.stringify(cb).slice(0, 160)}`); }
+
+const cb2 = runTool('can_bang_phan_bo', {});
+if (cb2.ok && cb2.da_can_bang_san) { pass += 1; console.log('  ok   gọi lại khi đã đúng 100% thì không đổi gì'); }
+else { fail += 1; bad.push('cân bằng lặp'); console.log(`  FAIL gọi lại -> ${JSON.stringify(cb2).slice(0, 160)}`); }
+
+const declared = TOOLS.map((t) => t.function.name).sort();
+const impl = Object.keys(TOOL_IMPL).sort();
+const lech = [...declared.filter((n) => !impl.includes(n)), ...impl.filter((n) => !declared.includes(n))];
+if (!lech.length) { pass += 1; console.log(`  ok   ${declared.length} công cụ khai báo khớp đúng ${impl.length} hàm thực thi`); }
+else { fail += 1; bad.push('khai báo lệch thực thi'); console.log(`  FAIL lệch: ${lech.join(', ')}`); }
 
 console.log(`\nKết quả: ${pass} đạt / ${fail} lỗi`);
 if (bad.length) console.log('Cần sửa:', [...new Set(bad)].join(', '));

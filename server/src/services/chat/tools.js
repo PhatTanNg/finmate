@@ -326,6 +326,46 @@ function dat_phan_bo_quy({ phan_bo }) {
   return out;
 }
 
+/**
+ * Kéo tổng % phân bổ về đúng 100 mà giữ nguyên tỉ lệ tương đối giữa các quỹ.
+ * Có công cụ này thì agent không phải tự cộng trừ 8 con số trong đầu — việc rất
+ * dễ sai và sai thì người dùng bị chia tiền lệch mà không biết.
+ */
+function can_bang_phan_bo({ giu_nguyen } = {}) {
+  const funds = listFunds().filter((f) => (f.percent || 0) > 0);
+  if (!funds.length) return { ok: false, error: 'Chưa có quỹ nào được đặt % phân bổ.' };
+  const tong = funds.reduce((s, f) => s + f.percent, 0);
+  if (Math.abs(tong - 100) < 0.01) return { ok: true, da_can_bang_san: true, tong_phan_tram: tong, ghi_chu: 'Phân bổ đã đúng 100%, không cần chỉnh.' };
+
+  const khoa = new Set((Array.isArray(giu_nguyen) ? giu_nguyen : giu_nguyen ? [giu_nguyen] : [])
+    .map((x) => findFund(x)?.id).filter(Boolean));
+  const locked = funds.filter((f) => khoa.has(f.id));
+  const free = funds.filter((f) => !khoa.has(f.id));
+  const lockedSum = locked.reduce((s, f) => s + f.percent, 0);
+  if (!free.length) return { ok: false, error: 'Mọi quỹ đều bị giữ nguyên nên không còn chỗ để cân bằng.' };
+  if (lockedSum >= 100) return { ok: false, error: `Riêng các quỹ giữ nguyên đã chiếm ${lockedSum}%, không thể cân về 100%.` };
+
+  const freeSum = free.reduce((s, f) => s + f.percent, 0) || 1;
+  const room = 100 - lockedSum;
+  const truoc = funds.map((f) => ({ quy: f.name, phan_tram: f.percent }));
+  let dat = 0;
+  const moi = free.map((f, i) => {
+    const v = i === free.length - 1 ? Math.round((room - dat) * 10) / 10 : Math.round((f.percent / freeSum) * room * 10) / 10;
+    dat += v;
+    return { fund: f, percent: Math.max(0, v) };
+  });
+  for (const m of moi) update('funds', m.fund.id, { percent: m.percent });
+
+  const sau = listFunds().filter((f) => (f.percent || 0) > 0).map((f) => ({ quy: f.name, phan_tram: f.percent }));
+  return {
+    ok: true, mutates: true,
+    tong_truoc: tong, tong_sau: sau.reduce((s, x) => s + x.phan_tram, 0),
+    truoc, sau,
+    giu_nguyen: locked.map((f) => f.name),
+    ghi_chu: 'Đã kéo tổng về 100% và giữ nguyên tỉ lệ tương đối giữa các quỹ.',
+  };
+}
+
 function chuyen_quy({ tu_quy, den_quy, so_tien, dong_tien, ly_do }) {
   const a = findFund(tu_quy); const b = findFund(den_quy);
   if (!a || !b) return { ok: false, error: 'Không tìm thấy quỹ nguồn hoặc quỹ đích.', quy_hop_le: listFunds().map((f) => f.name) };
@@ -512,11 +552,18 @@ function cap_nhat_ho_so(patch = {}) {
     so_thang_quy_khan_cap: 'emergency_months_target', dong_tien_goc: 'currency', quoc_gia_thue: 'tax_country',
   };
   const data = {};
+  const bo_qua = [];
   for (const [vi, col] of Object.entries(map)) if (patch[vi] !== undefined && patch[vi] !== null) data[col] = patch[vi];
-  if (!Object.keys(data).length) return { ok: false, error: 'Không có trường nào hợp lệ để cập nhật.' };
+  for (const k of Object.keys(patch)) if (!map[k]) bo_qua.push(k);
+  if (!Object.keys(data).length) return { ok: false, error: 'Không có trường nào hợp lệ để cập nhật.', truong_hop_le: Object.keys(map) };
   if (data.currency) data.currency = normalizeCurrency(data.currency);
   update('profile', 1, data);
-  return { ok: true, mutates: true, da_cap_nhat: data };
+  // Nói ra những trường bị bỏ: nếu im lặng, model tưởng đã đặt xong (ví dụ nước
+  // tính thuế) và sẽ báo lại với người dùng một việc chưa hề xảy ra.
+  return {
+    ok: true, mutates: true, da_cap_nhat: data,
+    canh_bao: bo_qua.length ? `Không nhận diện được các trường: ${bo_qua.join(', ')} — CHƯA được lưu. Tên đúng: ${Object.keys(map).join(', ')}.` : null,
+  };
 }
 
 function hoan_tat_thiet_lap() {
@@ -645,7 +692,7 @@ const N = (description) => ({ type: 'number', description });
 
 export const TOOL_IMPL = {
   ghi_giao_dich, xoa_giao_dich, hoan_tac_gan_nhat, tao_tai_khoan, capnhat_so_du,
-  tao_muc_tieu, gop_tien_muc_tieu, dat_ngan_sach, dat_phan_bo_quy, chuyen_quy,
+  tao_muc_tieu, gop_tien_muc_tieu, dat_ngan_sach, dat_phan_bo_quy, can_bang_phan_bo, chuyen_quy,
   tao_quy, dat_muc_tieu_quy, dong_quy, mo_lai_quy, xoa_quy,
   them_nguon_thu, them_no, tra_no, them_dau_tu, cap_nhat_gia, tao_giao_dich_dinh_ky,
   cap_nhat_ho_so, hoan_tat_thiet_lap,
@@ -704,6 +751,10 @@ export const TOOLS = [
   T('dat_phan_bo_quy', 'Đặt % thu nhập tự động chảy vào từng quỹ.', {
     phan_bo: { type: 'object', description: 'Ví dụ {"Thiết yếu": 50, "Tự do tài chính": 20, "Hưởng thụ": 10}', additionalProperties: { type: 'number' } },
   }, ['phan_bo']),
+
+  T('can_bang_phan_bo', 'Kéo tổng % phân bổ các quỹ về đúng 100% mà giữ nguyên tỉ lệ tương đối. Dùng khi phan_bo_can_bang = false.', {
+    giu_nguyen: { type: 'array', items: { type: 'string' }, description: 'Tên các quỹ muốn giữ nguyên %, phần còn lại sẽ được chia lại.' },
+  }, []),
 
   T('chuyen_quy', 'Chuyển tiền giữa hai quỹ.', {
     tu_quy: S('Quỹ nguồn'), den_quy: S('Quỹ đích'), so_tien: N('Số tiền'), dong_tien: S('VND/EUR/USD/GBP'), ly_do: S('Lý do'),
@@ -838,7 +889,7 @@ const ALIASES = {
   tinh_thue: { thu_nhap_nam: 'luong_gross', thu_nhap: 'luong_gross', luong: 'luong_gross', nuoc: 'quoc_gia' },
   tu_van_tien_du: { tien_du: 'so_tien', amount: 'so_tien' },
   tinh_chuyen_tien: { tu_tien: 'tu', den_tien: 'den', amount: 'so_tien' },
-  cap_nhat_ho_so: { name: 'ten', tuoi: 'nam_sinh', city: 'thanh_pho' },
+  cap_nhat_ho_so: { name: 'ten', tuoi: 'nam_sinh', city: 'thanh_pho', nuoc_tinh_thue: 'quoc_gia_thue', nuoc: 'quoc_gia_thue', quoc_gia: 'quoc_gia_thue', country: 'quoc_gia_thue', tax_country: 'quoc_gia_thue', currency: 'dong_tien_goc', dong_tien: 'dong_tien_goc', tuoi_nghi_huu: 'tuoi_nghi_huu_mong_muon', retire_age: 'tuoi_nghi_huu_mong_muon', so_nguoi_phu_thuoc: 'nguoi_phu_thuoc' },
   xem_giao_dich: { limit: 'so_luong', keyword: 'tu_khoa', q: 'tu_khoa' },
 };
 

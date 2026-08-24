@@ -15,7 +15,10 @@ import { netWorth } from '../networth.js';
 import { fireStats, emergencyStatus } from '../fire.js';
 import { healthScore } from '../advisor.js';
 import { safeToSpend } from '../forecast.js';
-import { monthlyFundLoad } from '../funds.js';
+import { monthlyFundLoad, fundsOverview } from '../funds.js';
+import { budgetStatus } from '../budgets.js';
+import { portfolio } from '../investments.js';
+import { upcoming } from '../recurring.js';
 import { llmEnabled, complete } from './llm.js';
 import { TOOLS, runTool } from './tools.js';
 
@@ -40,6 +43,37 @@ function brief() {
   try { h = healthScore(); } catch { /* chưa đủ số liệu */ }
   try { sts = safeToSpend(); } catch { /* chưa đủ số liệu */ }
 
+  // Tài nguyên mà agent điều phối. Không có phần này thì agent phải đoán hoặc
+  // gọi tool mò từng thứ, và sẽ không tự thấy được phân bổ đang lệch.
+  let quy = []; let tongPct = 0; let canBang = true;
+  try {
+    const ov = fundsOverview();
+    tongPct = ov.total_percent;
+    canBang = ov.balanced;
+    quy = ov.funds.filter((x) => !x.archived).map((x) => ({
+      ten: x.name, phan_tram: x.percent, uu_tien: x.priority, so_du: x.balance,
+      dong_tien: x.currency, muc_tieu: x.target_amount || null, han: x.target_date || null,
+      can_moi_thang: x.plan?.monthly_needed || null, trang_thai: x.plan?.status || x.status,
+    }));
+  } catch { /* chưa có quỹ */ }
+
+  let nganSach = [];
+  try {
+    nganSach = (budgetStatus().items || []).map((b) => ({
+      danh_muc: b.name, han_muc: b.limit, da_tieu: b.spent, con_lai: b.remaining,
+      dong_tien: b.currency, trang_thai: b.status,
+    }));
+  } catch { /* chưa đặt */ }
+
+  let dauTu = null;
+  try {
+    const pf = portfolio();
+    dauTu = { so_ma: pf.holdings?.length || 0, gia_tri: pf.total_value, lai_lo_chua_ban: pf.unrealized_pnl, co_tuc_du_kien: pf.projected_dividend };
+  } catch { /* chưa có */ }
+
+  let dinhKy = [];
+  try { dinhKy = (upcoming(30) || []).slice(0, 8).map((r) => ({ ten: r.name, loai: r.type, so_tien: r.amount, ngay: r.date })); } catch { /* chưa có */ }
+
   return {
     hom_nay: today(),
     thang: mk,
@@ -53,7 +87,7 @@ function brief() {
     don_vi_nho_nhat: info.decimals === 0 ? '1 đơn vị = 1 đồng' : `1 đơn vị = 1/${10 ** info.decimals} ${base}`,
     nuoc_tinh_thue: `${taxCountry()} (${COUNTRIES?.[taxCountry()]?.name || ''})`,
     so_tai_khoan: accs.length,
-    ten_cac_tai_khoan: accs.map((a) => `${a.name} (${a.currency})`),
+    vi_va_so_du: accs.map((a) => ({ ten: a.name, loai: a.type, dong_tien: a.currency, so_du: a.balance })),
     thu_thang_nay: t.income,
     chi_thang_nay: t.expense,
     ty_le_tiet_kiem: t.savings_rate != null ? Math.round(t.savings_rate * 100) + '%' : null,
@@ -70,6 +104,12 @@ function brief() {
     quy_sap_den_han: monthlyFundLoad().items
       .filter((x) => x.status === 'urgent' || x.status === 'overdue')
       .map((x) => `${x.name} (${x.status === 'overdue' ? 'quá hạn' : 'còn ' + x.months_left + ' tháng'})`),
+    cac_quy: quy,
+    tong_phan_tram_quy: tongPct,
+    phan_bo_can_bang: canBang,
+    ngan_sach: nganSach,
+    dau_tu: dauTu,
+    khoan_dinh_ky_30_ngay_toi: dinhKy,
   };
 }
 
@@ -91,8 +131,14 @@ BẠN LÀ NGƯỜI VẬN HÀNH APP
 - Người dùng chỉ cần nói ý định ("mình muốn đổi xe trong 2 năm nữa"), **bạn tự dựng cấu trúc trong app**: tạo quỹ, đặt số tiền mục tiêu, đặt hạn, tính số tiền mỗi tháng, chỉnh lại % các quỹ khác cho đủ 100%. Đừng bắt họ tự vào app bấm.
 - Đừng xin phép cho những việc có thể hoàn tác (tạo quỹ, đổi %, ghi giao dịch) — cứ làm rồi báo lại một dòng. Chỉ hỏi trước khi **xoá** dữ liệu hoặc khi thay đổi lớn ảnh hưởng nhiều quỹ.
 
-QUẢN LÝ QUỸ THEO MỤC TIÊU VÀ THỜI HẠN
-- Mỗi quỹ tích luỹ nên có **số tiền mục tiêu + hạn hoàn thành**. Từ đó dat_muc_tieu_quy trả về monthly_needed = số tiền phải bỏ vào mỗi tháng. Luôn nói con số này cho người dùng.
+ĐIỀU PHỐI TÀI NGUYÊN — BẠN CÓ SẴN BỨC TRANH TOÀN CẢNH
+- Phần TÌNH HÌNH liệt kê sẵn **mọi tài nguyên bạn đang quản**: từng ví và số dư, từng quỹ kèm % + độ ưu tiên + hạn + số tiền cần mỗi tháng, ngân sách, danh mục đầu tư, các khoản định kỳ sắp tới. Dùng thẳng, đừng gọi công cụ hỏi lại thứ đã nằm sẵn trước mắt.
+- Nếu **phan_bo_can_bang = false**: tổng % các quỹ đang khác 100, nên tiền được chia theo tỉ lệ chứ không đúng con số hiển thị cho người dùng. Hãy chủ động chia lại cho đủ 100% rồi báo một dòng — đây là việc hoàn tác được, không cần xin phép.
+- Trước khi nhận thêm một mục tiêu mới, cộng **can_moi_thang** của mọi quỹ và so với tiền dư mỗi tháng. Nếu vượt, nói thẳng con số thiếu hụt rồi đề xuất cụ thể: giãn hạn quỹ nào, hạ mục tiêu quỹ nào, hay hoãn quỹ ưu tiên thấp nào. Đừng im lặng nhận thêm rồi để kế hoạch vỡ.
+- Khi tiền không đủ cho mọi quỹ, cắt theo **uu_tien** từ số lớn xuống (số càng lớn càng ít quan trọng), không cắt đều tay.
+- Rà soát chủ động: quỹ quá hạn, ngân sách sắp vượt, tiền nằm chết trong ví không sinh lời, nợ lãi cao trong khi quỹ hưởng thụ vẫn đầy — thấy thì nói, dù người dùng không hỏi.
+
+QUẢN LÝ QUỸ THEO MỤC TIÊU VÀ THỜI HẠN- Mỗi quỹ tích luỹ nên có **số tiền mục tiêu + hạn hoàn thành**. Từ đó dat_muc_tieu_quy trả về monthly_needed = số tiền phải bỏ vào mỗi tháng. Luôn nói con số này cho người dùng.
 - **uu_tien**: số càng nhỏ càng ưu tiên. Quy ước: 1 = thiết yếu & khẩn cấp, 2 = nợ lãi cao, 3 = mục tiêu có hạn gần, 4 = tích luỹ dài hạn, 5+ = hưởng thụ. Khi tiền không đủ cho mọi quỹ, hãy nói rõ quỹ nào bị cắt trước.
 - Nếu tổng monthly_needed vượt quá tiền dư mỗi tháng, đừng im lặng: báo thẳng "kế hoạch này đang quá tải X€/tháng" và đề xuất giãn hạn, hạ mục tiêu, hoặc hoãn quỹ ưu tiên thấp.
 - Quỹ không còn dùng thì **dong_quy** (giữ lịch sử, dồn số dư sang quỹ khác) chứ đừng xoá. Sau khi đóng, nhớ chia lại % cho đủ 100%.

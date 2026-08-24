@@ -49,7 +49,7 @@ Có hai chế độ, tự chọn theo cấu hình:
 
 **A. Cố vấn AI thật sự** (khi có `FINMATE_LLM_KEY` — [xem cách bật](#kết-nối-llm-tuỳ-chọn))
 
-Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **42 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **43 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
 
 **App là công cụ làm việc của AI.** Nó không chỉ tra cứu và khuyên — nó tự dựng và vận hành cấu trúc tài chính cho bạn: tạo tài khoản, mở quỹ mới, đặt mục tiêu và hạn hoàn thành, đổi tỷ lệ phân bổ, sắp xếp lại độ ưu tiên, đóng quỹ không còn phù hợp và dồn số dư sang quỹ khác. Việc nào hoàn tác được thì nó làm luôn rồi báo lại; chỉ những việc xoá vĩnh viễn mới hỏi bạn trước.
 
@@ -59,6 +59,15 @@ Chat box trở thành một cố vấn tài chính có toàn quyền đọc và 
 - **Lời khuyên gắn với số của bạn**: nó tra tài sản ròng, tỷ lệ tiết kiệm, quỹ khẩn cấp, ngày FIRE… trước khi khuyên, nên không nói chung chung.
 - **Chủ động cảnh báo** khi thấy rủi ro thật: sắp âm tiền, nợ lãi cao, quỹ khẩn cấp mỏng.
 - Câu trả lời được tối ưu để **đọc trên điện thoại**: ngắn, ít bảng, in đậm con số quan trọng.
+
+**AI nhìn thấy toàn bộ tài nguyên nó đang quản.** Mỗi lượt chat, app gửi kèm cho AI một bức tranh đầy đủ chứ không bắt nó mò từng công cụ: số dư từng ví, từng quỹ kèm % + độ ưu tiên + hạn hoàn thành + số tiền cần bỏ mỗi tháng, tổng % phân bổ có cân bằng chưa, ngân sách từng danh mục còn bao nhiêu, danh mục đầu tư lãi lỗ ra sao, các khoản định kỳ 30 ngày tới. Nhờ vậy nó điều phối được tổng thể như một cố vấn thật:
+
+| AI thấy gì | Nó tự làm gì |
+|---|---|
+| Tổng % các quỹ đang là 125% chứ không phải 100% | Gọi `can_bang_phan_bo` kéo về đúng 100% mà **giữ nguyên tỉ lệ** giữa các quỹ, rồi báo lại một dòng |
+| Tổng tiền cần bỏ vào quỹ mỗi tháng vượt tiền dư | Nói thẳng con số thiếu hụt, đề xuất giãn hạn quỹ nào / hạ mục tiêu quỹ nào, thay vì im lặng nhận thêm mục tiêu mới |
+| Tiền không đủ cho mọi quỹ | Cắt theo **độ ưu tiên** từ thấp lên, không cắt đều tay |
+| Quỹ quá hạn, ngân sách sắp vượt, nợ lãi cao | Nêu ra dù bạn không hỏi |
 
 **Lan can an toàn cho AI.** AI suy luận vẫn có lúc sai — gõ thừa số 0, gửi số âm, đặt hạn đã qua. Mọi công cụ ghi dữ liệu đều tự kiểm trước khi lưu:
 
@@ -225,7 +234,7 @@ FINMATE_LLM_MODEL=qwen2.5:14b
 
 Vào tab **Cài đặt** để xem app đang chạy chế độ nào — thẻ "Cố vấn AI" ở đầu trang nói rõ đang dùng bộ luật hay AI thật, và model nào.
 
-Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **42 công cụ** (23 công cụ ghi/sửa dữ liệu, 19 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
+Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **43 công cụ** (24 công cụ ghi/sửa dữ liệu, 19 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
 
 - **Mọi con số vẫn tính từ dữ liệu trong máy bạn.** LLM không được phép tự bịa số; nó chỉ diễn đạt kết quả công cụ trả về.
 - **Gửi đi cái gì:** nội dung hội thoại + số liệu tóm tắt (không gửi toàn bộ lịch sử giao dịch). Nếu không muốn gửi gì ra ngoài, cứ để trống key — app vẫn đủ tính năng.
@@ -270,7 +279,7 @@ finmate/
 │  │  │  ├─ forecast.js       # dòng tiền 90 ngày, số tiền an toàn để tiêu
 │  │  │  ├─ advisor.js        # điểm sức khoẻ, thác nước tiền dư
 │  │  │  ├─ insights.js       # phát hiện bất thường
-│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (42 công cụ)
+│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (43 công cụ)
 │  │  │                       # llm.js · nlu.js · handlers.js · knowledge.js · onboarding.js
 │  │  └─ scripts/{seed,seed_ie,reset}.js
 │  └─ test/
@@ -372,7 +381,7 @@ cd server && node test/smoke-auth.mjs      # PIN, phiên, sao lưu, xuất dữ 
 cd server && node test/smoke-ui.mjs        # mọi field frontend dùng đều tồn tại trong API
 cd server && node test/smoke-chat.mjs      # 29 ý định chat
 cd server && node test/smoke-knowledge.mjs # 19 câu hỏi tài chính mở
-cd server && node test/smoke-tools.mjs     # 42 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
+cd server && node test/smoke-tools.mjs     # 43 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
 cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
 cd server && node test/scenarios.mjs       # 203 kịch bản người dùng thật, 17 nhóm tính năng
 cd server && node test/personas.mjs        # 8 hành trình người dùng đầu-cuối, 160 bước

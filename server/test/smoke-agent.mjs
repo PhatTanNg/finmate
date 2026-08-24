@@ -119,7 +119,33 @@ r = await chat('đặt ngân sách ăn uống 400 euro');
 ok('vòng 2 sửa được lỗi', all('SELECT * FROM budgets').length === 1, JSON.stringify(all('SELECT * FROM budgets')));
 ok('ghi lại cả 2 lần gọi', r.tools?.length === 2, JSON.stringify(r.tools));
 
-console.log('\n— LLM chết: rơi về bộ luật, không vỡ app —');
+console.log('\n— Agent nhìn thấy đủ tài nguyên để điều phối —');
+seen = [];
+scenario = [{ content: 'Ừ mình nắm rồi.' }];
+await chat('tình hình quỹ thế nào');
+const sys = seen[0].messages[0].content;
+const bf = JSON.parse(sys.match(/\{[\s\S]*\}/)[0]);
+
+ok('thấy danh sách quỹ kèm % và ưu tiên', Array.isArray(bf.cac_quy) && bf.cac_quy.length > 0
+  && bf.cac_quy[0].ten && bf.cac_quy[0].phan_tram != null && bf.cac_quy[0].uu_tien != null, JSON.stringify(bf.cac_quy?.[0]));
+const tongThat = all('SELECT percent FROM funds WHERE archived=0').reduce((s, f) => s + (f.percent || 0), 0);
+ok('tổng % khớp với DB', bf.tong_phan_tram_quy === tongThat, `brief=${bf.tong_phan_tram_quy} db=${tongThat}`);
+ok('biết phân bổ có cân bằng hay không', typeof bf.phan_bo_can_bang === 'boolean');
+ok('thấy số dư từng ví, không chỉ tên', Array.isArray(bf.vi_va_so_du) && bf.vi_va_so_du.every((v) => typeof v.so_du === 'number'), JSON.stringify(bf.vi_va_so_du?.[0]));
+ok('thấy ngân sách kèm tên danh mục', !bf.ngan_sach?.length || bf.ngan_sach.every((b) => typeof b.danh_muc === 'string'), JSON.stringify(bf.ngan_sach?.[0]));
+ok('thấy danh mục đầu tư', bf.dau_tu === null || typeof bf.dau_tu.gia_tri === 'number', JSON.stringify(bf.dau_tu));
+ok('prompt dạy cách xử lý khi phân bổ lệch', /phan_bo_can_bang/.test(sys) && /can_moi_thang/.test(sys));
+
+// Số liệu sai tên field lọt vào prompt sẽ thành "undefined" — tức là nói dối agent.
+const undef = JSON.stringify(bf).match(/"[a-z_]+":undefined/g);
+ok('không có trường undefined lọt vào prompt', !undef, JSON.stringify(undef));
+
+console.log('\n— Trường gõ sai tên không bị nuốt im lặng —');
+const hs = await import('../src/services/chat/tools.js').then((m) => m.runTool('cap_nhat_ho_so', { ten: 'Tân', nuoc_tinh_thue: 'IE', truong_bia_dat: 1 }));
+ok('alias nuoc_tinh_thue -> quoc_gia_thue có tác dụng', get('SELECT tax_country FROM profile WHERE id=1')?.tax_country === 'IE', JSON.stringify(hs));
+ok('trường lạ được báo lại, không im lặng', /truong_bia_dat/.test(hs.canh_bao || ''), JSON.stringify(hs.canh_bao));
+
+
 const old = srv.listeners('request')[0];
 srv.removeAllListeners('request');
 srv.on('request', (req, res) => { res.writeHead(500); res.end('boom'); });
