@@ -28,6 +28,9 @@ import { CURRENCIES, CURRENCY_CODES, normalizeCurrency } from '../util/currency.
 import { recomputeBaseAmounts } from '../services/ledger.js';
 import { chat, history as chatHistory, ensureWelcome, resetChat } from '../services/chat/index.js';
 import { llmEnabled, llmModel } from '../services/chat/llm.js';
+import { listActions, actionDetail, actionStats, undoAction, undoLast, undoBatch, pruneActions } from '../services/ai_audit.js';
+import { listMemory, remember, forget, pruneMemory } from '../services/ai_memory.js';
+import { runReview, reviewConfig, setReviewConfig, lastReview, reviewHistory } from '../services/ai_review.js';
 
 export const router = express.Router();
 
@@ -476,6 +479,30 @@ router.get('/automation/status', wrap(async (req, res) => ok(res, {
 /** Đổi token webhook khi nghi bị lộ — Shortcut trên máy cũ sẽ ngừng gửi được. */
 router.post('/automation/rotate-token', wrap(async (req, res) => ok(res, { token: rotateIngestToken() })));
 
+// ---- nhật ký, trí nhớ và rà soát chủ động của AI ---------------------------
+
+router.get('/ai/actions', wrap(async (req, res) => ok(res, {
+  actions: listActions({ limit: Number(req.query.limit) || 50, mutating_only: req.query.mutating === '1' }),
+  stats: actionStats(),
+})));
+router.get('/ai/actions/:id', wrap(async (req, res) => {
+  const d = actionDetail(Number(req.params.id));
+  return d ? ok(res, d) : res.status(404).json({ ok: false, error: 'Không tìm thấy thao tác.' });
+}));
+router.post('/ai/actions/:id/undo', wrap(async (req, res) => ok(res, undoAction(Number(req.params.id)))));
+router.post('/ai/undo', wrap(async (req, res) => ok(res, req.body?.batch ? undoBatch(req.body.batch) : undoLast(req.body?.n || 1))));
+
+router.get('/ai/memory', wrap(async (req, res) => ok(res, { memory: listMemory({ kind: req.query.kind || null }) })));
+router.post('/ai/memory', wrap(async (req, res) => ok(res, remember({ ...req.body, source: 'user' }))));
+router.delete('/ai/memory/:id', wrap(async (req, res) => ok(res, forget({ id: Number(req.params.id) }))));
+
+router.get('/ai/review', wrap(async (req, res) => ok(res, { config: reviewConfig(), last: lastReview(), history: reviewHistory(10) })));
+router.put('/ai/review', wrap(async (req, res) => ok(res, setReviewConfig(req.body || {}))));
+router.post('/ai/review/run', wrap(async (req, res) => {
+  const r = await runReview({ force: true });
+  return ok(res, r || { ok: false, error: 'Rà soát cần API key của AI. Bật trong Cài đặt rồi thử lại.' });
+}));
+
 // ---- thuế -----------------------------------------------------------------
 
 router.post('/tax/pit', wrap(async (req, res) => {
@@ -600,6 +627,11 @@ export function runAutomation() {
   recomputeFundBalances();
   const insights = generateInsights();
   const backup = autoBackup();
+  pruneMemory();
   setting('last_automation_run', new Date().toISOString());
+  // Phiên rà soát của AI chạy nền, không chặn: nó gọi mạng nên có thể chậm, và
+  // hỏng thì bộ luật sinh cảnh báo ở trên vẫn đủ dùng.
+  runReview().then((r) => { if (r) console.log('[finmate] AI rà soát định kỳ xong:', r.cong_cu_da_dung.length, 'công cụ'); })
+    .catch((e) => console.warn('[finmate] rà soát lỗi:', e.message));
   return { posted, interest, insights: insights.length, backup, at: new Date().toISOString() };
 }

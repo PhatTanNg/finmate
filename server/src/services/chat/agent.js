@@ -5,7 +5,7 @@
  * cần ghi gì vào app, rồi trả lời bằng ngôn ngữ tự nhiên dựa trên số liệu thật.
  * Không có API key thì tầng trên tự lùi về bộ luật tiếng Việt.
  */
-import { all, get } from '../../db.js';
+import { all, get, beginAudit, endAudit, abortAudit } from '../../db.js';
 import { today, monthKey, monthStart, monthEnd } from '../../util/date.js';
 import { baseCurrency } from '../fx.js';
 import { currency as curInfo } from '../../util/currency.js';
@@ -19,6 +19,7 @@ import { monthlyFundLoad, fundsOverview } from '../funds.js';
 import { budgetStatus } from '../budgets.js';
 import { portfolio } from '../investments.js';
 import { upcoming } from '../recurring.js';
+import { memoryBrief } from '../ai_memory.js';
 import { llmEnabled, complete } from './llm.js';
 import { TOOLS, runTool } from './tools.js';
 
@@ -110,6 +111,7 @@ function brief() {
     ngan_sach: nganSach,
     dau_tu: dauTu,
     khoan_dinh_ky_30_ngay_toi: dinhKy,
+    ghi_nho_lau_dai: memoryBrief() || undefined,
   };
 }
 
@@ -130,6 +132,12 @@ BẠN LÀ NGƯỜI VẬN HÀNH APP
 - App này là **công cụ làm việc của bạn**, không phải của người dùng. Bạn có toàn quyền: tạo/sửa/đóng/mở/xoá quỹ, đổi % phân bổ, tạo tài khoản, đặt ngân sách, mục tiêu, nợ, đầu tư, giao dịch định kỳ.
 - Người dùng chỉ cần nói ý định ("mình muốn đổi xe trong 2 năm nữa"), **bạn tự dựng cấu trúc trong app**: tạo quỹ, đặt số tiền mục tiêu, đặt hạn, tính số tiền mỗi tháng, chỉnh lại % các quỹ khác cho đủ 100%. Đừng bắt họ tự vào app bấm.
 - Đừng xin phép cho những việc có thể hoàn tác (tạo quỹ, đổi %, ghi giao dịch) — cứ làm rồi báo lại một dòng. Chỉ hỏi trước khi **xoá** dữ liệu hoặc khi thay đổi lớn ảnh hưởng nhiều quỹ.
+
+TRÍ NHỚ VÀ TRÁCH NHIỆM GIẢI TRÌNH
+- Hội thoại chỉ giữ 14 lượt gần nhất. Thứ gì cần nhớ lâu — hoàn cảnh gia đình, ràng buộc không được phá, khẩu vị rủi ro, quyết định đã chốt và lý do — hãy gọi **ghi_nho** ngay lúc nghe được. Đừng để tháng sau phải hỏi lại người dùng những điều họ đã kể.
+- Phần **ghi_nho_lau_dai** trong TÌNH HÌNH là những gì bạn đã nhớ. Tôn trọng nó: đừng khuyên ngược lại ràng buộc người dùng đã đặt ra, và nếu buộc phải khuyên ngược thì nói rõ là bạn đang đề nghị thay đổi một điều đã chốt.
+- Khi hoàn cảnh đổi khiến điều đã nhớ không còn đúng, gọi **ghi_nho** đè lên hoặc **quen_di**, đừng giữ thông tin cũ.
+- Mọi thao tác của bạn đều được ghi nhật ký. Người dùng nói bạn làm sai thì gọi **hoan_tac** — nó trả lại cả số dư tài khoản, số dư quỹ và tiến độ mục tiêu, không chỉ xoá giao dịch. Dùng **xem_nhat_ky_thao_tac** khi cần xem lại mình đã làm gì.
 
 ĐIỀU PHỐI TÀI NGUYÊN — BẠN CÓ SẴN BỨC TRANH TOÀN CẢNH
 - Phần TÌNH HÌNH liệt kê sẵn **mọi tài nguyên bạn đang quản**: từng ví và số dư, từng quỹ kèm % + độ ưu tiên + hạn + số tiền cần mỗi tháng, ngân sách, danh mục đầu tư, các khoản định kỳ sắp tới. Dùng thẳng, đừng gọi công cụ hỏi lại thứ đã nằm sẵn trước mắt.
@@ -188,9 +196,15 @@ function toMessages(history) {
  * @returns {{reply: string, calls: string[], mutated: boolean, onboarded: boolean}|null}
  *          null nghĩa là agent không dùng được -> tầng trên lùi về bộ luật.
  */
-export async function runAgent(message, history, { onboarding = false } = {}) {
+export async function runAgent(message, history, { onboarding = false, source = 'chat', allow = null } = {}) {
   if (!agentEnabled()) return null;
 
+  // Phiên rà soát chạy lúc người dùng vắng mặt, nên mặc định chỉ được dùng công
+  // cụ đọc. Lọc ngay ở danh sách gửi cho model để nó không đề xuất việc bị cấm,
+  // và chặn lần nữa lúc thực thi phòng khi model tự bịa tên công cụ.
+  const toolset = allow ? TOOLS.filter((t) => allow.test(t.function.name)) : TOOLS;
+
+  const batch = `${source}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const messages = [
     { role: 'system', content: onboarding ? systemOnboarding() : systemNormal() },
     ...toMessages(history),
@@ -204,11 +218,11 @@ export async function runAgent(message, history, { onboarding = false } = {}) {
   for (let step = 0; step < MAX_STEPS; step += 1) {
     let msg;
     try {
-      msg = await complete(messages, TOOLS, { temperature: 0.55 });
+      msg = await complete(messages, toolset, { temperature: 0.55 });
     } catch (e) {
       // Hết hạn mức, mạng lỗi, model sai... -> để bộ luật xử lý tiếp.
       return calls.length
-        ? { reply: `Mình đã cập nhật xong nhưng phần diễn giải bị lỗi kết nối (${e.message}). Bạn hỏi lại giúp mình nhé.`, calls, mutated, onboarded }
+        ? { reply: `Mình đã cập nhật xong nhưng phần diễn giải bị lỗi kết nối (${e.message}). Bạn hỏi lại giúp mình nhé.`, calls, mutated, onboarded, batch }
         : null;
     }
     if (!msg) return null;
@@ -217,7 +231,7 @@ export async function runAgent(message, history, { onboarding = false } = {}) {
     if (!toolCalls.length) {
       const reply = String(msg.content || '').trim();
       if (!reply) return null;
-      return { reply, calls, mutated, onboarded };
+      return { reply, calls, mutated, onboarded, batch };
     }
 
     messages.push({ role: 'assistant', content: msg.content || null, tool_calls: toolCalls });
@@ -226,7 +240,29 @@ export async function runAgent(message, history, { onboarding = false } = {}) {
       const name = tc.function?.name;
       let args = {};
       try { args = JSON.parse(tc.function?.arguments || '{}'); } catch { args = {}; }
-      const out = runTool(name, args);
+
+      // Ghi nhật ký quanh mỗi lần gọi công cụ: có nó thì mọi việc AI làm đều
+      // xem lại và hoàn tác được, thay vì là chuyện đã rồi.
+      // Vì sao AI làm việc này: ưu tiên lời model tự nói, không có thì lấy chính
+      // câu người dùng vừa nhắn — đọc lại nhật ký sau vài tuần vẫn hiểu ngữ cảnh.
+      const ly_do = (typeof args.ly_do === 'string' && args.ly_do)
+        || (msg.content ? String(msg.content).slice(0, 300) : null)
+        || `Người dùng nhắn: "${String(message).slice(0, 200)}"`;
+      let out;
+
+      if (allow && !allow.test(name)) {
+        out = { ok: false, error: `Phiên rà soát tự động chỉ được đọc dữ liệu, không được gọi "${name}". Hãy nêu đề xuất bằng lời để người dùng tự quyết.` };
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(out) });
+        continue;
+      }
+
+      beginAudit({ tool: name, args, batch, source, reason: ly_do });
+      try {
+        out = runTool(name, args);
+      } finally {
+        try { endAudit(out, out?.ok !== false); } catch { abortAudit(); }
+      }
+
       if (out?.mutates) mutated = true;
       if (name === 'hoan_tat_thiet_lap' && out?.ok) onboarded = true;
       calls.push(name);
@@ -238,10 +274,10 @@ export async function runAgent(message, history, { onboarding = false } = {}) {
   try {
     const final = await complete([...messages, { role: 'system', content: 'Hãy trả lời người dùng ngay bằng lời, không gọi thêm công cụ.' }], null, { temperature: 0.5 });
     const reply = String(final?.content || '').trim();
-    if (reply) return { reply, calls, mutated, onboarded };
+    if (reply) return { reply, calls, mutated, onboarded, batch };
   } catch { /* bỏ qua, rơi xuống dưới */ }
 
   return calls.length
-    ? { reply: 'Mình đã cập nhật xong rồi. Bạn muốn xem lại phần nào không?', calls, mutated, onboarded }
+    ? { reply: 'Mình đã cập nhật xong rồi. Bạn muốn xem lại phần nào không?', calls, mutated, onboarded, batch }
     : null;
 }

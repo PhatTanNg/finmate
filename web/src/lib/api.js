@@ -34,6 +34,7 @@ export const api = {
   get: (p) => fetch(`/api${p}`, { headers: headers() }).then(j),
   post: (p, body) => fetch(`/api${p}`, { method: 'POST', headers: headers(json), body: JSON.stringify(body || {}) }).then(j),
   patch: (p, body) => fetch(`/api${p}`, { method: 'PATCH', headers: headers(json), body: JSON.stringify(body || {}) }).then(j),
+  put: (p, body) => fetch(`/api${p}`, { method: 'PUT', headers: headers(json), body: JSON.stringify(body || {}) }).then(j),
   del: (p) => fetch(`/api${p}`, { method: 'DELETE', headers: headers() }).then(j),
   /** Tải file (sao lưu, xuất dữ liệu) kèm khoá phiên. */
   download: async (p, filename) => {

@@ -56,6 +56,44 @@ check('Investments /investments', invs, ['portfolio.total_value', 'portfolio.hol
 
 const st = await get('/automation/status');
 check('Automation /automation/status', st, ['last_run', 'recurring', 'accounts_synced', 'webhook_url', 'log']);
+
+// --- trang "AI đã làm gì": nhật ký, trí nhớ, rà soát chủ động ---
+const del = async (p) => {
+  const r = await fetch(BASE + p, { method: 'DELETE' });
+  const d = await r.json();
+  if (!r.ok || d.ok === false) throw new Error(`${p} -> ${r.status} ${d.error || ''}`);
+  return d;
+};
+const put = async (p, body) => {
+  const r = await fetch(BASE + p, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const d = await r.json();
+  if (!r.ok || d.ok === false) throw new Error(`${p} -> ${r.status} ${d.error || ''}`);
+  return d;
+};
+
+const aiActs = await get('/ai/actions?limit=5');
+check('AiLog /ai/actions', aiActs, ['actions', 'stats.tong', 'stats.thay_doi_du_lieu', 'stats.da_hoan_tac']);
+if (aiActs.actions?.length) {
+  check('AiLog /ai/actions[0]', aiActs, ['actions.0.id', 'actions.0.cong_cu', 'actions.0.luc', 'actions.0.nguon', 'actions.0.da_hoan_tac', 'actions.0.thay_doi_du_lieu', 'actions.0.so_hang_doi', 'actions.0.thanh_cong']);
+  const one = await get(`/ai/actions/${aiActs.actions[0].id}`);
+  check('AiLog /ai/actions/:id', one, ['id', 'cong_cu', 'luc', 'nguon', 'da_hoan_tac', 'thay_doi_du_lieu', 'thay_doi']);
+} else {
+  console.log('   (chưa có thao tác AI nào để soi chi tiết)');
+}
+
+// Tạo rồi xoá một mục nhớ để chắc chắn cả ba route memory đều khớp với UI.
+await post('/ai/memory', { kind: 'fact', key: '__smoke__', value: 'kiểm thử giao diện', importance: 1 });
+const aiMem = await get('/ai/memory');
+check('AiLog /ai/memory', aiMem, ['memory.0.id', 'memory.0.loai', 'memory.0.loai_vi', 'memory.0.muc', 'memory.0.noi_dung', 'memory.0.do_quan_trong']);
+const smokeMem = aiMem.memory.find((m) => m.muc === '__smoke__');
+if (smokeMem) await del(`/ai/memory/${smokeMem.id}`);
+else { fail++; console.log('❌ AiLog /ai/memory: mục vừa thêm không thấy trong danh sách'); }
+
+const aiRev = await get('/ai/review');
+check('AiLog /ai/review', aiRev, ['config.che_do', 'config.moi_bao_nhieu_gio', 'config.dang_bat']);
+const aiRevPut = await put('/ai/review', { che_do: aiRev.config.che_do, moi_bao_nhieu_gio: aiRev.config.moi_bao_nhieu_gio });
+check('AiLog PUT /ai/review', aiRevPut, ['che_do', 'moi_bao_nhieu_gio', 'dang_bat']);
+
 const rec = await get('/recurring');
 check('Automation /recurring', rec, ['recurring.0.name', 'recurring.0.frequency', 'recurring.0.next_date', 'recurring.0.amount', 'recurring.0.auto_post', 'upcoming', 'monthly_fixed']);
 console.log('   monthly_fixed =', JSON.stringify(rec.monthly_fixed));

@@ -16,6 +16,7 @@ import Investments from './pages/Investments.jsx';
 import Debts from './pages/Debts.jsx';
 import Fire from './pages/Fire.jsx';
 import Advisor from './pages/Advisor.jsx';
+import AiLog from './pages/AiLog.jsx';
 import Insights from './pages/Insights.jsx';
 import Automation from './pages/Automation.jsx';
 import Currency from './pages/Currency.jsx';
@@ -40,6 +41,7 @@ const NAV = [
   { k: 'fire', ico: '🔥', label: 'Tự do tài chính' },
   { g: 'Cố vấn' },
   { k: 'advisor', ico: '🧭', label: 'Cố vấn' },
+  { k: 'ailog', ico: '🧠', label: 'AI đã làm gì' },
   { k: 'automation', ico: '⚡', label: 'Tự động hoá' },
   { k: 'settings', ico: '⚙️', label: 'Cài đặt' },
 ];
@@ -146,6 +148,7 @@ export default function App() {
       case 'debts': return <Debts onRefresh={refresh} />;
       case 'fire': return <Fire />;
       case 'advisor': return <Advisor />;
+      case 'ailog': return <AiLog onRefresh={refresh} />;
       case 'automation': return <Automation onRefresh={refresh} />;
       case 'settings': return <Settings onRefresh={refresh} />;
       default: return <Chat onRefresh={refresh} />;

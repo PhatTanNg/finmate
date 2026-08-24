@@ -1,13 +1,25 @@
 /**
  * Lớp LLM tuỳ chọn. Không có API key thì toàn bộ app vẫn chạy đủ tính năng bằng bộ luật tiếng Việt.
- * Cấu hình: FINMATE_LLM_URL (OpenAI-compatible /chat/completions), FINMATE_LLM_KEY, FINMATE_LLM_MODEL
+ * Cấu hình: FINMATE_LLM_KEY, FINMATE_LLM_MODEL, FINMATE_LLM_URL (tuỳ chọn).
+ *
+ * Hỗ trợ hai nhà cung cấp, tự nhận diện qua dạng API key:
+ *  - OpenAI và mọi dịch vụ tương thích /chat/completions (mặc định);
+ *  - Anthropic Claude — key `sk-ant-...` — nói chuyện qua Messages API, được
+ *    dịch qua lại ở anthropic.js nên phần còn lại của app không cần biết.
+ * Muốn ép cứng thì đặt FINMATE_LLM_PROVIDER = openai | anthropic.
  */
-const URL_ = process.env.FINMATE_LLM_URL || 'https://api.openai.com/v1/chat/completions';
-const KEY = process.env.FINMATE_LLM_KEY || process.env.OPENAI_API_KEY || '';
-const MODEL = process.env.FINMATE_LLM_MODEL || 'gpt-4o-mini';
+import { detectProvider, anthropicUrl, anthropicHeaders, toAnthropicRequest, fromAnthropicResponse } from './anthropic.js';
+
+const RAW_URL = process.env.FINMATE_LLM_URL || '';
+const KEY = process.env.FINMATE_LLM_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || '';
+const PROVIDER = process.env.FINMATE_LLM_PROVIDER || detectProvider(KEY, RAW_URL);
+const URL_ = RAW_URL || 'https://api.openai.com/v1/chat/completions';
+const MODEL = process.env.FINMATE_LLM_MODEL || (PROVIDER === 'anthropic' ? 'claude-sonnet-4-5' : 'gpt-4o-mini');
+const MAX_TOKENS = Number(process.env.FINMATE_LLM_MAX_TOKENS) || 2048;
 
 export const llmEnabled = () => Boolean(KEY);
 export const llmModel = () => MODEL;
+export const llmProvider = () => PROVIDER;
 
 /**
  * Gọi API chat. Trả về nguyên message của model (có thể chứa tool_calls)
@@ -18,6 +30,21 @@ async function call(messages, { json = false, timeout = 25000, temperature = 0.4
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
+    if (PROVIDER === 'anthropic') {
+      const body = toAnthropicRequest(messages, tools, { model: MODEL, json, temperature, maxTokens: MAX_TOKENS });
+      const res = await fetch(anthropicUrl(RAW_URL), {
+        method: 'POST',
+        headers: anthropicHeaders(KEY),
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`LLM ${res.status}: ${t.slice(0, 200)}`);
+      }
+      const msg = fromAnthropicResponse(await res.json(), { json, prefilled: json && !tools?.length });
+      return raw ? msg : msg?.content || null;
+    }
     const res = await fetch(URL_, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },

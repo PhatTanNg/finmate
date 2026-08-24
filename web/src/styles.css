@@ -208,7 +208,28 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; }
 .btn.ghost { background: transparent; }
 .btn.ghost:hover { background: var(--soft); }
 .btn.icon { padding: 6px 9px; line-height: 1; }
+.btn.danger { border-color: var(--bad); color: var(--bad); background: transparent; }
+.btn.danger:hover { background: rgba(255, 107, 107, .12); border-color: var(--bad); }
 .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+/* --- Trang "AI đã làm gì": nhật ký thao tác, trí nhớ, rà soát chủ động ------ */
+/* Hàng nút chọn chế độ. Trên điện thoại thì cuộn ngang thay vì xuống dòng. */
+.chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.chip {
+  padding: 7px 13px; border-radius: 20px; border: 1px solid var(--line); background: var(--card2);
+  color: var(--dim); cursor: pointer; font-size: 13px; transition: .12s var(--ease); white-space: nowrap;
+}
+.chip:hover { border-color: var(--acc); color: var(--txt); }
+.chip.on { background: var(--acc-soft); border-color: var(--acc); color: var(--acc); font-weight: 600; }
+/* Mỗi dòng nhật ký là một nút bấm được — vùng chạm đủ lớn cho ngón tay. */
+.listbtn {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px;
+  border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--txt);
+  cursor: pointer; text-align: left; font-size: 14px;
+}
+.listbtn:last-child { border-bottom: 0; }
+.listbtn:hover { background: var(--soft); }
+.note { background: var(--soft); border-radius: 12px; padding: 12px 14px; font-size: 13.5px; line-height: 1.6; }
 
 .inp, select.inp, textarea.inp {
   width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line);

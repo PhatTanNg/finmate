@@ -362,6 +362,52 @@ CREATE TABLE IF NOT EXISTS fx_rates (
   UNIQUE(base, quote, date)
 );
 CREATE INDEX IF NOT EXISTS idx_fx_pair ON fx_rates(base, quote, date);
+
+-- Nhật ký thao tác của AI. Một cố vấn thật phải giải trình được: đã làm gì,
+-- lúc nào, vì sao, và hoàn tác được nếu bạn không đồng ý.
+CREATE TABLE IF NOT EXISTS ai_actions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch TEXT,                       -- gom mọi thao tác trong cùng một lượt chat
+  source TEXT DEFAULT 'chat',       -- chat | review | user
+  tool TEXT NOT NULL,
+  args TEXT DEFAULT '{}',
+  result TEXT DEFAULT '{}',
+  ok INTEGER DEFAULT 1,
+  mutates INTEGER DEFAULT 0,
+  reason TEXT,                      -- vì sao AI quyết định làm việc này
+  undone_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_actions_batch ON ai_actions(batch, id);
+
+-- Từng hàng dữ liệu bị đổi, kèm ảnh chụp trước/sau để hoàn tác chính xác.
+CREATE TABLE IF NOT EXISTS ai_changes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  action_id INTEGER NOT NULL,
+  op TEXT NOT NULL,                 -- insert | update | delete
+  tbl TEXT NOT NULL,
+  row_id INTEGER,
+  before TEXT,
+  after TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_changes_action ON ai_changes(action_id);
+
+-- Trí nhớ dài hạn: hoàn cảnh, sở thích, ràng buộc và những quyết định đã chốt.
+-- Hội thoại chỉ giữ 14 lượt gần nhất, nên thứ gì cần nhớ lâu phải nằm ở đây.
+CREATE TABLE IF NOT EXISTS ai_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT DEFAULT 'fact',         -- fact | preference | constraint | decision | plan
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  reason TEXT,
+  importance INTEGER DEFAULT 3,     -- 1 thấp .. 5 cao
+  source TEXT DEFAULT 'chat',
+  expires_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(kind, key)
+);
 `;
 
 db.exec(SCHEMA);
@@ -537,6 +583,87 @@ function warnDropped(table, data, kept) {
     console.warn(`[db] bỏ qua trường không khớp cột nào: ${key} = ${JSON.stringify(data[k])?.slice(0, 60)}`);
   }
 }
+
+/**
+ * ---- Nhật ký thao tác của AI ---------------------------------------------
+ * Bắt thay đổi bằng trigger SQLite chứ không móc vào insert/update/remove:
+ * số dư tài khoản, số dư quỹ, tiến độ mục tiêu và dư nợ đều được cập nhật bằng
+ * SQL thô (`UPDATE accounts SET balance = balance + ?`), nên móc vào helper sẽ
+ * bỏ sót đúng những con số quan trọng nhất — hoàn tác kiểu đó trả lại giao dịch
+ * mà không trả lại số dư, tức là làm hỏng dữ liệu chứ không phải cứu nó.
+ *
+ * Cách đầu tiên tôi viết là chụp ảnh toàn bộ bảng trước/sau rồi so sánh. Đo thử
+ * thì chi phí tăng theo cỡ sổ: 6.000 giao dịch đã cộng thêm 189ms cho MỖI thao
+ * tác, tức vài giây cho một lượt chat sau ít năm dùng. Trigger chỉ tốn công
+ * theo số hàng thật sự đổi, nên sổ có to đến đâu cũng không chậm đi.
+ */
+const AUDIT_SKIP = new Set(['ai_actions', 'ai_changes', 'ai_audit_state', 'chat_messages',
+  'insights', 'networth_snapshots', 'fx_rates', 'settings', 'ingest_log', 'sqlite_sequence']);
+
+function jsonOf(prefix, table) {
+  const cols = [...tableColumns(table)];
+  return `json_object(${cols.map((c) => `'${c}', ${prefix}."${c}"`).join(', ')})`;
+}
+
+/** Dựng trigger ghi nhật ký cho mọi bảng dữ liệu. An toàn khi chạy lại. */
+function installAuditTriggers() {
+  columnCache.clear();   // migrate() vừa thêm cột, cache cũ sẽ làm trigger thiếu cột
+  db.exec('CREATE TABLE IF NOT EXISTS ai_audit_state (action_id INTEGER)');
+  const tables = all("SELECT name FROM sqlite_master WHERE type='table'")
+    .map((r) => r.name).filter((n) => !AUDIT_SKIP.has(n) && !n.startsWith('sqlite_'));
+
+  for (const t of tables) {
+    if (!tableColumns(t).has('id')) continue;   // không có khoá thì không hoàn tác được
+    const on = '(SELECT COUNT(*) FROM ai_audit_state) > 0';
+    const ins = `INSERT INTO ai_changes (action_id, op, tbl, row_id, before, after) VALUES ((SELECT action_id FROM ai_audit_state)`;
+    db.exec(`
+      DROP TRIGGER IF EXISTS aud_${t}_i;
+      CREATE TRIGGER aud_${t}_i AFTER INSERT ON ${t} WHEN ${on}
+      BEGIN ${ins}, 'insert', '${t}', NEW.id, NULL, ${jsonOf('NEW', t)}); END;
+
+      DROP TRIGGER IF EXISTS aud_${t}_u;
+      CREATE TRIGGER aud_${t}_u AFTER UPDATE ON ${t} WHEN ${on}
+      BEGIN ${ins}, 'update', '${t}', OLD.id, ${jsonOf('OLD', t)}, ${jsonOf('NEW', t)}); END;
+
+      DROP TRIGGER IF EXISTS aud_${t}_d;
+      CREATE TRIGGER aud_${t}_d AFTER DELETE ON ${t} WHEN ${on}
+      BEGIN ${ins}, 'delete', '${t}', OLD.id, ${jsonOf('OLD', t)}, NULL); END;
+    `);
+  }
+  return tables.length;
+}
+
+installAuditTriggers();
+
+let auditAction = null;   // id của ai_actions đang mở
+
+export function beginAudit({ tool, args, batch, source = 'chat', reason = null }) {
+  if (auditAction) abortAudit();   // phiên trước chưa đóng đúng cách
+  const res = run(
+    'INSERT INTO ai_actions (batch, source, tool, args, reason) VALUES (?,?,?,?,?)',
+    [batch || null, source, tool, JSON.stringify(args ?? {}).slice(0, 4000), reason],
+  );
+  auditAction = Number(res.lastInsertRowid);
+  run('DELETE FROM ai_audit_state');
+  run('INSERT INTO ai_audit_state (action_id) VALUES (?)', [auditAction]);
+  return auditAction;
+}
+
+export function endAudit(result, ok = true) {
+  if (!auditAction) return null;
+  const id = auditAction;
+  auditAction = null;
+  run('DELETE FROM ai_audit_state');
+  const n = get('SELECT COUNT(*) c FROM ai_changes WHERE action_id = ?', [id])?.c || 0;
+  run('UPDATE ai_actions SET result = ?, ok = ?, mutates = ? WHERE id = ?',
+    [JSON.stringify(result ?? {}).slice(0, 4000), ok ? 1 : 0, n > 0 ? 1 : 0, id]);
+  return id;
+}
+
+/** Huỷ phiên ghi nhật ký đang mở (dùng khi có lỗi). */
+export function abortAudit() { auditAction = null; run('DELETE FROM ai_audit_state'); }
+
+export function auditing() { return auditAction != null; }
 
 /** Insert helper: insert(table, {col: val}) -> row id */
 export function insert(table, raw) {

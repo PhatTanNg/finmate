@@ -49,7 +49,7 @@ Có hai chế độ, tự chọn theo cấu hình:
 
 **A. Cố vấn AI thật sự** (khi có `FINMATE_LLM_KEY` — [xem cách bật](#kết-nối-llm-tuỳ-chọn))
 
-Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **43 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **48 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
 
 **App là công cụ làm việc của AI.** Nó không chỉ tra cứu và khuyên — nó tự dựng và vận hành cấu trúc tài chính cho bạn: tạo tài khoản, mở quỹ mới, đặt mục tiêu và hạn hoàn thành, đổi tỷ lệ phân bổ, sắp xếp lại độ ưu tiên, đóng quỹ không còn phù hợp và dồn số dư sang quỹ khác. Việc nào hoàn tác được thì nó làm luôn rồi báo lại; chỉ những việc xoá vĩnh viễn mới hỏi bạn trước.
 
@@ -81,6 +81,16 @@ Chat box trở thành một cố vấn tài chính có toàn quyền đọc và 
 | Độ ưu tiên quỹ âm hoặc quá lớn | Kẹp về khoảng 1-99 để không vượt mặt quỹ thiết yếu |
 | Tổng phân bổ quỹ khác 100% | Báo rõ **% thực nhận** của từng quỹ, vì tiền được chia theo tỉ lệ chứ không theo con số tuyệt đối |
 | Xoá quỹ còn số dư | **Chặn**, hướng sang đóng quỹ để giữ lịch sử và dồn tiền sang quỹ khác |
+
+**AI có trí nhớ, có nhật ký, và tự rà soát khi bạn vắng mặt.** Ba thứ tách một con bot trả lời hay khỏi một cố vấn thật sự — vì cố vấn thật thì nhớ bạn là ai, ghi lại việc mình làm, và không ngồi im chờ được hỏi:
+
+| Năng lực | Nghĩa là gì trong app |
+|---|---|
+| **Nhật ký thao tác** (trang *AI đã làm gì*) | Mọi lần AI đụng vào dữ liệu đều được ghi lại kèm **lý do**. Bấm vào xem đúng từng dòng dữ liệu đã đổi — cũ thành mới — rồi **Hoàn tác** nếu không đồng ý. Hoàn tác trả lại **cả số dư**, không chỉ xoá giao dịch. Việc bạn tự làm bằng tay không bị ghi nhầm thành của AI |
+| **Trí nhớ dài hạn** | AI ghi nhớ những điều quan trọng về bạn (sở thích, ràng buộc, quyết định đã chốt, kế hoạch) và mang theo vào **mọi** lượt chat sau. Không còn cảnh kể lại hoàn cảnh từ đầu sau vài chục tin nhắn. Bạn xem, sửa, xoá được từng mục |
+| **Tự rà soát định kỳ** | Theo chu kỳ bạn đặt, AI tự mở hồ sơ ra xem và nhắn lại nếu thấy điều đáng chú ý. Ba chế độ: **Tắt** · **Chỉ gợi ý** (mặc định — được xem, **không được đụng vào tiền** lúc bạn vắng mặt) · **Được phép chỉnh** (tự sửa, nhưng mọi thứ vẫn nằm trong nhật ký và hoàn tác được) |
+
+Nhật ký bắt thay đổi ở tầng cơ sở dữ liệu bằng trigger SQLite, nên chi phí **không tăng theo độ dày sổ sách**: khoảng 6ms dù bạn đã ghi 6.000 giao dịch.
 
 **B. Bộ luật tiếng Việt offline** (mặc định, không cần key, không cần internet)
 
@@ -224,6 +234,15 @@ FINMATE_LLM_MODEL=gpt-4o-mini                                # cần hỗ trợ 
 FINMATE_AGENT=off                                            # tuỳ chọn: tắt agent dù đã có key
 ```
 
+Dùng **Claude của Anthropic** thì chỉ cần dán key — app nhận ra qua tiền tố `sk-ant-` và tự chuyển sang Messages API, **không phải đặt `FINMATE_LLM_URL`**:
+
+```bash
+FINMATE_LLM_KEY=sk-ant-...
+FINMATE_LLM_MODEL=claude-sonnet-4-5
+```
+
+> Nếu tự nhận diện sai (ví dụ đi qua proxy nội bộ), ép cứng bằng `FINMATE_LLM_PROVIDER=anthropic` hoặc `=openai`.
+
 Muốn số liệu tài chính **không rời khỏi máy**, chạy model ngay tại chỗ bằng [Ollama](https://ollama.com) — miễn phí, không cần key thật:
 
 ```bash
@@ -234,7 +253,7 @@ FINMATE_LLM_MODEL=qwen2.5:14b
 
 Vào tab **Cài đặt** để xem app đang chạy chế độ nào — thẻ "Cố vấn AI" ở đầu trang nói rõ đang dùng bộ luật hay AI thật, và model nào.
 
-Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **43 công cụ** (24 công cụ ghi/sửa dữ liệu, 19 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
+Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **48 công cụ** (25 công cụ ghi/sửa dữ liệu, 23 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
 
 - **Mọi con số vẫn tính từ dữ liệu trong máy bạn.** LLM không được phép tự bịa số; nó chỉ diễn đạt kết quả công cụ trả về.
 - **Gửi đi cái gì:** nội dung hội thoại + số liệu tóm tắt (không gửi toàn bộ lịch sử giao dịch). Nếu không muốn gửi gì ra ngoài, cứ để trống key — app vẫn đủ tính năng.
@@ -245,7 +264,7 @@ Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình 
 
 ## Giao diện
 
-- **Thiết kế cho điện thoại trước**: thanh điều hướng dưới cùng 5 mục, ngăn kéo trượt cho 16 trang, ô nhập chat dính đáy màn hình, gợi ý trả lời nhanh cuộn ngang, tôn trọng `safe-area` của iPhone.
+- **Thiết kế cho điện thoại trước**: thanh điều hướng dưới cùng 5 mục, ngăn kéo trượt cho 17 trang, ô nhập chat dính đáy màn hình, gợi ý trả lời nhanh cuộn ngang, tôn trọng `safe-area` của iPhone.
 - **Chủ đề sáng / tối / theo hệ thống** — bấm nút 🌗 ở góc trên, không chớp nền khi tải lại.
 - **Tìm nhanh `Ctrl/⌘ + K`** — nhảy tới bất kỳ trang nào, gõ không dấu vẫn ra.
 - Biểu đồ tự vẽ bằng SVG (không thư viện), skeleton khi tải, tôn trọng `prefers-reduced-motion`, có style riêng cho in ấn.
@@ -279,16 +298,20 @@ finmate/
 │  │  │  ├─ forecast.js       # dòng tiền 90 ngày, số tiền an toàn để tiêu
 │  │  │  ├─ advisor.js        # điểm sức khoẻ, thác nước tiền dư
 │  │  │  ├─ insights.js       # phát hiện bất thường
-│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (43 công cụ)
-│  │  │                       # llm.js · nlu.js · handlers.js · knowledge.js · onboarding.js
+│  │  │  ├─ ai_audit.js       # nhật ký thao tác của AI + hoàn tác (kể cả số dư)
+│  │  │  ├─ ai_memory.js      # trí nhớ dài hạn, nhét vào prompt mỗi lượt chat
+│  │  │  ├─ ai_review.js      # phiên rà soát chủ động theo chu kỳ
+│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (48 công cụ)
+│  │  │                       # llm.js · anthropic.js (lớp dịch sang Claude) · nlu.js
+│  │  │                       # handlers.js · knowledge.js · onboarding.js
 │  │  └─ scripts/{seed,seed_ie,reset}.js
 │  └─ test/
-└─ web/                       # React 18 + Vite, 16 trang, biểu đồ tự vẽ bằng SVG
+└─ web/                       # React 18 + Vite, 17 trang, biểu đồ tự vẽ bằng SVG
    ├─ src/lib/theme.js        # chủ đề sáng/tối/theo hệ thống
    ├─ src/components/         # ui.jsx · CommandPalette.jsx (Ctrl+K)
    └─ src/pages/              # Chat, Dashboard, Transactions, Accounts, Funds, Goals,
                               # Budgets, Income, Investments, Debts, Fire, Advisor,
-                              # Insights, Currency, Automation, Settings
+                              # Insights, Currency, Automation, AiLog, Settings
 ```
 
 Không dùng thư viện biểu đồ, không ORM, không service ngoài. Dữ liệu nằm ở `server/data/finmate.db`.
@@ -362,8 +385,10 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_FX_URL` | `https://open.er-api.com/v6/latest/EUR` | Nguồn tỷ giá (JSON có trường `rates`) |
 | `FINMATE_FX_OFFLINE` | – | Đặt `1` để tắt hẳn việc gọi mạng lấy tỷ giá |
 | `FINMATE_LLM_KEY` | – | Bật cố vấn AI (function calling). Trống = dùng bộ luật offline |
-| `FINMATE_LLM_URL` | OpenAI | Endpoint tương thích OpenAI |
-| `FINMATE_LLM_MODEL` | `gpt-4o-mini` | Model, cần hỗ trợ tool calling |
+| `FINMATE_LLM_URL` | OpenAI | Endpoint tương thích OpenAI. Bỏ trống khi dùng Claude |
+| `FINMATE_LLM_MODEL` | `gpt-4o-mini` / `claude-sonnet-4-5` | Model, cần hỗ trợ tool calling |
+| `FINMATE_LLM_PROVIDER` | tự nhận diện | `openai` hoặc `anthropic`, chỉ đặt khi nhận diện sai |
+| `FINMATE_LLM_MAX_TOKENS` | `2048` | Giới hạn độ dài câu trả lời (chỉ Claude) |
 | `FINMATE_AGENT` | – | Đặt `off` để tắt agent dù đã có key |
 
 ### Những việc chỉ bạn làm được
@@ -381,16 +406,18 @@ cd server && node test/smoke-auth.mjs      # PIN, phiên, sao lưu, xuất dữ 
 cd server && node test/smoke-ui.mjs        # mọi field frontend dùng đều tồn tại trong API
 cd server && node test/smoke-chat.mjs      # 29 ý định chat
 cd server && node test/smoke-knowledge.mjs # 19 câu hỏi tài chính mở
-cd server && node test/smoke-tools.mjs     # 43 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
+cd server && node test/smoke-tools.mjs     # 48 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
 cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
+cd server && node test/smoke-ai.mjs        # nhật ký + hoàn tác, trí nhớ dài hạn, rà soát chủ động
+cd server && node test/smoke-llm.mjs       # lớp dịch sang Claude, chạy qua máy chủ giả (không cần key)
 cd server && node test/scenarios.mjs       # 203 kịch bản người dùng thật, 17 nhóm tính năng
 cd server && node test/personas.mjs        # 8 hành trình người dùng đầu-cuối, 160 bước
 cd server && node test/journey5y.mjs       # 5 năm liên tục của một người Việt ở Ireland, 34 bước
 cd server && node test/lifetime.mjs        # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
-cd web    && node test/render.mjs          # render thật 16 trang trong jsdom với API thật
+cd web    && node test/render.mjs          # render thật 17 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 

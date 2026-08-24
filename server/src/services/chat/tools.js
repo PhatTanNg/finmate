@@ -17,6 +17,8 @@ import { budgetStatus, upsertBudget, suggestBudgets } from '../budgets.js';
 import { portfolio, realEstate, upsertHolding, setPrice as setHoldingPrice, guessSymbolCurrency } from '../investments.js';
 import { debtSummary, payoffPlan } from '../debts.js';
 import { createRecurring, upcoming } from '../recurring.js';
+import { remember, forget, listMemory } from '../ai_memory.js';
+import { listActions, actionStats, undoAction, undoLast } from '../ai_audit.js';
 import { fireStats, emergencyStatus, passiveIncomeMonthly } from '../fire.js';
 import { dailyForecast, monthlyForecast, safeToSpend } from '../forecast.js';
 import { totals, categoryBreakdown, monthlyTrend, incomeSources, topMerchants, averageMonthlyExpense } from '../reports.js';
@@ -614,6 +616,33 @@ const liet_ke_danh_muc = () => ({
 const liet_ke_muc_tieu = () => ({ ok: true, muc_tieu: all('SELECT id, name, target_amount, current_amount, deadline, currency, status FROM goals') });
 const liet_ke_nguon_thu = () => ({ ok: true, nguon_thu: all('SELECT id, name, type, net_amount, gross_amount, currency, frequency, active FROM income_streams') });
 
+// ---- Trí nhớ dài hạn và nhật ký thao tác ----------------------------------
+
+function ghi_nho({ muc, noi_dung, loai, ly_do, do_quan_trong, het_han }) {
+  if (!muc || !noi_dung) return { ok: false, error: 'Cần cả tên mục và nội dung cần nhớ.' };
+  const r = remember({ kind: loai, key: muc, value: noi_dung, reason: ly_do, importance: do_quan_trong, expires_at: het_han });
+  return { ok: true, mutates: true, ...r, ghi_chu: 'Đã nhớ lâu dài, sẽ không quên sau khi hội thoại trôi qua.' };
+}
+
+function quen_di({ muc, loai }) {
+  if (!muc) return { ok: false, error: 'Cần tên mục cần quên.' };
+  const r = forget({ key: muc, kind: loai });
+  return r.xoa ? { ok: true, mutates: true, ...r } : { ok: false, error: `Không có mục nào tên "${muc}".`, muc_dang_nho: listMemory().map((m) => m.muc) };
+}
+
+const xem_ghi_nho = ({ loai } = {}) => ({ ok: true, ghi_nho: listMemory({ kind: loai }) });
+
+const xem_nhat_ky_thao_tac = ({ so_luong, chi_thay_doi } = {}) => ({
+  ok: true,
+  thao_tac: listActions({ limit: Math.min(100, Number(so_luong) || 20), mutating_only: !!chi_thay_doi }),
+  thong_ke: actionStats(),
+});
+
+function hoan_tac({ so_thao_tac, ma_thao_tac } = {}) {
+  if (ma_thao_tac) return undoAction(ma_thao_tac);
+  return undoLast(so_thao_tac || 1);
+}
+
 function xem_chi_tieu({ tu_ngay, den_ngay, thang }) {
   const mk = thang || monthKey();
   const from = tu_ngay || monthStart(mk);
@@ -700,6 +729,7 @@ export const TOOL_IMPL = {
   xem_chi_tieu, xem_giao_dich, xem_tai_san, xem_tu_do_tai_chinh, xem_du_bao, xem_ngan_sach,
   xem_no, xem_dau_tu, xem_suc_khoe, xem_xu_huong, tu_van_tien_du, xem_ty_gia,
   tinh_chuyen_tien, tinh_thue,
+  ghi_nho, quen_di, xem_ghi_nho, xem_nhat_ky_thao_tac, hoan_tac,
 };
 
 export const TOOLS = [
@@ -861,6 +891,31 @@ export const TOOLS = [
   T('tinh_thue', 'Tính thuế thu nhập từ lương gộp theo nước cư trú (Việt Nam hoặc Ireland).', {
     luong_gross: N('Lương gộp (VN: mỗi tháng, IE: mỗi năm)'), dong_tien: S('VND/EUR'), quoc_gia: S('VN | IE'),
   }, ['luong_gross']),
+
+  T('ghi_nho', 'Ghi nhớ lâu dài một điều quan trọng về người dùng: hoàn cảnh, sở thích, ràng buộc, quyết định đã chốt hoặc kế hoạch. Hội thoại chỉ giữ 14 lượt gần nhất nên thứ gì cần nhớ lâu phải ghi vào đây.', {
+    muc: S('Tên ngắn gọn của điều cần nhớ, ví dụ "Phụ cấp cho mẹ"'),
+    noi_dung: S('Nội dung đầy đủ, ví dụ "Gửi mẹ 5 triệu đồng mỗi tháng, không được cắt"'),
+    loai: S('fact (hoàn cảnh) | preference (sở thích) | constraint (ràng buộc) | decision (quyết định đã chốt) | plan (kế hoạch)'),
+    ly_do: S('Vì sao điều này quan trọng'),
+    do_quan_trong: N('1 thấp đến 5 cao, mặc định 3'),
+    het_han: S('Ngày hết hiệu lực YYYY-MM-DD, bỏ trống nếu nhớ mãi'),
+  }, ['muc', 'noi_dung']),
+
+  T('quen_di', 'Xoá một mục đã ghi nhớ khi nó không còn đúng nữa.', {
+    muc: S('Tên mục cần quên'), loai: S('Loại của mục, nếu biết'),
+  }, ['muc']),
+
+  T('xem_ghi_nho', 'Xem lại mọi điều đang nhớ về người dùng.', { loai: S('Lọc theo loại, bỏ trống để xem hết') }, []),
+
+  T('xem_nhat_ky_thao_tac', 'Xem lại những việc bạn đã tự làm trong app: đã đụng vào gì, lúc nào, vì sao, đã hoàn tác chưa.', {
+    so_luong: N('Số thao tác gần nhất, mặc định 20'),
+    chi_thay_doi: { type: 'boolean', description: 'Chỉ xem thao tác có thay đổi dữ liệu' },
+  }, []),
+
+  T('hoan_tac', 'Trả dữ liệu về đúng trạng thái trước một thao tác — kể cả số dư tài khoản, số dư quỹ và tiến độ mục tiêu. Dùng khi người dùng nói bạn làm sai.', {
+    so_thao_tac: N('Số thao tác gần nhất cần hoàn tác, mặc định 1'),
+    ma_thao_tac: N('Hoàn tác đúng một thao tác theo mã trong nhật ký'),
+  }, []),
 ];
 
 /**
