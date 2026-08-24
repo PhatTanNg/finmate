@@ -148,6 +148,7 @@ Ngoài ra còn **19 chủ đề kiến thức** trả lời gắn với số li�
 - **Thuế Ireland**: PAYE (20%/40% + tax credits), USC, PRSI, DIRT trên lãi ngân hàng, CGT, ưu đãi thuế khi đóng quỹ hưu.
 - **Insights tự động**: chi tiêu bất thường, ngân sách sắp vượt, subscription quên huỷ, tiền nằm chết, nợ lãi cao...
 - **Gợi ý tiêu tiền dư dả**: khi có tiền dư, app đề xuất thứ tự phân bổ có lý do, không chỉ bảo "hãy tiết kiệm".
+- **Biến cố lớn của đời**: ly hôn, mất việc, sắp có con, cưới, thừa kế, bệnh nặng, người thân qua đời, nghỉ hưu, chuyển nước — app nhận ra và tư vấn theo số liệu thật của bạn (quỹ khẩn cấp trụ được mấy tháng, dòng tiền còn dư bao nhiêu, nợ lãi cao nào nên xử trước), kèm việc cần làm ngay. Đây là tầng chạy **không cần AI**, nên vẫn dùng được khi chưa cắm key hoặc lúc gọi model lỗi.
 
 ### 5. Đa tiền tệ & kiều hối
 Dành cho người Việt sống ở nước ngoài: sinh hoạt bằng EUR nhưng vẫn giữ tài sản và đầu tư ở Việt Nam.
@@ -256,8 +257,9 @@ Vào tab **Cài đặt** để xem app đang chạy chế độ nào — thẻ "
 Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **48 công cụ** (25 công cụ ghi/sửa dữ liệu, 23 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
 
 - **Mọi con số vẫn tính từ dữ liệu trong máy bạn.** LLM không được phép tự bịa số; nó chỉ diễn đạt kết quả công cụ trả về.
+- **Không được nói suông là đã làm.** Nếu model trả lời "đã ghi 45.000đ" mà chưa hề gọi công cụ nào, app chặn lại và nhắc nó làm thật; vẫn nói suông lần nữa thì câu trả lời đó **bị bỏ** và bộ luật xử lý thay — thà mất một câu văn hay còn hơn để người dùng tin là đã ghi trong khi sổ trống. (Model nhỏ hay bắt chước định dạng câu trả lời cũ trong lịch sử chat, nên các lượt do bộ luật sinh cũng được đánh dấu rõ trước khi đưa cho model.)
 - **Gửi đi cái gì:** nội dung hội thoại + số liệu tóm tắt (không gửi toàn bộ lịch sử giao dịch). Nếu không muốn gửi gì ra ngoài, cứ để trống key — app vẫn đủ tính năng.
-- **Hỏng thì sao:** hết hạn mức, mất mạng, model trả sai — app tự động rơi về bộ luật offline, không báo lỗi cho người dùng.
+- **Hỏng thì sao:** hết hạn mức, mất mạng, model trả sai — app tự động rơi về bộ luật offline. Lỗi được ghi ra log server và hiện ở `GET /api/health` (`llm.trang_thai`: số lượt gọi, số lượt lỗi, thông điệp lỗi gần nhất đã che key), nên bạn biết ngay khi key sai hay hết hạn mức thay vì chỉ thấy "AI bỗng kém thông minh".
 - **Model gọi sai tên tham số** (rất hay xảy ra) được ánh xạ lại tự động; công cụ báo lỗi kèm danh sách giá trị hợp lệ để agent tự sửa ở vòng sau.
 
 ---
@@ -303,7 +305,7 @@ finmate/
 │  │  │  ├─ ai_review.js      # phiên rà soát chủ động theo chu kỳ
 │  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (48 công cụ)
 │  │  │                       # llm.js · anthropic.js (lớp dịch sang Claude) · nlu.js
-│  │  │                       # handlers.js · knowledge.js · onboarding.js
+│  │  │                       # handlers.js · knowledge.js · life_events.js · onboarding.js
 │  │  └─ scripts/{seed,seed_ie,reset}.js
 │  └─ test/
 └─ web/                       # React 18 + Vite, 17 trang, biểu đồ tự vẽ bằng SVG
@@ -402,22 +404,28 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 
 ```bash
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
-cd server && node test/smoke-auth.mjs      # PIN, phiên, sao lưu, xuất dữ liệu
-cd server && node test/smoke-ui.mjs        # mọi field frontend dùng đều tồn tại trong API
-cd server && node test/smoke-chat.mjs      # 29 ý định chat
-cd server && node test/smoke-knowledge.mjs # 19 câu hỏi tài chính mở
-cd server && node test/smoke-tools.mjs     # 48 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
-cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
-cd server && node test/smoke-ai.mjs        # nhật ký + hoàn tác, trí nhớ dài hạn, rà soát chủ động
-cd server && node test/smoke-llm.mjs       # lớp dịch sang Claude, chạy qua máy chủ giả (không cần key)
-cd server && node test/scenarios.mjs       # 203 kịch bản người dùng thật, 17 nhóm tính năng
-cd server && node test/personas.mjs        # 8 hành trình người dùng đầu-cuối, 160 bước
-cd server && node test/journey5y.mjs       # 5 năm liên tục của một người Việt ở Ireland, 34 bước
-cd server && node test/lifetime.mjs        # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
-cd web    && node test/render.mjs          # render thật 17 trang trong jsdom với API thật
+npm run test:smoke                # chạy liền 10 bộ smoke bên dưới
+npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
+npm run test:all                  # tất cả: unit + smoke + mô phỏng
+
+cd server && node test/smoke-auth.mjs        # PIN, phiên, sao lưu, xuất dữ liệu
+cd server && node test/smoke-ui.mjs          # mọi field frontend dùng đều tồn tại trong API
+cd server && node test/smoke-chat.mjs        # 29 ý định chat
+cd server && node test/smoke-knowledge.mjs   # 19 câu hỏi tài chính mở
+cd server && node test/smoke-tools.mjs       # 48 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
+cd server && node test/smoke-agent.mjs       # vòng lặp AI agent qua LLM giả lập (không cần key)
+cd server && node test/smoke-ai.mjs          # nhật ký + hoàn tác, trí nhớ dài hạn, rà soát chủ động
+cd server && node test/smoke-llm.mjs         # lớp dịch sang Claude, chạy qua máy chủ giả (không cần key)
+cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
+cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
+cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
+cd server && node test/personas.mjs          # 8 hành trình người dùng đầu-cuối, 160 bước
+cd server && node test/journey5y.mjs         # 5 năm liên tục của một người Việt ở Ireland, 34 bước
+cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
+cd web    && node test/render.mjs            # render thật 17 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-honesty`, `smoke-life-events`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 

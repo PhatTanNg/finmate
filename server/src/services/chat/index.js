@@ -14,6 +14,7 @@ import { healthScore } from '../advisor.js';
 import { generateInsights } from '../insights.js';
 import { safeToSpend } from '../forecast.js';
 import { findTopic, answerTopic } from './knowledge.js';
+import { detectLifeEvent, answerLifeEvent } from './life_events.js';
 
 function saveMessage(role, content, intent = null, data = {}) {
   return insert('chat_messages', { role, content, intent, data: JSON.stringify(data || {}) });
@@ -82,7 +83,7 @@ const WRITE_INTENTS = new Set([
 
 /** Lượt hội thoại gần nhất (đúng thứ tự thời gian) — dùng làm ngữ cảnh cho AI. */
 function recent(limit = 30) {
-  return all('SELECT role, content FROM chat_messages ORDER BY id DESC LIMIT ?', [limit]).reverse();
+  return all('SELECT role, content, intent FROM chat_messages ORDER BY id DESC LIMIT ?', [limit]).reverse();
 }
 
 /** Gợi ý nút bấm nhanh sau khi agent trả lời — tuỳ theo đang thiết lập hay dùng thường. */
@@ -98,6 +99,16 @@ function quickFor(onboarding) {
  */
 async function answerNormally(message) {
   let { intent, score, entities, is_question } = detectIntent(message);
+
+  // Biến cố lớn của đời phải được chặn TRƯỚC bộ luật: "vừa ly hôn", "vợ sắp
+  // sinh", "được thừa kế đất" đều bị bộ luật quy về ý định ghi sổ sai (cập
+  // nhật hồ sơ, hỏi giá món đồ, hỏi mã cổ phiếu) và trả lời rất vô duyên đúng
+  // lúc người dùng cần cố vấn nhất.
+  const sukien = detectLifeEvent(message);
+  if (sukien) {
+    const res = answerLifeEvent(sukien);
+    if (res) return { ...res, intent: 'life_event', score: 9 };
+  }
 
   // Câu hỏi kiến thức tài chính (không kèm số tiền, không phải lệnh ghi sổ)
   // -> trả lời bằng cơ sở tri thức, gắn với số liệu thật của người dùng.

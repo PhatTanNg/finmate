@@ -27,7 +27,7 @@ import { listRemittances, remittanceSummary, timingAdvice, quote as fxQuote, cos
 import { CURRENCIES, CURRENCY_CODES, normalizeCurrency } from '../util/currency.js';
 import { recomputeBaseAmounts } from '../services/ledger.js';
 import { chat, history as chatHistory, ensureWelcome, resetChat } from '../services/chat/index.js';
-import { llmEnabled, llmModel } from '../services/chat/llm.js';
+import { llmEnabled, llmModel, llmStatus } from '../services/chat/llm.js';
 import { listActions, actionDetail, actionStats, undoAction, undoLast, undoBatch, pruneActions } from '../services/ai_audit.js';
 import { listMemory, remember, forget, pruneMemory } from '../services/ai_memory.js';
 import { runReview, reviewConfig, setReviewConfig, lastReview, reviewHistory } from '../services/ai_review.js';
@@ -51,7 +51,14 @@ router.get('/health', wrap(async (req, res) => ok(res, {
   db: 'sqlite',
   // Người dùng phải biết mình đang nói chuyện với bộ luật hay với AI thật —
   // hai thứ này trả lời khác hẳn nhau khi câu hỏi đi lệch khỏi khuôn mẫu.
-  llm: { enabled: llmEnabled(), model: llmEnabled() ? llmModel() : null },
+  llm: {
+    enabled: llmEnabled(),
+    model: llmEnabled() ? llmModel() : null,
+    // Không chỉ "có key hay không": có key mà key sai thì app vẫn chạy được
+    // bằng bộ luật và chẳng ai biết. Số lần lỗi và thông điệp lỗi gần nhất
+    // (đã che key) cho người dùng thấy ngay đường dây AI có thật sự thông.
+    ...(llmEnabled() ? { trang_thai: llmStatus() } : {}),
+  },
 })));
 
 // ---- khoá ứng dụng bằng PIN ----------------------------------------------

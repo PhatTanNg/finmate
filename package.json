@@ -16,7 +16,10 @@
     "seed": "npm run seed -w server",
     "seed:ie": "npm run seed:ie -w server",
     "reset": "npm run reset -w server",
-    "test": "npm test -w server"
+    "test": "npm test -w server",
+    "test:smoke": "npm run test:smoke -w server",
+    "test:sim": "npm run test:sim -w server",
+    "test:all": "npm run test:all -w server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

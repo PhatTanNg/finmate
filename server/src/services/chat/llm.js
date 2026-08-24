@@ -22,10 +22,33 @@ export const llmModel = () => MODEL;
 export const llmProvider = () => PROVIDER;
 
 /**
+ * Sức khoẻ đường dây LLM. Trước đây mọi lỗi gọi model đều bị nuốt im lặng và
+ * app lặng lẽ lùi về bộ luật: người dùng vẫn nhận được câu trả lời tử tế nên
+ * không hề biết mình đã cấu hình sai key, hết hạn mức hay gõ nhầm tên model —
+ * chỉ thấy AI "bỗng dưng kém thông minh". Ghi lại lần gọi gần nhất để
+ * /api/health nói thẳng ra chuyện đó.
+ */
+const health = { ok: null, at: null, error: null, calls: 0, fails: 0 };
+export function llmStatus() {
+  return {
+    bat: Boolean(KEY), nha_cung_cap: PROVIDER, model: MODEL,
+    lan_goi: health.calls, lan_loi: health.fails,
+    gan_nhat_ok: health.ok, gan_nhat_luc: health.at, loi_gan_nhat: health.error,
+  };
+}
+function noteOk() { health.ok = true; health.at = new Date().toISOString(); health.error = null; health.calls += 1; }
+function noteFail(e) {
+  health.ok = false; health.at = new Date().toISOString(); health.calls += 1; health.fails += 1;
+  // Cắt ngắn và bỏ mọi thứ trông giống key: thông điệp này đi ra tới API health.
+  health.error = String(e?.message || e).replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***').slice(0, 300);
+  console.warn(`[finmate] gọi ${PROVIDER}/${MODEL} lỗi: ${health.error}`);
+}
+
+/**
  * Gọi API chat. Trả về nguyên message của model (có thể chứa tool_calls)
  * khi `raw: true`, ngược lại chỉ trả chuỗi nội dung.
  */
-async function call(messages, { json = false, timeout = 25000, temperature = 0.4, tools = null, raw = false } = {}) {
+async function callApi(messages, { json = false, timeout = 25000, temperature = 0.4, tools = null, raw = false } = {}) {
   if (!KEY) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
@@ -66,6 +89,19 @@ async function call(messages, { json = false, timeout = 25000, temperature = 0.4
     return raw ? msg || null : msg?.content || null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** Bọc quanh lời gọi thật để mọi thành/bại đều được ghi nhận, rồi ném tiếp như cũ. */
+async function call(messages, opts = {}) {
+  if (!KEY) return null;
+  try {
+    const r = await callApi(messages, opts);
+    noteOk();
+    return r;
+  } catch (e) {
+    noteFail(e);
+    throw e;
   }
 }
 

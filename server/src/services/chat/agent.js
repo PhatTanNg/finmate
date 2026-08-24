@@ -121,6 +121,7 @@ NGUYÊN TẮC LÀM VIỆC
 - Người dùng nhắn trên **điện thoại**. Câu trả lời phải NGẮN: tối đa 6-8 dòng, ưu tiên 3-4 dòng. Không viết bài luận, không lặp lại câu hỏi của họ.
 - Dùng markdown nhẹ: **in đậm** cho con số quan trọng, gạch đầu dòng khi liệt kê, emoji vừa phải. Không dùng bảng, không tiêu đề lớn.
 - **Không bao giờ bịa số**. Muốn biết số liệu thì gọi công cụ tra cứu. Số trong TÌNH HÌNH đã có sẵn thì dùng luôn, khỏi gọi lại.
+- **Không bao giờ nói suông là đã làm.** Chỉ được viết "đã ghi", "đã cập nhật", "đã tạo"… SAU KHI đã thực sự gọi công cụ tương ứng trong chính lượt này và nhận được kết quả ok. Các câu trả lời cũ trong lịch sử hội thoại có thể do bộ máy khác của app sinh ra — **đừng bắt chước định dạng của chúng để mô tả một việc bạn chưa làm**. Chưa làm được thì nói thẳng là chưa làm được.
 - Khi người dùng kể về việc đã tiêu/nhận tiền, hãy **ghi vào sổ ngay** bằng ghi_giao_dich rồi mới trả lời. Đừng hỏi lại những chi tiết không cần thiết — đoán hợp lý, nói rõ mình đã đoán gì, và mời họ sửa nếu sai.
 - Được phép gọi nhiều công cụ liên tiếp trong một lượt. Ưu tiên hành động hơn là hỏi lại.
 - Chỉ hỏi lại khi thật sự thiếu thông tin bắt buộc (ví dụ không rõ số tiền).
@@ -183,12 +184,48 @@ NHIỆM VỤ LÚC NÀY: dẫn dắt họ thiết lập hồ sơ qua trò chuyệ
 ${JSON.stringify(b, null, 0)}`;
 }
 
-/** Chuyển lịch sử DB sang định dạng hội thoại của model. */
+/**
+ * Câu trả lời có đang tuyên bố là đã thay đổi dữ liệu không?
+ *
+ * Vì sao cần: lịch sử chat chứa những câu bộ luật từng trả lời ("✍️ Đã ghi
+ * chi 45.000đ…"). Model — nhất là model nhỏ — coi đó là mẫu và bắt chước y
+ * hệt mà không gọi công cụ nào, nên người dùng đọc thấy "đã ghi" trong khi sổ
+ * không hề có giao dịch. Trong một app tài chính thì đó là lời nói dối tệ
+ * nhất có thể có: người ta tin là đã ghi rồi và không ghi lại nữa.
+ *
+ * Chỉ bắt những động từ chỉ hành động của app, không bắt những câu kể lại số
+ * liệu ("bạn đã chi 32 triệu tháng này") để tránh chặn nhầm.
+ *
+ * Lưu ý: KHÔNG dùng `\b` ở đây. Trong regex JavaScript, `\w` chỉ gồm [A-Za-z0-9_]
+ * nên chữ tiếng Việt có dấu không phải "ký tự từ": `/\bđã/` không bao giờ khớp
+ * với "đã". Bản đầu tiên của chốt chặn này viết có `\b` và im lặng không hoạt
+ * động — nhìn mã thì thấy đúng, chỉ chạy thật mới lộ ra.
+ */
+const CLAIM_RE = /(đã|vừa)\s+(tự động\s+)?(ghi|thêm|tạo|lưu|cập nhật|chỉnh|điều chỉnh|sửa|xoá|xóa|đặt|phân bổ|chuyển|nạp|rút|đóng|mở|lập|bật|tắt|gia hạn|hoàn tất|thiết lập)/i;
+const claimsMutation = (t) => CLAIM_RE.test(String(t || ''));
+
+/**
+ * Chuyển lịch sử DB sang định dạng hội thoại của model.
+ *
+ * Những lượt trước có thể do **bộ luật** trả lời chứ không phải agent (khi
+ * chưa cắm AI, hoặc khi agent lỗi). Chúng có định dạng rất đặc trưng —
+ * "✍️ Đã ghi chi 45.000đ…" — và nếu để nguyên thì model đọc như thể chính nó
+ * đã viết, rồi bắt chước: viết y hệt câu "đã ghi" mà không gọi công cụ nào.
+ * Đánh dấu rõ nguồn gốc để nó biết đó không phải việc mình làm, đồng thời cắt
+ * ngắn vì nội dung đó chỉ còn giá trị ngữ cảnh.
+ */
+const AGENT_INTENTS = new Set(['agent', 'onboarding']);
 function toMessages(history) {
   return history
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .slice(-HISTORY_TURNS)
-    .map((m) => ({ role: m.role, content: String(m.content || '').slice(0, 4000) }));
+    .map((m) => {
+      const content = String(m.content || '').slice(0, 4000);
+      if (m.role === 'assistant' && m.intent && !AGENT_INTENTS.has(m.intent)) {
+        return { role: m.role, content: `[app tự trả lời bằng mẫu có sẵn, không phải bạn làm] ${content.slice(0, 400)}` };
+      }
+      return { role: m.role, content };
+    });
 }
 
 /**
@@ -214,6 +251,7 @@ export async function runAgent(message, history, { onboarding = false, source = 
   const calls = [];
   let mutated = false;
   let onboarded = false;
+  let nudged = false;   // đã nhắc model một lần vì nói suông chưa
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
     let msg;
@@ -221,6 +259,10 @@ export async function runAgent(message, history, { onboarding = false, source = 
       msg = await complete(messages, toolset, { temperature: 0.55 });
     } catch (e) {
       // Hết hạn mức, mạng lỗi, model sai... -> để bộ luật xử lý tiếp.
+      // Nhưng phải kêu lên: im lặng lùi về bộ luật khiến người dùng tưởng AI
+      // đang chạy trong khi thật ra key sai hoặc hết tiền, và họ không có cách
+      // nào biết ngoài việc thấy câu trả lời nhạt đi.
+      console.warn(`[finmate] agent lùi về bộ luật vì lỗi gọi model: ${String(e?.message || e).slice(0, 200)}`);
       return calls.length
         ? { reply: `Mình đã cập nhật xong nhưng phần diễn giải bị lỗi kết nối (${e.message}). Bạn hỏi lại giúp mình nhé.`, calls, mutated, onboarded, batch }
         : null;
@@ -231,6 +273,28 @@ export async function runAgent(message, history, { onboarding = false, source = 
     if (!toolCalls.length) {
       const reply = String(msg.content || '').trim();
       if (!reply) return null;
+
+      // Chốt chặn nói dối: model bảo đã làm nhưng chưa hề gọi công cụ nào.
+      // Nhắc một lần cho nó tự sửa — thường là nó gọi công cụ thật ngay.
+      if (claimsMutation(reply) && !mutated) {
+        if (!nudged) {
+          nudged = true;
+          messages.push({ role: 'assistant', content: reply });
+          // Vai `user` chứ không phải `system`: với Claude, mọi message system
+          // đều bị gom lên đầu request, nên lời nhắc "bạn vừa nói suông" sẽ mất
+          // đúng cái nó cần nhất là vị trí — ngay sau câu vừa nói.
+          messages.push({
+            role: 'user',
+            content: 'Khoan đã: bạn vừa nói là đã ghi/cập nhật, nhưng bạn CHƯA gọi công cụ nào nên trong app thực tế chưa có gì thay đổi. Hãy gọi đúng công cụ ngay bây giờ để thực hiện việc đó. Nếu thiếu thông tin hoặc không có công cụ phù hợp thì nói thật là chưa làm được và hỏi lại mình — đừng mô tả một việc chưa xảy ra.',
+          });
+          continue;
+        }
+        // Nhắc rồi vẫn nói suông: thà nhường cho bộ luật xử lý — nó thao tác
+        // thật — còn hơn trả về một câu khẳng định sai sự thật.
+        console.warn('[finmate] agent nói đã cập nhật nhưng không gọi công cụ nào; nhường cho bộ luật.');
+        return null;
+      }
+
       return { reply, calls, mutated, onboarded, batch };
     }
 
