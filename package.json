@@ -14,6 +14,7 @@
     "start:lan": "npm run build -w web && npm run start:lan -w server",
     "backup": "npm run backup -w server",
     "seed": "npm run seed -w server",
+    "seed:ie": "npm run seed:ie -w server",
     "reset": "npm run reset -w server",
     "test": "npm test -w server"
   },

@@ -15,12 +15,16 @@ import { listDebts, amortize, payoffPlan, debtSummary } from '../services/debts.
 import { monthReport, monthlyTrend, categoryBreakdown, incomeSources, totals, averageMonthlyExpense, averageMonthlyIncome } from '../services/reports.js';
 import { netWorth, snapshot, history as nwHistory } from '../services/networth.js';
 import { dailyForecast, monthlyForecast, safeToSpend } from '../services/forecast.js';
-import { fireStats, emergencyStatus, passiveIncomeMonthly } from '../services/fire.js';
+import { fireStats, emergencyStatus, passiveIncomeMonthly, marketAssumptions } from '../services/fire.js';
 import { budgetStatus, upsertBudget, suggestBudgets } from '../services/budgets.js';
 import { generateInsights, listInsights } from '../services/insights.js';
 import { healthScore, surplusPlan, nextActions, investmentSplit } from '../services/advisor.js';
 import { ingestMessage, importCSV, ingestHistory, parseBankMessage, reconcile } from '../services/ingest.js';
-import { grossToNet, netToGross, estimateAnnualTax, config as taxConfig } from '../services/tax.js';
+import { grossToNetAuto, netToGrossAuto, estimateAnnualTaxAuto, taxConfigAuto, taxCountry, COUNTRIES } from '../services/tax_router.js';
+import { setRate, getRate, convert, baseCurrency, refreshRates, ensureSeedRates, rateTable, rateHistory, fxStatus } from '../services/fx.js';
+import { listRemittances, remittanceSummary, timingAdvice, quote as fxQuote, costInsight } from '../services/remittance.js';
+import { CURRENCIES, CURRENCY_CODES, normalizeCurrency } from '../util/currency.js';
+import { recomputeBaseAmounts } from '../services/ledger.js';
 import { chat, history as chatHistory, ensureWelcome, resetChat } from '../services/chat/index.js';
 
 export const router = express.Router();
@@ -138,6 +142,8 @@ router.get('/dashboard', wrap(async (req, res) => {
   const nw = netWorth();
   ok(res, {
     month: mk,
+    base_currency: baseCurrency(),
+    fx: rateTable(baseCurrency()),
     totals: t,
     net_worth: nw,
     net_worth_history: nwHistory(24),
@@ -161,7 +167,14 @@ router.get('/dashboard', wrap(async (req, res) => {
 
 // ---- tài khoản ------------------------------------------------------------
 
-router.get('/accounts', wrap(async (req, res) => ok(res, { accounts: all('SELECT * FROM accounts ORDER BY is_active DESC, type, id') })));
+router.get('/accounts', wrap(async (req, res) => {
+  const base = baseCurrency();
+  const accounts = all('SELECT * FROM accounts ORDER BY is_active DESC, type, id').map((a) => {
+    const code = normalizeCurrency(a.currency, null) || base;
+    return { ...a, currency: code, base_currency: base, base_balance: convert(a.balance, code, base) };
+  });
+  ok(res, { accounts, base_currency: base });
+}));
 router.post('/accounts', wrap(async (req, res) => {
   const body = { ...req.body };
   const balance = Number(body.balance) || 0;
@@ -282,14 +295,27 @@ router.delete('/recurring/:id', wrap(async (req, res) => ok(res, { removed: remo
 // ---- nguồn thu ------------------------------------------------------------
 
 router.get('/income-streams', wrap(async (req, res) => {
-  const streams = all('SELECT s.*, a.name AS account_name FROM income_streams s LEFT JOIN accounts a ON a.id = s.account_id ORDER BY s.active DESC, s.net_amount DESC');
+  const rows = all('SELECT s.*, a.name AS account_name FROM income_streams s LEFT JOIN accounts a ON a.id = s.account_id ORDER BY s.active DESC, s.net_amount DESC');
+  const base = baseCurrency();
+  // Mỗi nguồn thu có thể ở đồng tiền khác (lương EUR, tiền thuê nhà VND).
+  // Kèm sẵn số đã quy đổi để giao diện cộng gộp không bị sai.
+  const streams = rows.map((s) => {
+    const code = normalizeCurrency(s.currency || base);
+    return {
+      ...s,
+      currency: code,
+      base_currency: base,
+      base_net_amount: convert(s.net_amount || 0, code, base),
+      base_gross_amount: convert(s.gross_amount || 0, code, base),
+    };
+  });
   const mk = monthKey();
   ok(res, {
     streams,
     sources: incomeSources(monthStart(lastMonths(6)[0]), monthEnd(mk)),
     passive: passiveIncomeMonthly(),
     projected_interest: projectedAnnualInterest(),
-    tax: estimateAnnualTax(streams),
+    tax: estimateAnnualTaxAuto(streams),
   });
 }));
 router.post('/income-streams', wrap(async (req, res) => {
@@ -421,15 +447,116 @@ router.get('/automation/status', wrap(async (req, res) => ok(res, {
 // ---- thuế -----------------------------------------------------------------
 
 router.post('/tax/pit', wrap(async (req, res) => {
-  const { gross, net, dependents = 0, insurance_base } = req.body || {};
-  const opts = { dependents: Number(dependents) || 0, insuranceBase: insurance_base ? Number(insurance_base) : null };
-  ok(res, { result: gross ? grossToNet(Number(gross), opts) : netToGross(Number(net), opts), config: taxConfig() });
+  const { gross, net, dependents = 0, insurance_base, country, status, age, pension, rent_credit } = req.body || {};
+  const c = country ? String(country).toUpperCase() : taxCountry();
+  const opts = {
+    country: c,
+    dependents: Number(dependents) || 0,
+    insuranceBase: insurance_base ? Number(insurance_base) : null,
+    status: status || 'single',
+    age: age ? Number(age) : 30,
+    pension: pension ? Number(pension) : 0,
+    rentCredit: !!rent_credit,
+  };
+  ok(res, {
+    result: gross ? grossToNetAuto(Number(gross), opts) : netToGrossAuto(Number(net), opts),
+    config: taxConfigAuto(c),
+    countries: Object.values(COUNTRIES),
+  });
+}));
+
+router.get('/tax/config', wrap(async (req, res) => {
+  const c = req.query.country ? String(req.query.country).toUpperCase() : taxCountry();
+  ok(res, { country: c, config: taxConfigAuto(c), countries: Object.values(COUNTRIES) });
+}));
+
+// ---- tiền tệ & tỷ giá -----------------------------------------------------
+
+router.get('/fx/rates', wrap(async (req, res) => {
+  const base = normalizeCurrency(req.query.base, baseCurrency());
+  ok(res, {
+    base,
+    rates: rateTable(base),
+    status: fxStatus(),
+    currencies: CURRENCY_CODES.map((c) => CURRENCIES[c]),
+  });
+}));
+
+router.post('/fx/refresh', wrap(async (req, res) => ok(res, await refreshRates({ force: true }))));
+
+router.post('/fx/rate', wrap(async (req, res) => {
+  const { base, quote, rate, date } = req.body || {};
+  if (!rate || Number(rate) <= 0) throw new Error('Tỷ giá phải lớn hơn 0');
+  setRate(base, quote, Number(rate), date || today(), 'manual');
+  ok(res, { rate: getRate(base, quote, date || today()), rates: rateTable(baseCurrency()) });
+}));
+
+router.get('/fx/history', wrap(async (req, res) => {
+  const base = normalizeCurrency(req.query.base, baseCurrency());
+  const quote = normalizeCurrency(req.query.quote, 'VND');
+  ok(res, { base, quote, history: rateHistory(base, quote, Number(req.query.limit) || 90) });
+}));
+
+router.get('/fx/convert', wrap(async (req, res) => {
+  const from = normalizeCurrency(req.query.from, baseCurrency());
+  const to = normalizeCurrency(req.query.to, 'VND');
+  const amount = Number(req.query.amount) || 0;
+  ok(res, { from, to, amount, result: convert(amount, from, to, req.query.date || today()), rate: getRate(from, to) });
+}));
+
+/** Đổi đồng tiền gốc: phải tính lại base_amount của toàn bộ giao dịch cũ. */
+router.post('/currency/base', wrap(async (req, res) => {
+  const code = normalizeCurrency(req.body?.currency);
+  if (!code) throw new Error('Đồng tiền không hợp lệ');
+  const before = get('SELECT * FROM profile WHERE id = 1') || {};
+  const patch = { currency: code, updated_at: new Date().toISOString() };
+  // Nếu người dùng chưa từng tự chỉnh giả định thị trường thì đổi theo đồng tiền
+  // mới — 9%/4% hợp với VN, còn khu vực euro thì 7%/2,5% mới sát thực tế.
+  const oldAssume = marketAssumptions(before.currency || 'VND');
+  const newAssume = marketAssumptions(code);
+  if (Number(before.expected_return) === oldAssume.expected_return) patch.expected_return = newAssume.expected_return;
+  if (Number(before.inflation) === oldAssume.inflation) patch.inflation = newAssume.inflation;
+  update('profile', 1, patch);
+  ensureSeedRates();
+  const changed = recomputeBaseAmounts();
+  recomputeFundBalances();
+  snapshot();
+  ok(res, { currency: code, recomputed: changed, profile: get('SELECT * FROM profile WHERE id = 1') });
+}));
+
+// ---- chuyển tiền quốc tế (kiều hối) --------------------------------------
+
+router.get('/remittance', wrap(async (req, res) => {
+  const months = Number(req.query.months) || 12;
+  ok(res, {
+    base: baseCurrency(),
+    list: listRemittances({ limit: Number(req.query.limit) || 100 }),
+    summary: remittanceSummary({ months }),
+    timing: timingAdvice(baseCurrency(), normalizeCurrency(req.query.to, 'VND')),
+    cost: costInsight(months),
+  });
+}));
+
+router.post('/remittance/quote', wrap(async (req, res) => {
+  const { amount, from, to, fee_pct, fixed_fee } = req.body || {};
+  ok(res, {
+    quote: fxQuote({
+      amount: Number(amount) || 0,
+      from: normalizeCurrency(from, baseCurrency()),
+      to: normalizeCurrency(to, 'VND'),
+      feePct: fee_pct != null ? Number(fee_pct) : 0.005,
+      fixedFee: fixed_fee != null ? Number(fixed_fee) : 0,
+    }),
+  });
 }));
 
 // ---- chạy toàn bộ engine tự động -----------------------------------------
 
 export function runAutomation() {
   bootstrap();
+  ensureSeedRates();
+  // Tỷ giá lấy về nền, không chặn khởi động — offline vẫn dùng tỷ giá đã lưu.
+  refreshRates().catch((e) => console.warn('[finmate] không lấy được tỷ giá:', e.message));
   const posted = runDueRecurring();
   const interest = accrueInterest();
   snapshot();

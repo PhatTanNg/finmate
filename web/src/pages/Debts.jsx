@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Stat, Progress, Empty, Loading, Modal, Form } from '../components/ui.jsx';
-import { fmt, short, pct, vnDate } from '../lib/format.js';
+import { fmt, short, pct, vnDate, baseCurrency, toMinor } from '../lib/format.js';
 
 export default function Debts({ onRefresh }) {
   const [d, setD] = useState(null);
@@ -107,13 +107,15 @@ export default function Debts({ onRefresh }) {
               { k: 'name', label: 'Tên khoản nợ', ph: 'Vay mua xe', full: true },
               { k: 'type', label: 'Loại', type: 'select', options: [{ value: 'mortgage', label: 'Vay mua nhà' }, { value: 'auto', label: 'Vay mua xe' }, { value: 'personal', label: 'Vay tiêu dùng' }, { value: 'credit_card', label: 'Thẻ tín dụng' }, { value: 'student', label: 'Vay học' }, { value: 'other', label: 'Khác' }], def: 'personal' },
               { k: 'lender', label: 'Bên cho vay' },
-              { k: 'balance', label: 'Dư nợ hiện tại', type: 'number' },
+              { k: 'balance', label: `Dư nợ hiện tại (${baseCurrency()})`, type: 'number' },
               { k: 'interest_rate', label: 'Lãi suất %/năm', type: 'number' },
-              { k: 'monthly_payment', label: 'Trả mỗi tháng', type: 'number' },
+              { k: 'monthly_payment', label: `Trả mỗi tháng (${baseCurrency()})`, type: 'number' },
               { k: 'due_day', label: 'Ngày đến hạn', type: 'number', def: 10 },
             ]}
             onSubmit={async (v) => {
-              await api.post('/debts', { ...v, balance: Number(v.balance), principal: Number(v.balance), interest_rate: Number(v.interest_rate) || 0, monthly_payment: Number(v.monthly_payment) || 0, min_payment: Number(v.monthly_payment) || 0, due_day: Number(v.due_day) || 10, status: 'active' });
+              const bal = toMinor(v.balance);
+              const pay = toMinor(v.monthly_payment);
+              await api.post('/debts', { ...v, balance: bal, principal: bal, currency: baseCurrency(), interest_rate: Number(v.interest_rate) || 0, monthly_payment: pay, min_payment: pay, due_day: Number(v.due_day) || 10, status: 'active' });
               setAdding(false); load(); onRefresh?.();
             }}
             onCancel={() => setAdding(false)}

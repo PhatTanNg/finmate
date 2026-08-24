@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Stat, Empty, Loading, Modal, Form, Donut, Money } from '../components/ui.jsx';
-import { fmt, short, pct, vnDate } from '../lib/format.js';
+import { fmt, short, pct, vnDate, baseCurrency, toMinor, toMajor, CURRENCIES } from '../lib/format.js';
 
 export default function Investments({ onRefresh }) {
   const [d, setD] = useState(null);
@@ -63,10 +63,10 @@ export default function Investments({ onRefresh }) {
                 <tr key={h.id}>
                   <td><b>{h.symbol}</b> <span className="mini">{h.name !== h.symbol ? h.name : ''}</span></td>
                   <td className="num">{Number(h.quantity).toLocaleString('vi-VN')}</td>
-                  <td className="num">{short(h.avg_cost)}</td>
-                  <td className="num">{short(h.last_price)}</td>
-                  <td className="num">{fmt(h.value)}</td>
-                  <td className="num"><span className={h.pnl >= 0 ? 'up' : 'down'}>{h.pnl >= 0 ? '▲' : '▼'} {short(Math.abs(h.pnl))} ({pct(h.pnl_pct, 1)})</span></td>
+                  <td className="num">{short(h.avg_cost, h.currency)}</td>
+                  <td className="num">{short(h.last_price, h.currency)}</td>
+                  <td className="num">{fmt(h.value, h.currency)}</td>
+                  <td className="num"><span className={h.pnl >= 0 ? 'up' : 'down'}>{h.pnl >= 0 ? '▲' : '▼'} {short(Math.abs(h.pnl), h.currency)} ({pct(h.pnl_pct, 1)})</span></td>
                   <td className="num"><button className="btn sm ghost" onClick={() => setPrice(h)}>Giá</button></td>
                 </tr>
               ))}
@@ -84,11 +84,12 @@ export default function Investments({ onRefresh }) {
                 <div className="ic">🏡</div>
                 <div style={{ minWidth: 0 }}>
                   <div className="t">{r.name}</div>
-                  <div className="s">{r.address || '—'} · thuê {short(r.monthly_rent)}/tháng · lấp đầy {pct(r.occupancy)}</div>
+                  <div className="s">{r.address || '—'} · thuê {short(r.monthly_rent, r.currency)}/tháng · lấp đầy {pct(r.occupancy)}</div>
                 </div>
                 <div className="amt" style={{ textAlign: 'right' }}>
-                  <div>{fmt(r.current_value)}</div>
-                  <div className="mini">yield {pct(r.yield_net ?? ((r.monthly_rent * 12) / (r.current_value || 1)), 1)}/năm</div>
+                  <div>{fmt(r.current_value, r.currency)}</div>
+                  {r.currency && r.currency !== baseCurrency() && <div className="mini">≈ {short(r.value_base)}</div>}
+                  <div className="mini">yield {pct(r.yield ?? r.yield_net ?? ((r.monthly_rent * 12) / (r.current_value || 1)), 1)}/năm</div>
                 </div>
               </div>
             ))}
@@ -102,7 +103,7 @@ export default function Investments({ onRefresh }) {
             {d.trades.slice(0, 10).map((t) => (
               <div key={t.id} className="item">
                 <div className="ic">{t.side === 'buy' ? '🟢' : t.side === 'sell' ? '🔴' : '💵'}</div>
-                <div><div className="t">{t.side === 'buy' ? 'Mua' : t.side === 'sell' ? 'Bán' : 'Cổ tức'} {t.symbol}</div><div className="s">{vnDate(t.date)} · {Number(t.quantity).toLocaleString('vi-VN')} × {short(t.price)}</div></div>
+                <div><div className="t">{t.side === 'buy' ? 'Mua' : t.side === 'sell' ? 'Bán' : 'Cổ tức'} {t.symbol}</div><div className="s">{vnDate(t.date)} · {Number(t.quantity).toLocaleString('vi-VN')} × {short(t.price, t.currency)}</div></div>
                 <div className="amt">{fmt(t.quantity * t.price)}</div>
               </div>
             ))}
@@ -118,10 +119,15 @@ export default function Investments({ onRefresh }) {
               { k: 'name', label: 'Tên' },
               { k: 'asset_class', label: 'Loại', type: 'select', options: [{ value: 'stock', label: 'Cổ phiếu' }, { value: 'fund', label: 'Quỹ/ETF' }, { value: 'gold', label: 'Vàng' }, { value: 'bond', label: 'Trái phiếu' }, { value: 'crypto', label: 'Crypto' }], def: 'stock' },
               { k: 'quantity', label: 'Số lượng', type: 'number' },
+              { k: 'currency', label: 'Đồng tiền', type: 'select', options: Object.values(CURRENCIES).map((c) => ({ value: c.code, label: `${c.flag} ${c.code}` })), def: baseCurrency() },
               { k: 'avg_cost', label: 'Giá vốn/đơn vị', type: 'number' },
               { k: 'last_price', label: 'Giá hiện tại', type: 'number' },
             ]}
-            onSubmit={async (v) => { await api.post('/investments/holdings', { ...v, quantity: Number(v.quantity), avg_cost: Number(v.avg_cost), last_price: Number(v.last_price) || Number(v.avg_cost) }); setAdding(false); load(); onRefresh?.(); }}
+            onSubmit={async (v) => {
+              const code = v.currency || baseCurrency();
+              await api.post('/investments/holdings', { ...v, currency: code, quantity: Number(v.quantity), avg_cost: toMinor(v.avg_cost, code), last_price: toMinor(v.last_price || v.avg_cost, code) });
+              setAdding(false); load(); onRefresh?.();
+            }}
             onCancel={() => setAdding(false)}
           />
         </Modal>
@@ -130,9 +136,9 @@ export default function Investments({ onRefresh }) {
       {price && (
         <Modal title={`Cập nhật giá ${price.symbol}`} onClose={() => setPrice(null)}>
           <Form
-            fields={[{ k: 'price', label: 'Giá hiện tại (VND/đơn vị)', type: 'number', def: price.last_price }]}
+            fields={[{ k: 'price', label: `Giá hiện tại (${price.currency || baseCurrency()}/đơn vị)`, type: 'number', def: toMajor(price.last_price, price.currency) }]}
             submit="Cập nhật"
-            onSubmit={async (v) => { await api.post('/investments/price', { symbol: price.symbol, price: Number(v.price) }); setPrice(null); load(); onRefresh?.(); }}
+            onSubmit={async (v) => { await api.post('/investments/price', { symbol: price.symbol, price: toMinor(v.price, price.currency || baseCurrency()) }); setPrice(null); load(); onRefresh?.(); }}
             onCancel={() => setPrice(null)}
           />
         </Modal>
@@ -147,9 +153,14 @@ export default function Investments({ onRefresh }) {
               { k: 'quantity', label: 'Số lượng', type: 'number' },
               { k: 'price', label: 'Giá', type: 'number' },
               { k: 'fee', label: 'Phí', type: 'number', def: 0 },
+              { k: 'currency', label: 'Đồng tiền', type: 'select', options: Object.values(CURRENCIES).map((c) => ({ value: c.code, label: `${c.flag} ${c.code}` })), def: baseCurrency() },
               { k: 'date', label: 'Ngày', type: 'date', def: new Date().toISOString().slice(0, 10) },
             ]}
-            onSubmit={async (v) => { await api.post('/investments/trade', { ...v, quantity: Number(v.quantity), price: Number(v.price), fee: Number(v.fee) || 0 }); setTrade(false); load(); onRefresh?.(); }}
+            onSubmit={async (v) => {
+              const code = v.currency || baseCurrency();
+              await api.post('/investments/trade', { ...v, currency: code, quantity: Number(v.quantity), price: toMinor(v.price, code), fee: toMinor(v.fee, code) });
+              setTrade(false); load(); onRefresh?.();
+            }}
             onCancel={() => setTrade(false)}
           />
         </Modal>
@@ -165,8 +176,20 @@ export default function Investments({ onRefresh }) {
               { k: 'purchase_price', label: 'Giá mua', type: 'number' },
               { k: 'monthly_rent', label: 'Tiền thuê/tháng', type: 'number', def: 0 },
               { k: 'monthly_cost', label: 'Chi phí/tháng', type: 'number', def: 0 },
+              { k: 'currency', label: 'Đồng tiền', type: 'select', options: Object.values(CURRENCIES).map((c) => ({ value: c.code, label: `${c.flag} ${c.code}` })), def: 'VND' },
             ]}
-            onSubmit={async (v) => { await api.post('/properties', { ...v, current_value: Number(v.current_value), purchase_price: Number(v.purchase_price) || 0, monthly_rent: Number(v.monthly_rent) || 0, monthly_cost: Number(v.monthly_cost) || 0, occupancy: 1 }); setProp(false); load(); onRefresh?.(); }}
+            onSubmit={async (v) => {
+              const code = v.currency || 'VND';
+              await api.post('/properties', {
+                ...v, currency: code,
+                current_value: toMinor(v.current_value, code),
+                purchase_price: toMinor(v.purchase_price, code),
+                monthly_rent: toMinor(v.monthly_rent, code),
+                monthly_cost: toMinor(v.monthly_cost, code),
+                occupancy: 1,
+              });
+              setProp(false); load(); onRefresh?.();
+            }}
             onCancel={() => setProp(false)}
           />
         </Modal>

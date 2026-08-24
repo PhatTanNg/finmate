@@ -1,5 +1,7 @@
 /** Xử lý ngôn ngữ tiếng Việt: bỏ dấu, đọc số tiền, đọc ngày/khoảng thời gian. */
 import { today, addDays, addMonths, monthKey, monthStart, monthEnd, startOfMonth, endOfMonth, toISO, parseISO } from './date.js';
+import { parseNumberFor, toMinor, normalizeCurrency, DEFAULT_CURRENCY } from './currency.js';
+import { displayCurrency } from './money.js';
 
 export function stripDiacritics(s = '') {
   return String(s)
@@ -13,97 +15,125 @@ export function norm(s = '') {
   return stripDiacritics(String(s).toLowerCase()).replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Đơn vị nhân. `viet: true` = từ thuần Việt ("tỷ", "triệu", "củ") — khi người
+ * dùng viết vậy mà không kèm ký hiệu tiền nào thì gần như chắc chắn đang nói
+ * về VND, kể cả khi đồng tiền chính của họ là EUR.
+ */
 const UNITS = [
-  { re: /^(ty|ti|tỷ|tỉ|b|bil)$/i, mul: 1e9 },
-  { re: /^(tr|trieu|triệu|cu|củ|m|mil)$/i, mul: 1e6 },
-  { re: /^(k|nghin|nghìn|ngan|ngàn|ng|lít|lit)$/i, mul: 1e3 },
+  { words: ['tỷ', 'tỉ'], mul: 1e9, viet: true },
+  { words: ['ty', 'ti'], mul: 1e9, viet: true },
+  { words: ['bil', 'b'], mul: 1e9, viet: false },
+  { words: ['triệu', 'trieu', 'củ', 'cu', 'tr'], mul: 1e6, viet: true },
+  { words: ['mil', 'm'], mul: 1e6, viet: false },
+  { words: ['nghìn', 'nghin', 'ngàn', 'ngan', 'lít', 'lit', 'k', 'ng'], mul: 1e3, viet: false },
 ];
 
-function unitMul(u) {
-  if (!u) return null;
-  const n = norm(u);
-  for (const { re, mul } of UNITS) if (re.test(n)) return mul;
+const UNIT_ALT = UNITS.flatMap((u) => u.words)
+  .sort((a, b) => b.length - a.length)
+  .join('|');
+
+function unitInfo(word) {
+  const n = norm(word);
+  for (const u of UNITS) if (u.words.some((w) => norm(w) === n)) return u;
   return null;
 }
 
-const NUM_RE = new RegExp(
-  [
-    '(\\d{1,3}(?:[.,\\s]\\d{3})+)', // 1.500.000 | 1,500,000
-    '|(\\d+(?:[.,]\\d+)?)', // 50 | 1,5
-  ].join(''),
-  'g'
-);
+/** Ký hiệu/tên đồng tiền đứng sau số */
+const CUR_SUFFIX = /^\s*(€|euros?|eur|₫|vnđ|vnd|đồng|dong|đ|\$|usd|đô la|do la|đô|£|gbp|bảng|bang)(?![\p{L}])\.?/iu;
+/** Ký hiệu đứng trước số */
+const CUR_PREFIX = /(€|\$|£)\s*$/;
+
+// Số: dạng có phân tách nghìn (kèm phần lẻ tuỳ chọn) hoặc số thường
+const NUM_RE = /(?<![\d.,])(\d{1,3}(?:[.,\s]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d+)?)/gu;
 
 /**
  * Tìm mọi số tiền trong câu.
- * Hỗ trợ: 50k, 50 nghìn, 1tr2, 1 triệu rưỡi, 1.500.000, 2,5 triệu, 3 củ, 1 tỷ 2, 200 đồng.
- * @returns {{value:number, raw:string, index:number, confidence:number}[]}
+ * VND:  50k, 50 nghìn, 1tr2, 1 triệu rưỡi, 1.500.000, 2,5 triệu, 3 củ, 1 tỷ 2
+ * EUR:  €1,200 · 1200 euro · 12.50€ · 45k · €1.500,75
+ * @returns {{value:number, currency:string, major:number, raw:string, index:number, confidence:number}[]}
+ *          `value` là **đơn vị nhỏ nhất** của `currency` (VND: đồng, EUR: cent)
  */
-export function findAmounts(text = '') {
+export function findAmounts(text = '', opts = {}) {
   const s = String(text);
+  const fallback = normalizeCurrency(opts.currency, null) || displayCurrency() || DEFAULT_CURRENCY;
   const out = [];
   NUM_RE.lastIndex = 0;
   let m;
   while ((m = NUM_RE.exec(s))) {
-    const grouped = m[1];
-    const plain = m[2];
-    let base = grouped ? Number(grouped.replace(/[.,\s]/g, '')) : Number(String(plain).replace(',', '.'));
-    if (!isFinite(base)) continue;
-    let idx = m.index;
-    let end = m.index + m[0].length;
+    const token = m[1];
+    const idx = m.index;
+    let end = idx + token.length;
     let confidence = 1;
+    const grouped = /[.,\s]\d{3}/.test(token);
 
-    // đơn vị ngay sau số — không dùng \b vì chữ Việt có ký tự ngoài ASCII
-    // ("tỷ", "tỉ", "củ" kết thúc bằng ký tự non-word nên \b không khớp),
-    // và phải cho phép chữ số ngay sau đơn vị để đọc được "1tr5", "1ty2".
-    const tail = s.slice(end);
-    const um = tail.match(/^\s*(tỷ|tỉ|ty|ti|tr|triệu|trieu|củ|cu|nghìn|nghin|ngàn|ngan|k|m|b|lít|lit)(?![\p{L}])\.?/iu);
-    let mul = null;
-    if (um) {
-      mul = unitMul(um[1]);
-      end += um[0].length;
+    // Đơn vị ngay sau số — không dùng \b vì "tỷ", "củ" kết thúc bằng ký tự
+    // ngoài ASCII; và phải cho phép chữ số ngay sau để đọc được "1tr5".
+    const um = s.slice(end).match(new RegExp(`^\\s*(${UNIT_ALT})(?![\\p{L}])\\.?`, 'iu'));
+    const unit = um ? unitInfo(um[1]) : null;
+    if (unit) end += um[0].length;
+
+    // Đồng tiền: ưu tiên ký hiệu viết rõ, sau đó suy từ đơn vị thuần Việt
+    let explicit = null;
+    const sufM = s.slice(end).match(CUR_SUFFIX);
+    if (sufM) {
+      explicit = normalizeCurrency(sufM[1].trim());
+      if (explicit) end += sufM[0].length;
     }
+    if (!explicit) {
+      const preM = s.slice(0, idx).match(CUR_PREFIX);
+      if (preM) explicit = normalizeCurrency(preM[1]);
+    }
+    const ccy = explicit || (unit && unit.viet ? 'VND' : fallback);
 
-    if (mul) {
-      base *= mul;
-      // "1tr2" -> 1.2tr ; "1tr rưỡi" -> 1.5tr
+    let base = parseNumberFor(token, ccy);
+    if (base == null) continue;
+
+    if (unit) {
+      base *= unit.mul;
       const after = s.slice(end);
-      const dm = after.match(/^\s*(\d{1,3})\b(?!\s*(tỷ|tỉ|tr|triệu|k|nghìn|ngàn))/i);
+      // "1tr2" -> 1,2tr ; "1tr rưỡi" -> 1,5tr
+      const dm = after.match(new RegExp(`^\\s*(\\d{1,3})(?![\\d])(?!\\s*(${UNIT_ALT})(?![\\p{L}]))`, 'iu'));
       const half = after.match(/^\s*(rưỡi|ruoi)\b/i);
-      if (dm && mul >= 1e3) {
-        base += Number(dm[1]) * (mul / Math.pow(10, dm[1].length));
+      if (dm && unit.mul >= 1e3) {
+        base += Number(dm[1]) * (unit.mul / Math.pow(10, dm[1].length));
         end += dm[0].length;
       } else if (half) {
-        base += mul / 2;
+        base += unit.mul / 2;
         end += half[0].length;
       }
       // "1 triệu 500 nghìn"
       const chain = s.slice(end).match(/^\s*(\d{1,3})\s*(nghìn|nghin|ngàn|ngan|k)\b/i);
-      if (chain && mul >= 1e6) {
+      if (chain && unit.mul >= 1e6) {
         base += Number(chain[1]) * 1e3;
         end += chain[0].length;
       }
-    } else {
-      const currency = s.slice(end).match(/^\s*(đồng|dong|đ|d|vnd|vnđ)\b/i);
-      if (currency) {
-        end += currency[0].length;
-      } else if (!grouped && base > 0 && base < 1000 && Number.isInteger(base)) {
-        // "ăn trưa 50" -> 50 nghìn (thói quen nói tắt)
-        base *= 1000;
-        confidence = 0.75;
-      }
+    } else if (!explicit && ccy === 'VND' && !grouped && base > 0 && base < 1000 && Number.isInteger(base)) {
+      // "ăn trưa 50" -> 50 nghìn (thói quen nói tắt của người Việt).
+      // Chỉ áp dụng cho VND; với EUR thì "ăn trưa 12" đúng là 12 €.
+      base *= 1000;
+      confidence = 0.75;
     }
-    out.push({ value: Math.round(base), raw: s.slice(idx, end).trim(), index: idx, confidence });
+
+    out.push({
+      value: toMinor(base, ccy),
+      major: base,
+      currency: ccy,
+      explicit_currency: !!explicit,
+      raw: s.slice(idx, end).trim(),
+      index: idx,
+      confidence,
+    });
     NUM_RE.lastIndex = end;
   }
   return out;
 }
 
 /** Số tiền chính trong câu (số lớn nhất, ưu tiên có đơn vị) */
-export function parseAmount(text) {
-  const list = findAmounts(text).filter((a) => a.value > 0);
+export function parseAmount(text, opts = {}) {
+  const list = findAmounts(text, opts).filter((a) => a.value > 0);
   if (!list.length) return null;
-  list.sort((a, b) => b.value - a.value);
+  list.sort((a, b) => b.major - a.major);
   return list[0];
 }
 

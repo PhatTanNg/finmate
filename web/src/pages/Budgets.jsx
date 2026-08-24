@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Stat, Progress, Empty, Loading, Modal, Form } from '../components/ui.jsx';
-import { fmt, short, pct, monthLabel } from '../lib/format.js';
+import { fmt, short, pct, monthLabel, baseCurrency, toMinor } from '../lib/format.js';
 
 const TONE = { ok: 'ok', warn: 'warn', fast: 'warn', over: 'bad' };
 const LABEL = { ok: 'Đúng nhịp', warn: 'Sát ngưỡng', fast: 'Tiêu nhanh', over: 'Vượt hạn mức' };
@@ -25,7 +25,7 @@ export default function Budgets({ onRefresh }) {
   const spent = items.reduce((s, b) => s + b.spent, 0);
 
   async function add(v) {
-    await api.post('/budgets', { category_id: Number(v.category_id), amount: Number(v.amount), period: 'monthly', rollover: v.rollover === 'yes' ? 1 : 0 });
+    await api.post('/budgets', { category_id: Number(v.category_id), amount: toMinor(v.amount), currency: baseCurrency(), period: 'monthly', rollover: v.rollover === 'yes' ? 1 : 0 });
     setAdding(false); load(); onRefresh?.();
   }
   async function applyAll() {
@@ -83,7 +83,7 @@ export default function Budgets({ onRefresh }) {
           <Form
             fields={[
               { k: 'category_id', label: 'Danh mục', type: 'select', options: cats.map((c) => ({ value: String(c.id), label: `${c.icon || ''} ${c.name}` })) },
-              { k: 'amount', label: 'Hạn mức mỗi tháng (VND)', type: 'number' },
+              { k: 'amount', label: `Hạn mức mỗi tháng (${baseCurrency()})`, type: 'number' },
               { k: 'rollover', label: 'Dồn phần chưa tiêu sang tháng sau?', type: 'select', options: [{ value: 'no', label: 'Không' }, { value: 'yes', label: 'Có' }], def: 'no' },
             ]}
             onSubmit={add}

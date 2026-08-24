@@ -8,7 +8,7 @@ import { norm } from '../../util/vi.js';
 import { short, pct } from '../../util/money.js';
 import { averageMonthlyExpense, averageMonthlyIncome } from '../reports.js';
 import { netWorth } from '../networth.js';
-import { fireStats, emergencyStatus, passiveIncomeMonthly } from '../fire.js';
+import { fireStats, emergencyStatus, passiveIncomeMonthly, marketAssumptions as MK } from '../fire.js';
 import { debtSummary } from '../debts.js';
 import { portfolio, realEstate } from '../investments.js';
 
@@ -41,10 +41,10 @@ const TOPICS = [
     kw: ['lam phat', 'truot gia', 'tien mat gia', 'mat gia'],
     title: '📉 Lạm phát ảnh hưởng gì tới kế hoạch của bạn',
     build: (c) => B([
-      `Lạm phát giả định trong kế hoạch của bạn là **${pct(c.p.inflation ?? 0.04, 1)}/năm**. Nghĩa là chi phí sống **${short(c.expense)}/tháng** hôm nay sẽ thành khoảng **${short(c.expense * Math.pow(1 + (Number(c.p.inflation) || 0.04), 10))}/tháng** sau 10 năm.`,
+      `Lạm phát giả định trong kế hoạch của bạn là **${pct(c.p.inflation ?? MK().inflation, 1)}/năm**. Nghĩa là chi phí sống **${short(c.expense)}/tháng** hôm nay sẽ thành khoảng **${short(c.expense * Math.pow(1 + (Number(c.p.inflation) || MK().inflation), 10))}/tháng** sau 10 năm.`,
       '',
       '**Ba hệ quả trực tiếp:**',
-      `• Tiền để không trong tài khoản thanh toán mất giá thật ~${pct(c.p.inflation ?? 0.04, 1)}/năm. Bạn đang giữ **${short(c.nw.breakdown?.liquid || c.nw.liquid)}** tiền lỏng — phần vượt quỹ khẩn cấp nên đưa sang kênh sinh lời.`,
+      `• Tiền để không trong tài khoản thanh toán mất giá thật ~${pct(c.p.inflation ?? MK().inflation, 1)}/năm. Bạn đang giữ **${short(c.nw.breakdown?.liquid || c.nw.liquid)}** tiền lỏng — phần vượt quỹ khẩn cấp nên đưa sang kênh sinh lời.`,
       `• Gửi tiết kiệm ~5-6%/năm chỉ thắng lạm phát khoảng 1-2%/năm — đủ để bảo toàn, không đủ để giàu.`,
       `• Mục tiêu tự do tài chính **${short(c.fire.fi_number)}** đã được tính theo lợi suất **thực** (${pct(c.fire.real_return, 1)}/năm sau lạm phát), nên con số này vẫn đúng dù giá cả tăng.`,
       '',
@@ -57,7 +57,7 @@ const TOPICS = [
     title: '🌱 Lãi kép hoạt động thế nào với tiền của bạn',
     build: (c) => {
       const m = Math.max(0, c.surplus);
-      const r = (Number(c.p.expected_return) || 0.09) / 12;
+      const r = (Number(c.p.expected_return) || MK().expected_return) / 12;
       const fv = (n) => (r ? m * ((Math.pow(1 + r, n) - 1) / r) : m * n);
       return B([
         `Nếu mỗi tháng bạn đầu tư đều **${short(m)}** với lợi suất **${pct(c.p.expected_return ?? 0.09, 1)}/năm**:`,

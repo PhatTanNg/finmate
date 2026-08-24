@@ -2,14 +2,27 @@
 import { all, get } from '../db.js';
 import { today, addMonths, age } from '../util/date.js';
 import { futureValue, monthsToTarget } from '../util/money.js';
-import { netWorth } from './networth.js';
+import { netWorth, accountsBase } from './networth.js';
 import { averageMonthlyExpense, averageMonthlyIncome, essentialSplit, incomeSources } from './reports.js';
 import { monthStart, monthEnd, monthKey, addMonths as addM, lastMonths } from '../util/date.js';
 import { projectedAnnualInterest } from './interest.js';
 import { portfolio, realEstate } from './investments.js';
+import { baseCurrency } from './fx.js';
 
 export function profile() {
   return get('SELECT * FROM profile WHERE id = 1') || {};
+}
+
+/**
+ * Giả định mặc định theo đồng tiền gốc. Thị trường VN lợi nhuận danh nghĩa cao
+ * nhưng lạm phát cũng cao; khu vực đồng euro thì ngược lại. Nếu người dùng đã
+ * tự đặt trong hồ sơ thì luôn ưu tiên số của họ.
+ */
+export function marketAssumptions(code = baseCurrency()) {
+  if (code === 'VND') return { expected_return: 0.09, inflation: 0.04 };
+  if (code === 'EUR') return { expected_return: 0.07, inflation: 0.025 };
+  if (code === 'GBP') return { expected_return: 0.07, inflation: 0.025 };
+  return { expected_return: 0.075, inflation: 0.025 };
 }
 
 /** Thu nhập thụ động hàng tháng hiện tại (lãi NH + cổ tức + cho thuê) */
@@ -29,9 +42,10 @@ export function passiveIncomeMonthly() {
 
 export function fireStats(overrides = {}) {
   const p = { ...profile(), ...overrides };
+  const assume = marketAssumptions();
   const swr = Number(p.swr) || 0.04;
-  const nominalReturn = Number(p.expected_return) || 0.09;
-  const inflation = Number(p.inflation) || 0.04;
+  const nominalReturn = Number(p.expected_return) || assume.expected_return;
+  const inflation = Number(p.inflation) || assume.inflation;
   const realReturn = (1 + nominalReturn) / (1 + inflation) - 1;
 
   const monthlyExpense = overrides.monthly_expense || averageMonthlyExpense(6) || 0;
@@ -125,7 +139,7 @@ export function emergencyStatus() {
   const target = p.emergency_months_target || 6;
   const monthlyExpense = averageMonthlyExpense(3) || 0;
   const fund = get("SELECT * FROM funds WHERE type = 'emergency'");
-  const liquid = get("SELECT COALESCE(SUM(balance),0) s FROM accounts WHERE is_active=1 AND type IN ('cash','bank','ewallet','savings')").s;
+  const liquid = accountsBase(['cash', 'bank', 'ewallet', 'savings']);
   const current = fund && fund.balance > 0 ? fund.balance : liquid;
   const months = monthlyExpense ? current / monthlyExpense : 0;
   return {

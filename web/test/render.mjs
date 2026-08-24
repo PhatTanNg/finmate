@@ -55,11 +55,13 @@ await esbuild.build({
   define: { 'process.env.NODE_ENV': '"development"' },
 });
 
-const { PAGES, React, Wrap, Boundary } = await import('file://' + out.replace(/\\/g, '/'));
+const { PAGES, React, Wrap, Boundary, setBaseCurrency } = await import('file://' + out.replace(/\\/g, '/'));
 const { createRoot } = await import('react-dom/client');
 
 let dash = null;
 try { dash = await (await proxy('/api/dashboard')).json(); } catch { /* ignore */ }
+setBaseCurrency(dash?.base_currency || dash?.profile?.currency || 'VND');
+console.log(`Đồng tiền gốc: ${dash?.base_currency || dash?.profile?.currency || 'VND'}`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = 0;

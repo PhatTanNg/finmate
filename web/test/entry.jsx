@@ -12,13 +12,15 @@ import Debts from '../src/pages/Debts.jsx';
 import Fire from '../src/pages/Fire.jsx';
 import Advisor from '../src/pages/Advisor.jsx';
 import Insights from '../src/pages/Insights.jsx';
+import Currency from '../src/pages/Currency.jsx';
 import Automation from '../src/pages/Automation.jsx';
 import Settings from '../src/pages/Settings.jsx';
 
 export const PAGES = {
   Chat, Dashboard, Transactions, Accounts, Funds, Goals, Budgets,
-  Income, Investments, Debts, Fire, Advisor, Insights, Automation, Settings,
+  Income, Investments, Debts, Fire, Advisor, Insights, Currency, Automation, Settings,
 };
+export { setBaseCurrency } from '../src/lib/format.js';
 export { React };
 export function Wrap({ Comp, props }) {
   const [, force] = useState(0);

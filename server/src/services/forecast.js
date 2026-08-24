@@ -3,9 +3,10 @@ import { all, get } from '../db.js';
 import { today, addDays, addMonths, monthKey, monthStart, monthEnd, toISO, diffDays } from '../util/date.js';
 import { projectRecurring, monthlyFixed } from './recurring.js';
 import { averageMonthlyExpense, averageMonthlyIncome, totals } from './reports.js';
+import { accountsBase } from './networth.js';
 
 function liquidBalance() {
-  return get("SELECT COALESCE(SUM(balance),0) s FROM accounts WHERE is_active = 1 AND type IN ('cash','bank','ewallet')").s;
+  return accountsBase(['cash', 'bank', 'ewallet']);
 }
 
 /** Dự báo số dư theo ngày — cảnh báo ngày có nguy cơ hụt tiền. */

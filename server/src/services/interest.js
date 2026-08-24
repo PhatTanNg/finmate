@@ -2,6 +2,7 @@
 import { all, get, update } from '../db.js';
 import { today, addMonths, monthsBetween, toISO, parseISO } from '../util/date.js';
 import { createTransaction } from './ledger.js';
+import { baseCurrency, convert } from './fx.js';
 import { categoryByName } from '../bootstrap.js';
 
 const PAYOUT_MONTHS = { monthly: 1, quarterly: 3, yearly: 12 };
@@ -53,8 +54,12 @@ export function accrueInterest(asOf = today()) {
   return posted;
 }
 
-/** Lãi ngân hàng dự kiến trong 12 tháng tới (thu nhập thụ động) */
+/** Lãi ngân hàng dự kiến trong 12 tháng tới (thu nhập thụ động), quy về đồng tiền gốc */
 export function projectedAnnualInterest() {
   const accounts = all("SELECT * FROM accounts WHERE is_active = 1 AND interest_rate > 0 AND type IN ('savings','bank')");
-  return Math.round(accounts.reduce((s, a) => s + (a.balance * a.interest_rate) / 100, 0));
+  const base = baseCurrency();
+  return Math.round(accounts.reduce((s, a) => {
+    const raw = (a.balance * a.interest_rate) / 100;
+    return s + convert(raw, a.currency || base, base);
+  }, 0));
 }

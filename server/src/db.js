@@ -349,9 +349,81 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- Tỷ giá theo ngày: rate = số đơn vị <quote> đổi được từ 1 <base>
+CREATE TABLE IF NOT EXISTS fx_rates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  base TEXT NOT NULL,
+  quote TEXT NOT NULL,
+  rate REAL NOT NULL,
+  date TEXT NOT NULL,
+  source TEXT DEFAULT 'manual',   -- manual | ecb-api | fallback | chat
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(base, quote, date)
+);
+CREATE INDEX IF NOT EXISTS idx_fx_pair ON fx_rates(base, quote, date);
 `;
 
 db.exec(SCHEMA);
+
+// ---- migration: thêm cột cho DB đã tồn tại từ bản trước ------------------
+
+/** Danh sách cột cần có thêm, an toàn khi chạy lại nhiều lần. */
+const ADD_COLUMNS = [
+  // Đa tiền tệ: số tiền quy đổi về đồng tiền gốc tại thời điểm phát sinh
+  ['transactions', 'base_amount', 'INTEGER'],
+  ['transactions', 'base_currency', 'TEXT'],
+  ['transactions', 'fx_rate', 'REAL DEFAULT 1'],
+  // Chuyển tiền khác đồng tiền: số thực nhận ở tài khoản đích + phí
+  ['transactions', 'counter_amount', 'INTEGER'],
+  ['transactions', 'counter_currency', 'TEXT'],
+  ['transactions', 'fee', 'INTEGER DEFAULT 0'],
+  // Số tiền người dùng nói ban đầu, trước khi quy đổi về đồng tiền tài khoản
+  ['transactions', 'original_amount', 'INTEGER'],
+  ['transactions', 'original_currency', 'TEXT'],
+  // Đồng tiền riêng cho các thực thể khác
+  ['income_streams', 'currency', "TEXT DEFAULT 'VND'"],
+  ['goals', 'currency', "TEXT DEFAULT 'VND'"],
+  ['debts', 'currency', "TEXT DEFAULT 'VND'"],
+  ['recurring', 'currency', "TEXT DEFAULT 'VND'"],
+  ['recurring', 'counter_amount', 'INTEGER'],
+  ['properties', 'currency', "TEXT DEFAULT 'VND'"],
+  ['funds', 'currency', "TEXT DEFAULT 'VND'"],
+  ['budgets', 'currency', "TEXT DEFAULT 'VND'"],
+  ['profile', 'country', "TEXT DEFAULT 'VN'"],
+  ['profile', 'tax_country', "TEXT DEFAULT 'VN'"],
+  ['profile', 'secondary_currency', 'TEXT'],
+];
+
+function columnNames(table) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name);
+  } catch {
+    return [];
+  }
+}
+
+function migrate() {
+  for (const [table, col, type] of ADD_COLUMNS) {
+    const cols = columnNames(table);
+    if (!cols.length || cols.includes(col)) continue;
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    } catch {
+      /* cột đã có hoặc bảng chưa tạo — bỏ qua */
+    }
+  }
+  // Giao dịch cũ chưa có base_amount: coi như cùng đồng tiền, tỷ giá 1
+  try {
+    db.exec(`UPDATE transactions
+             SET base_amount = amount, base_currency = COALESCE(currency, 'VND'), fx_rate = 1
+             WHERE base_amount IS NULL`);
+  } catch {
+    /* bảng chưa tồn tại */
+  }
+}
+
+migrate();
 
 // ---- helpers -------------------------------------------------------------
 

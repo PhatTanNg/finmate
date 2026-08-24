@@ -10,6 +10,7 @@
     "start:lan": "node src/scripts/lan.js",
     "backup": "node src/scripts/backup.js",
     "seed": "node src/scripts/seed.js",
+    "seed:ie": "node src/scripts/seed_ie.js",
     "reset": "node src/scripts/reset.js",
     "test": "node --test test/*.test.js"
   },

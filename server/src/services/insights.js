@@ -2,6 +2,7 @@
 import { all, get, run, insert } from '../db.js';
 import { today, monthKey, monthStart, monthEnd, addMonths, lastMonths, diffDays, vnDate } from '../util/date.js';
 import { short, fmt } from '../util/money.js';
+import { vndThreshold } from './fx.js';
 import { totals, categoryBreakdown, averageMonthlyExpense, averageMonthlyIncome, monthlyTrend } from './reports.js';
 import { budgetStatus } from './budgets.js';
 import { dailyForecast } from './forecast.js';
@@ -43,22 +44,22 @@ export function generateInsights() {
   const curCats = categoryBreakdown(from, to);
   for (const c of curCats) {
     const hist = get(
-      `SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE type='expense' AND excluded=0 AND category_id = ? AND substr(date,1,7) IN (${prevMonths.map(() => '?').join(',')})`,
+      `SELECT COALESCE(SUM(COALESCE(base_amount, amount)),0) s FROM transactions WHERE type='expense' AND excluded=0 AND category_id = ? AND substr(date,1,7) IN (${prevMonths.map(() => '?').join(',')})`,
       [c.id, ...prevMonths]
     ).s;
     const avg = hist / 3;
-    if (avg > 200000 && c.amount > avg * 1.5 && c.amount - avg > 300000) {
+    if (avg > vndThreshold(200_000) && c.amount > avg * 1.5 && c.amount - avg > vndThreshold(300_000)) {
       push(out, `spike_${c.id}_${mk}`, 'alert', 'warn', `${c.icon || ''} ${c.name} tăng ${Math.round((c.amount / avg - 1) * 100)}%`,
         `Tháng này ${short(c.amount)} so với trung bình ${short(avg)}.`, { category_id: c.id });
     }
   }
 
   // 3. Giao dịch bất thường (lớn hơn 5 lần chi tiêu trung vị)
-  const median = get(`SELECT amount FROM transactions WHERE type='expense' AND excluded=0 ORDER BY amount LIMIT 1 OFFSET (SELECT COUNT(*)/2 FROM transactions WHERE type='expense' AND excluded=0)`);
+  const median = get(`SELECT COALESCE(base_amount, amount) AS amount FROM transactions WHERE type='expense' AND excluded=0 ORDER BY amount LIMIT 1 OFFSET (SELECT COUNT(*)/2 FROM transactions WHERE type='expense' AND excluded=0)`);
   if (median) {
-    const bigs = all("SELECT t.*, c.name cname FROM transactions t LEFT JOIN categories c ON c.id=t.category_id WHERE t.type='expense' AND t.excluded=0 AND t.date >= ? AND t.amount > ? ORDER BY t.amount DESC LIMIT 3", [from, Math.max(median.amount * 5, 2_000_000)]);
+    const bigs = all("SELECT t.*, c.name cname FROM transactions t LEFT JOIN categories c ON c.id=t.category_id WHERE t.type='expense' AND t.excluded=0 AND t.date >= ? AND COALESCE(t.base_amount, t.amount) > ? ORDER BY COALESCE(t.base_amount, t.amount) DESC LIMIT 3", [from, Math.max(median.amount * 5, vndThreshold(2_000_000))]);
     for (const b of bigs) {
-      push(out, `big_${b.id}`, 'alert', 'info', `Chi lớn: ${short(b.amount)}`,
+      push(out, `big_${b.id}`, 'alert', 'info', `Chi lớn: ${short(b.base_amount ?? b.amount)}`,
         `${b.note || b.merchant || b.cname || 'Giao dịch'} ngày ${vnDate(b.date)}.`, { transaction_id: b.id });
     }
   }
@@ -118,7 +119,7 @@ export function generateInsights() {
 
   // 9. Tiền nhàn rỗi
   const nw = netWorth();
-  const idleThreshold = Math.max(avgExpense * 6, 20_000_000);
+  const idleThreshold = Math.max(avgExpense * 6, vndThreshold(20_000_000));
   if (nw.breakdown.liquid > idleThreshold && avgExpense > 0) {
     const idle = nw.breakdown.liquid - avgExpense * 6;
     push(out, `idle_cash`, 'tip', 'info', `Có ${short(idle)} tiền nhàn rỗi`,

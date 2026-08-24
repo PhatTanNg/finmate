@@ -12,12 +12,16 @@ import { fireStats, emergencyStatus, passiveIncomeMonthly } from '../fire.js';
 import { debtSummary, payoffPlan } from '../debts.js';
 import { budgetStatus, upsertBudget, suggestBudgets } from '../budgets.js';
 import { dailyForecast, monthlyForecast, safeToSpend } from '../forecast.js';
-import { portfolio, realEstate, upsertHolding } from '../investments.js';
+import { portfolio, realEstate, upsertHolding, guessSymbolCurrency } from '../investments.js';
 import { healthScore, surplusPlan, nextActions, investmentSplit } from '../advisor.js';
 import { createRecurring } from '../recurring.js';
 import { categoryByName, fundByName } from '../../bootstrap.js';
 import { listInsights } from '../insights.js';
 import { findTopic, answerTopic } from './knowledge.js';
+import { parseNumberFor, normalizeCurrency, currency as curInfo, toMajor, toMinor } from '../../util/currency.js';
+import { baseCurrency, convert, getRate, rateTable, fxStatus } from '../fx.js';
+import { quote as fxQuote, timingAdvice, remittanceSummary, costInsight } from '../remittance.js';
+import { taxCountry, taxConfigAuto, grossToNetAuto, COUNTRIES } from '../tax_router.js';
 
 const P = () => get('SELECT * FROM profile WHERE id = 1') || {};
 
@@ -43,7 +47,7 @@ function addExpense(text, ent) {
   if (!ent.amount) return { reply: 'Bạn cho mình biết số tiền nhé — ví dụ: _"trưa nay ăn 60k"_ hoặc _"đổ xăng 100 nghìn"_.' };
   const note = cleanNote(text, ent);
   const res = createTransaction({
-    type: 'expense', amount: ent.amount, date: ent.date, note, source: 'chat',
+    type: 'expense', amount: ent.amount, currency: ent.currency, date: ent.date, note, source: 'chat',
     category_id: ent.category && ent.category.kind === 'expense' ? ent.category.id : undefined,
     account_id: ent.account?.id, fund_id: ent.fund?.id,
   });
@@ -54,8 +58,8 @@ function addExpense(text, ent) {
   const sts = safeToSpend();
   return {
     reply: bullet([
-      `✍️ Đã ghi chi **${fmt(t.amount)}** — ${cat ? `${cat.icon || ''} ${cat.name}` : 'Chưa phân loại'}${t.date !== today() ? ` (${vnDate(t.date)})` : ''}`,
-      fund ? `${fund.icon || '🧺'} Trừ vào quỹ *${fund.name}*, còn ${short(fund.balance)}` : null,
+      `✍️ Đã ghi chi **${fmt(t.amount, t.currency)}** — ${cat ? `${cat.icon || ''} ${cat.name}` : 'Chưa phân loại'}${t.date !== today() ? ` (${vnDate(t.date)})` : ''}`,
+      fund ? `${fund.icon || '🧺'} Trừ vào quỹ *${fund.name}*, còn ${short(fund.balance, fund.currency)}` : null,
       bs ? `📊 ${bs.name}: ${short(bs.spent)}/${short(bs.limit)} (${Math.round(bs.pct * 100)}%)${bs.status === 'over' ? ' ⚠️ đã vượt' : bs.status === 'fast' ? ' ⚠️ đang nhanh hơn nhịp' : ''}` : null,
       `💡 Còn tiêu thoải mái ~${short(sts.per_day)}/ngày trong ${sts.days_left} ngày cuối tháng.`,
     ]),
@@ -68,7 +72,7 @@ function addIncome(text, ent) {
   if (!ent.amount) return { reply: 'Bạn nhận được bao nhiêu? Ví dụ: _"vừa nhận lương 25 triệu"_.' };
   const note = cleanNote(text, ent);
   const res = createTransaction({
-    type: 'income', amount: ent.amount, date: ent.date, note, source: 'chat',
+    type: 'income', amount: ent.amount, currency: ent.currency, date: ent.date, note, source: 'chat',
     category_id: ent.category && ent.category.kind === 'income' ? ent.category.id : undefined,
     account_id: ent.account?.id,
   });
@@ -77,7 +81,7 @@ function addIncome(text, ent) {
   const goals = all("SELECT name, current_amount, target_amount FROM goals WHERE status='active' ORDER BY priority LIMIT 3");
   return {
     reply: bullet([
-      `💰 Đã ghi thu **${fmt(t.amount)}**${t.date !== today() ? ` (${vnDate(t.date)})` : ''} và chia tự động:`,
+      `💰 Đã ghi thu **${fmt(t.amount, t.currency)}**${t.date !== today() ? ` (${vnDate(t.date)})` : ''} và chia tự động:`,
       alloc.map((a) => `• ${a.name}: ${fmt(a.amount)} (${a.percent}%)`).join('\n'),
       goals.length ? `\n🎯 Mục tiêu: ${goals.map((g) => `${g.name} ${Math.round((g.current_amount / Math.max(1, g.target_amount)) * 100)}%`).join(' · ')}` : null,
       `\nBạn không cần làm gì thêm — tiền đã vào đúng hũ.`,
@@ -100,7 +104,7 @@ function addTransfer(text, ent) {
     return { reply: `🔁 Đã chuyển ${fmt(ent.amount)} từ quỹ *${source.name}* sang *${target.name}*.`, refresh: true };
   }
   if (!to) return { reply: 'Mình chưa rõ chuyển vào tài khoản nào. Bạn nói rõ hơn nhé, ví dụ _"chuyển 5 triệu từ VCB vào tiết kiệm"_.' };
-  const res = createTransaction({ type: 'transfer', amount: ent.amount, date: ent.date, account_id: from?.id, counter_account_id: to.id, note: cleanNote(text, ent), source: 'chat' });
+  const res = createTransaction({ type: 'transfer', amount: ent.amount, currency: ent.currency, date: ent.date, account_id: from?.id, counter_account_id: to.id, note: cleanNote(text, ent), source: 'chat' });
   return { reply: `🔁 Đã chuyển **${fmt(ent.amount)}**${from ? ` từ ${from.name}` : ''} sang **${to.name}**. Số dư ${to.name}: ${short(get('SELECT balance FROM accounts WHERE id=?', [to.id]).balance)}.`, data: { transaction: res.transaction }, refresh: true };
 }
 
@@ -135,13 +139,25 @@ function querySpending(text, ent) {
 }
 
 function queryBalance() {
-  const accounts = all('SELECT * FROM accounts WHERE is_active = 1 ORDER BY balance DESC');
+  const base = baseCurrency();
+  const rows = all('SELECT * FROM accounts WHERE is_active = 1');
+  // Sắp xếp theo giá trị đã quy đổi, và hiển thị đúng đồng tiền của từng ví.
+  const accounts = rows
+    .map((a) => {
+      const code = normalizeCurrency(a.currency || base);
+      return { ...a, currency: code, base_balance: convert(a.balance, code, base) };
+    })
+    .sort((x, y) => y.base_balance - x.base_balance);
   const sts = safeToSpend();
   const funds = listFunds().filter((f) => f.spendable && f.balance !== 0);
   return {
     reply: bullet([
       `💳 **Số dư hiện tại**`,
-      accounts.map((a) => `• ${a.icon || ''} ${a.name}: ${fmt(a.balance)}`).join('\n'),
+      accounts.map((a) => {
+        const own = fmt(a.balance, a.currency);
+        const conv = a.currency === base ? '' : ` (≈ ${short(a.base_balance)})`;
+        return `• ${a.icon || ''} ${a.name}: ${own}${conv}`;
+      }).join('\n'),
       '',
       `Tiền mặt khả dụng: **${fmt(sts.liquid)}**`,
       `Trừ ${short(sts.upcoming_fixed)} hoá đơn cố định còn lại tháng này → **an toàn tiêu ${fmt(sts.available)}** (~${short(sts.per_day)}/ngày trong ${sts.days_left} ngày).`,
@@ -575,17 +591,25 @@ function addDebt(text, ent) {
 
 function addHolding(text, ent) {
   const sym = ent.symbol;
-  const amounts = findAmounts(text);
+  const amounts = findAmounts(text).map((a) => ({
+    ...a,
+    plain: /^[\d.,\s]+$/.test(a.raw) ? parseNumberFor(a.raw, a.currency) : null,
+  }));
   if (!sym) return { reply: 'Bạn đang giữ mã nào? Ví dụ _"mình có 1000 cổ phiếu HPG giá vốn 25"_.' };
-  const qty = amounts.find((a) => a.value >= 10 && a.value <= 10_000_000 && /^\d+$/.test(a.raw))?.value || amounts[0]?.value || 0;
-  const priceRaw = amounts.filter((a) => a.value !== qty)[0];
-  const price = priceRaw ? (priceRaw.value > 1000 ? priceRaw.value : priceRaw.value * 1000) : 0;
+  // Số lượng = con số trần không kèm đơn vị tiền; giá = số tiền còn lại.
+  const qtyA = amounts.find((a) => a.plain != null && Number.isInteger(a.plain) && a.plain >= 1 && a.plain <= 10_000_000 && !a.explicit_currency);
+  const qty = qtyA ? qtyA.plain : 0;
+  const priceRaw = amounts.find((a) => a !== qtyA);
+  // Giá cổ phiếu Việt Nam luôn là VND kể cả khi người dùng đang sống ở nước
+  // ngoài — "FPT giá 135k" nghĩa là 135.000đ/cp, không phải 135k euro.
+  const hc = priceRaw?.explicit_currency ? priceRaw.currency : guessSymbolCurrency(sym, priceRaw?.currency);
+  const price = priceRaw ? (priceRaw.currency === hc ? priceRaw.value : toMinor(priceRaw.major, hc)) : 0;
   const acc = get("SELECT * FROM accounts WHERE type = 'brokerage' LIMIT 1") || get('SELECT * FROM accounts LIMIT 1');
-  const h = upsertHolding({ symbol: sym, name: sym, account_id: acc?.id, quantity: qty, avg_cost: price, last_price: price, asset_class: 'stock' });
+  const h = upsertHolding({ symbol: sym, name: sym, account_id: acc?.id, quantity: qty, avg_cost: price, last_price: price, asset_class: 'stock', currency: hc });
   const pf = portfolio();
   return {
     reply: bullet([
-      `📈 Đã ghi nhận **${qty.toLocaleString('vi-VN')} ${sym}** giá vốn ${short(price)}/cp → giá trị ${fmt(qty * price)}.`,
+      `📈 Đã ghi nhận **${qty.toLocaleString('vi-VN')} ${sym}** giá vốn ${short(price, hc)}/cp → giá trị ${fmt(qty * price, hc)}.`,
       `Danh mục hiện tại: ${fmt(pf.total_value)}.`,
       `Cập nhật giá thị trường bằng cách nhắn _"giá ${sym} 28"_ để mình tính lãi/lỗ.`,
     ]),
@@ -697,13 +721,13 @@ function unknown(text, ent) {
   if (ent.amount) {
     return {
       reply: bullet([
-        `Mình thấy con số **${short(ent.amount)}** nhưng chưa chắc ý bạn. Bạn muốn:`,
-        '• Ghi một khoản **chi** → nói _"chi ' + short(ent.amount) + ' cho ..."_',
-        '• Ghi một khoản **thu** → nói _"nhận ' + short(ent.amount) + ' từ ..."_',
-        '• Xin **lời khuyên** cho khoản dư này → _"dư ' + short(ent.amount) + ' nên làm gì"_',
-        '• Xem **có nên mua** món giá đó → _"có nên mua ... ' + short(ent.amount) + ' không"_',
+        `Mình thấy con số **${short(ent.amount, ent.currency)}** nhưng chưa chắc ý bạn. Bạn muốn:`,
+        '• Ghi một khoản **chi** → nói _"chi ' + short(ent.amount, ent.currency) + ' cho ..."_',
+        '• Ghi một khoản **thu** → nói _"nhận ' + short(ent.amount, ent.currency) + ' từ ..."_',
+        '• Xin **lời khuyên** cho khoản dư này → _"dư ' + short(ent.amount, ent.currency) + ' nên làm gì"_',
+        '• Xem **có nên mua** món giá đó → _"có nên mua ... ' + short(ent.amount, ent.currency) + ' không"_',
       ]),
-      quick: [`Chi ${short(ent.amount)}`, `Nhận ${short(ent.amount)}`, `Dư ${short(ent.amount)} nên làm gì`],
+      quick: [`Chi ${short(ent.amount, ent.currency)}`, `Nhận ${short(ent.amount, ent.currency)}`, `Dư ${short(ent.amount, ent.currency)} nên làm gì`],
     };
   }
   return {
@@ -724,20 +748,157 @@ function setPrice(text, ent) {
   const sym = ent.symbol;
   const a = ent.amounts?.[0];
   if (!sym || !a) return null;
-  const price = a.value > 1000 ? a.value : a.value * 1000;
   const changed = all('SELECT * FROM holdings WHERE upper(symbol) = upper(?)', [sym]);
   if (!changed.length) return null;
+  const hc = curInfo(changed[0].currency || guessSymbolCurrency(sym, a.currency)).code;
+  const price = a.explicit_currency && a.currency === hc ? a.value : toMinor(a.major, hc);
   run('UPDATE holdings SET last_price = ?, last_price_at = ? WHERE upper(symbol) = upper(?)', [price, today(), sym]);
   const pf = portfolio();
   const h = pf.holdings.find((x) => x.symbol.toUpperCase() === sym.toUpperCase());
-  return { reply: `📈 Cập nhật giá **${sym}: ${short(price)}**. Vị thế của bạn: ${short(h.value)} (${h.pnl >= 0 ? '▲' : '▼'} ${short(Math.abs(h.pnl))}, ${Math.round(h.pnl_pct * 100)}%).`, refresh: true };
+  return { reply: `📈 Cập nhật giá **${sym}: ${short(price, hc)}**. Vị thế của bạn: ${short(h.value, hc)} (${h.pnl >= 0 ? '▲' : '▼'} ${short(Math.abs(h.pnl), hc)}, ${Math.round(h.pnl_pct * 100)}%).`, refresh: true };
+}
+
+// ---------- đa tiền tệ: tỷ giá, kiều hối, thuế Ireland ---------------------
+
+/** Đoán cặp tiền tệ người dùng đang hỏi trong câu. */
+function fxPair(text, ent) {
+  const n = norm(text);
+  const seen = [];
+  for (const [re, code] of [
+    [/euro|eur|€/, 'EUR'], [/vnd|viet nam dong|tien viet|dong viet|vnđ/, 'VND'],
+    [/usd|do la|dola|\$/, 'USD'], [/gbp|bang anh|£/, 'GBP'],
+  ]) if (re.test(n) && !seen.includes(code)) seen.push(code);
+  const base = baseCurrency();
+  const from = ent?.currency || seen[0] || base;
+  const to = seen.find((c) => c !== from) || (from === 'VND' ? base : 'VND');
+  return { from, to: to === from ? (from === 'VND' ? 'EUR' : 'VND') : to };
+}
+
+function queryFx(text, ent) {
+  const { from, to } = fxPair(text, ent);
+  const rate = getRate(from, to);
+  const st = fxStatus();
+  const amount = ent?.amount || 0;
+  const lines = [
+    `💱 **1 ${from} = ${rate.toLocaleString('vi-VN', { maximumFractionDigits: to === 'VND' ? 0 : 4 })} ${to}**${st.updated_at ? ` _(cập nhật ${vnDate(st.updated_at)})_` : ''}`,
+  ];
+  if (amount) lines.push(`→ ${fmt(amount, from)} ≈ **${fmt(convert(amount, from, to), to)}**`);
+  const digits = (code) => (code === 'VND' ? 0 : 4);
+  const tips = rateTable(from)
+    .filter((r) => r.code !== to && r.rate > 0)
+    .map((r) => `${r.flag} 1 ${from} = ${r.rate.toLocaleString('vi-VN', { maximumFractionDigits: digits(r.code) })} ${r.code}`);
+  if (tips.length) lines.push(`\nCác cặp khác: ${tips.join(' · ')}`);
+  if (from !== 'VND' && to === 'VND') {
+    const adv = timingAdvice(from, to);
+    if (adv.verdict !== 'unknown') lines.push(`\n${adv.message}`);
+  }
+  return { reply: bullet(lines), quick: ['Giờ có nên gửi tiền về VN không?', 'Tháng này mình gửi về bao nhiêu rồi?'] };
+}
+
+function remittanceHandler(text, ent) {
+  const n = norm(text);
+  const base = baseCurrency();
+  const from = ent?.currency && ent.currency !== 'VND' ? ent.currency : base === 'VND' ? 'EUR' : base;
+  const to = 'VND';
+  const adv = timingAdvice(from, to);
+  const sum = remittanceSummary({ months: 12 });
+  const cost = costInsight(12) || { total_cost: 0, cost_pct: 0 };
+
+  // Có số tiền cụ thể -> báo giá luôn
+  if (ent?.amount && !/bao nhieu roi|da gui|tong cong|thong ke/.test(n)) {
+    const q = fxQuote({ amount: convert(ent.amount, ent.currency || from, from), from, to });
+    return {
+      reply: bullet([
+        `🌍 ${q.text}`,
+        `\n${adv.message}`,
+        cost.total_cost ? `\n💸 12 tháng qua bạn đã tốn ${fmt(cost.total_cost, from)} phí + chênh tỷ giá (${pct(cost.cost_pct)} số tiền gửi).` : null,
+        `\nMuốn mình ghi sổ khoản này? Nhắn _"chuyển ${toMajor(q.amount, from)} ${from} từ <ví> sang <tài khoản VN>"_.`,
+      ]),
+      data: { quote: q, timing: adv },
+      quick: ['Tỷ giá hôm nay', 'Mình gửi về bao nhiêu rồi?'],
+    };
+  }
+
+  return {
+    reply: bullet([
+      `🌍 **Chuyển tiền ${from} → ${to}**`,
+      `${adv.message}`,
+      sum.count
+        ? `\n📊 12 tháng qua: **${sum.count} lần**, gửi ${fmt(sum.total_sent, from)} → nhận ${fmt(sum.total_received, to)}${sum.total_cost ? `, chi phí ${fmt(sum.total_cost, from)}` : ''}.`
+        : `\n📊 Chưa có lần chuyển nào được ghi. Cứ tạo giao dịch chuyển khoản giữa ví ${from} và tài khoản ${to}, mình sẽ tự theo dõi.`,
+      `\n💡 Mẹo giảm chi phí: gom nhiều lần nhỏ thành 1 lần lớn (phí cố định chia đều), so tỷ giá giữa các dịch vụ, và tránh gửi lúc tỷ giá đang thấp hơn trung bình 90 ngày.`,
+    ]),
+    data: { timing: adv, summary: sum, cost },
+    quick: ['Gửi 1000 euro về thì nhận bao nhiêu?', 'Tỷ giá hôm nay'],
+  };
+}
+
+function queryTax(text, ent) {
+  const n = norm(text);
+  const country = /viet nam|thue vn|tncn|giam tru gia canh|bhxh/.test(n)
+    ? 'VN'
+    : /ireland|paye|usc|prsi|dirt|ben nay/.test(n)
+      ? 'IE'
+      : ent?.currency === 'EUR'
+        ? 'IE'
+        : taxCountry();
+  const cfg = taxConfigAuto(country);
+  const cc = cfg.currency;
+  // Mặc định hiểu là lương tháng; nói rõ "một năm/mỗi năm" thì chia lại.
+  let grossMonthly = null;
+  if (ent?.amount) {
+    const a = convert(ent.amount, ent.currency || cc, cc);
+    grossMonthly = /(mot|moi|\/)\s*nam|nam nay kiem|per year|\/year/.test(n) ? Math.round(a / 12) : a;
+  }
+  const lines = [];
+
+  if (country === 'IE') {
+    lines.push(
+      `🇮🇪 **Thuế thu nhập ở Ireland (${cfg.year})**`,
+      `• Thuế TNCN: 20% đến ${fmt(cfg.srcop, 'EUR')}/năm, phần vượt 40%`,
+      `• Tín dụng thuế trừ thẳng vào số phải nộp: ${fmt(cfg.credits, 'EUR')}/năm (cá nhân + PAYE)`,
+      `• USC: 0,5% → 8% theo bậc, miễn nếu thu nhập ≤ €13.000/năm`,
+      `• PRSI: ${pct(cfg.prsi_rate)} lương gộp`,
+      `• Lãi tiết kiệm chịu DIRT 33%; lãi bán cổ phiếu chịu CGT 33% (miễn €1.270 đầu mỗi năm)`,
+      `• Đóng pension được giảm trừ thuế TNCN theo tuổi (15%→40% thu nhập, trần €115.000) — nhưng **không** giảm USC/PRSI`
+    );
+  } else {
+    lines.push(
+      `🇻🇳 **Thuế TNCN Việt Nam**`,
+      `• Biểu luỹ tiến 7 bậc: 5% → 35%`,
+      `• Giảm trừ bản thân ${fmt(cfg.self_deduction, 'VND')}/tháng, mỗi người phụ thuộc ${fmt(cfg.dependent_deduction, 'VND')}/tháng`,
+      `• Bảo hiểm bắt buộc ${pct(cfg.insurance_rate)} lương đóng bảo hiểm (BHXH 8% + BHYT 1,5% + BHTN 1%)`
+    );
+  }
+
+  if (grossMonthly) {
+    // VN tính theo tháng, Ireland tính theo năm — truyền đúng kỳ cho từng nước.
+    const r = grossToNetAuto(country === 'IE' ? grossMonthly * 12 : grossMonthly, { country });
+    const netMonthly = country === 'IE' ? r.monthly_net : r.net;
+    lines.push(
+      `\n📊 Với lương gộp **${fmt(grossMonthly, cc)}/tháng** (${fmt(grossMonthly * 12, cc)}/năm):`,
+      country === 'IE'
+        ? `• Cả năm: thuế TNCN ${fmt(r.income_tax, cc)} · USC ${fmt(r.usc, cc)} · PRSI ${fmt(r.prsi, cc)} = ${fmt(r.total_tax, cc)}`
+        : `• Mỗi tháng: bảo hiểm ${fmt(r.insurance, cc)} · thuế TNCN ${fmt(r.tax, cc)}`,
+      `• **Thực nhận ≈ ${fmt(netMonthly, cc)}/tháng**${r.effective_rate != null ? ` (thuế suất thực tế ${pct(r.effective_rate)})` : ''}`,
+      r.marginal_rate != null ? `• Thuế suất biên ${pct(r.marginal_rate)} — kiếm thêm 100 thì giữ lại được ${Math.round(100 * (1 - r.marginal_rate))}.` : null
+    );
+  } else {
+    lines.push(`\n💡 Nhắn lương tháng của bạn (ví dụ _"lương ${cc === 'EUR' ? '4200 euro' : '30 triệu'} thuế bao nhiêu"_) để mình tính chi tiết.`);
+  }
+  return {
+    reply: bullet(lines),
+    quick: country === 'IE' ? ['Đóng pension có lợi không?', 'Tỷ giá hôm nay'] : ['Lương 30 triệu thực nhận bao nhiêu?', 'Tình hình tài chính của mình'],
+  };
 }
 
 export const HANDLERS = {
+  query_fx: queryFx,
+  remittance: remittanceHandler,
+  query_tax: queryTax,
   add_expense: addExpense,
   add_income: addIncome,
-  add_transfer: addTransfer,
-  query_spending: querySpending,
+  add_transfer: addTransfer,  query_spending: querySpending,
   query_balance: queryBalance,
   query_networth: queryNetworth,
   query_fire: queryFire,

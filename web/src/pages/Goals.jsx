@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Stat, Progress, Empty, Loading, Modal, Form } from '../components/ui.jsx';
-import { fmt, short, vnDate, pct } from '../lib/format.js';
+import { fmt, short, vnDate, pct, baseCurrency, toMinor, toMajor } from '../lib/format.js';
 
 const TYPES = [
   { value: 'emergency', label: 'Quỹ khẩn cấp' }, { value: 'house', label: 'Mua nhà' }, { value: 'car', label: 'Mua xe' },
@@ -27,8 +27,8 @@ export default function Goals({ onRefresh }) {
   const fields = [
     { k: 'name', label: 'Tên mục tiêu', ph: 'Mua nhà quận 7', full: true },
     { k: 'type', label: 'Loại', type: 'select', options: TYPES, def: 'other' },
-    { k: 'target_amount', label: 'Cần bao nhiêu (VND)', type: 'number' },
-    { k: 'current_amount', label: 'Đã có (VND)', type: 'number', def: 0 },
+    { k: 'target_amount', label: `Cần bao nhiêu (${baseCurrency()})`, type: 'number' },
+    { k: 'current_amount', label: `Đã có (${baseCurrency()})`, type: 'number', def: 0 },
     { k: 'deadline', label: 'Hạn hoàn thành', type: 'date' },
     { k: 'monthly_contribution', label: 'Để dành mỗi tháng', type: 'number', def: 0 },
     { k: 'fund_id', label: 'Lấy tiền từ quỹ', type: 'select', options: [{ value: '', label: '— Không gắn —' }, ...funds.map((f) => ({ value: String(f.id), label: `${f.icon} ${f.name}` }))] },
@@ -36,7 +36,7 @@ export default function Goals({ onRefresh }) {
   ];
 
   async function save(v) {
-    const body = { ...v, target_amount: Number(v.target_amount), current_amount: Number(v.current_amount) || 0, monthly_contribution: Number(v.monthly_contribution) || 0, priority: Number(v.priority) || 3, fund_id: v.fund_id ? Number(v.fund_id) : null, status: 'active' };
+    const body = { ...v, target_amount: toMinor(v.target_amount), current_amount: toMinor(v.current_amount), monthly_contribution: toMinor(v.monthly_contribution), currency: baseCurrency(), priority: Number(v.priority) || 3, fund_id: v.fund_id ? Number(v.fund_id) : null, status: 'active' };
     if (edit) await api.patch(`/goals/${edit.id}`, body); else await api.post('/goals', body);
     setEdit(null); setAdding(false); load(); onRefresh?.();
   }
@@ -94,16 +94,16 @@ export default function Goals({ onRefresh }) {
 
       {(adding || edit) && (
         <Modal title={edit ? 'Sửa mục tiêu' : 'Mục tiêu mới'} onClose={() => { setEdit(null); setAdding(false); }}>
-          <Form fields={fields} initial={edit ? { ...edit, fund_id: edit.fund_id ? String(edit.fund_id) : '' } : {}} onSubmit={save} onCancel={() => { setEdit(null); setAdding(false); }} />
+          <Form fields={fields} initial={edit ? { ...edit, target_amount: toMajor(edit.target_amount), current_amount: toMajor(edit.current_amount), monthly_contribution: toMajor(edit.monthly_contribution), fund_id: edit.fund_id ? String(edit.fund_id) : '' } : {}} onSubmit={save} onCancel={() => { setEdit(null); setAdding(false); }} />
         </Modal>
       )}
 
       {contrib && (
         <Modal title={`Nạp tiền vào "${contrib.name}"`} onClose={() => setContrib(null)}>
           <Form
-            fields={[{ k: 'amount', label: 'Số tiền (VND)', type: 'number' }]}
+            fields={[{ k: 'amount', label: `Số tiền (${baseCurrency()})`, type: 'number' }]}
             submit="Nạp"
-            onSubmit={async (v) => { await api.post(`/goals/${contrib.id}/contribute`, { amount: Number(v.amount) }); setContrib(null); load(); onRefresh?.(); }}
+            onSubmit={async (v) => { await api.post(`/goals/${contrib.id}/contribute`, { amount: toMinor(v.amount) }); setContrib(null); load(); onRefresh?.(); }}
             onCancel={() => setContrib(null)}
           />
         </Modal>

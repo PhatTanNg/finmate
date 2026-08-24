@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Stat, Progress, Empty, Loading, Modal, Form, Donut } from '../components/ui.jsx';
-import { fmt, short, vnDate } from '../lib/format.js';
+import { fmt, short, vnDate, baseCurrency, toMinor, toMajor } from '../lib/format.js';
 
 export default function Funds({ onRefresh }) {
   const [d, setD] = useState(null);
@@ -114,11 +114,11 @@ export default function Funds({ onRefresh }) {
             fields={[
               { k: 'name', label: 'Tên quỹ' },
               { k: 'percent', label: '% thu nhập', type: 'number' },
-              { k: 'cap', label: 'Trần tối đa (0 = không giới hạn)', type: 'number' },
+              { k: 'cap', label: `Trần tối đa (${baseCurrency()}, 0 = không giới hạn)`, type: 'number' },
               { k: 'note', label: 'Ghi chú', full: true },
             ]}
-            initial={edit}
-            onSubmit={async (v) => { await api.patch(`/funds/${edit.id}`, { ...v, percent: Number(v.percent), cap: Number(v.cap) }); setEdit(null); load(); onRefresh?.(); }}
+            initial={{ ...edit, cap: toMajor(edit.cap) }}
+            onSubmit={async (v) => { await api.patch(`/funds/${edit.id}`, { ...v, percent: Number(v.percent), cap: toMinor(v.cap) }); setEdit(null); load(); onRefresh?.(); }}
             onCancel={() => setEdit(null)}
           />
         </Modal>
@@ -130,10 +130,10 @@ export default function Funds({ onRefresh }) {
             fields={[
               { k: 'from_fund_id', label: 'Từ quỹ', type: 'select', options: opts },
               { k: 'to_fund_id', label: 'Sang quỹ', type: 'select', options: opts },
-              { k: 'amount', label: 'Số tiền', type: 'number' },
+              { k: 'amount', label: `Số tiền (${baseCurrency()})`, type: 'number' },
               { k: 'note', label: 'Lý do', full: true },
             ]}
-            onSubmit={async (v) => { await api.post('/funds/move', { ...v, from_fund_id: Number(v.from_fund_id), to_fund_id: Number(v.to_fund_id), amount: Number(v.amount) }); setMove(false); load(); onRefresh?.(); }}
+            onSubmit={async (v) => { await api.post('/funds/move', { ...v, from_fund_id: Number(v.from_fund_id), to_fund_id: Number(v.to_fund_id), amount: toMinor(v.amount) }); setMove(false); load(); onRefresh?.(); }}
             onCancel={() => setMove(false)}
           />
         </Modal>
@@ -143,9 +143,9 @@ export default function Funds({ onRefresh }) {
         <Modal title="Phân bổ một khoản tiền" onClose={() => setAlloc(false)}>
           <p className="mini">Chia số tiền này vào các quỹ theo đúng tỷ lệ đã cấu hình.</p>
           <Form
-            fields={[{ k: 'amount', label: 'Số tiền (VND)', type: 'number' }, { k: 'note', label: 'Ghi chú', full: true }]}
+            fields={[{ k: 'amount', label: `Số tiền (${baseCurrency()})`, type: 'number' }, { k: 'note', label: 'Ghi chú', full: true }]}
             submit="Chia ngay"
-            onSubmit={async (v) => { await api.post('/funds/allocate', { amount: Number(v.amount), note: v.note }); setAlloc(false); load(); onRefresh?.(); }}
+            onSubmit={async (v) => { await api.post('/funds/allocate', { amount: toMinor(v.amount), note: v.note }); setAlloc(false); load(); onRefresh?.(); }}
             onCancel={() => setAlloc(false)}
           />
         </Modal>

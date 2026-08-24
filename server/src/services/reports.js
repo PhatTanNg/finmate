@@ -3,16 +3,18 @@ import { all, get } from '../db.js';
 import { today, monthKey, monthStart, monthEnd, lastMonths, addMonths, startOfMonth, endOfMonth, diffDays } from '../util/date.js';
 
 const NOT_EXCLUDED = 't.excluded = 0';
+// Đa tiền tệ: mọi tổng hợp dùng số đã quy đổi về đồng tiền gốc
+const AMT = 'COALESCE(t.base_amount, t.amount)';
 
 export function totals(from, to) {
-  const income = get(`SELECT COALESCE(SUM(amount),0) s FROM transactions t WHERE type='income' AND ${NOT_EXCLUDED} AND date BETWEEN ? AND ?`, [from, to]).s;
-  const expense = get(`SELECT COALESCE(SUM(amount),0) s FROM transactions t WHERE type='expense' AND ${NOT_EXCLUDED} AND date BETWEEN ? AND ?`, [from, to]).s;
+  const income = get(`SELECT COALESCE(SUM(${AMT}),0) s FROM transactions t WHERE type='income' AND ${NOT_EXCLUDED} AND date BETWEEN ? AND ?`, [from, to]).s;
+  const expense = get(`SELECT COALESCE(SUM(${AMT}),0) s FROM transactions t WHERE type='expense' AND ${NOT_EXCLUDED} AND date BETWEEN ? AND ?`, [from, to]).s;
   return { income, expense, net: income - expense, savings_rate: income ? (income - expense) / income : 0 };
 }
 
 export function categoryBreakdown(from, to, kind = 'expense') {
   return all(
-    `SELECT c.id, c.name, c.icon, c.color, c.group_name, c.essential, COUNT(*) n, SUM(t.amount) amount
+    `SELECT c.id, c.name, c.icon, c.color, c.group_name, c.essential, COUNT(*) n, SUM(${AMT}) amount
      FROM transactions t JOIN categories c ON c.id = t.category_id
      WHERE t.type = ? AND ${NOT_EXCLUDED} AND t.date BETWEEN ? AND ?
      GROUP BY c.id ORDER BY amount DESC`,
@@ -22,7 +24,7 @@ export function categoryBreakdown(from, to, kind = 'expense') {
 
 export function fundBreakdown(from, to) {
   return all(
-    `SELECT f.id, f.name, f.color, SUM(t.amount) amount, COUNT(*) n
+    `SELECT f.id, f.name, f.color, SUM(${AMT}) amount, COUNT(*) n
      FROM transactions t JOIN funds f ON f.id = t.fund_id
      WHERE t.type='expense' AND ${NOT_EXCLUDED} AND t.date BETWEEN ? AND ?
      GROUP BY f.id ORDER BY amount DESC`,
@@ -32,7 +34,7 @@ export function fundBreakdown(from, to) {
 
 export function topMerchants(from, to, limit = 8) {
   return all(
-    `SELECT COALESCE(NULLIF(t.merchant,''), NULLIF(t.note,''), 'Khác') name, SUM(t.amount) amount, COUNT(*) n
+    `SELECT COALESCE(NULLIF(t.merchant,''), NULLIF(t.note,''), 'Khác') name, SUM(${AMT}) amount, COUNT(*) n
      FROM transactions t WHERE t.type='expense' AND ${NOT_EXCLUDED} AND t.date BETWEEN ? AND ?
      GROUP BY lower(name) ORDER BY amount DESC LIMIT ?`,
     [from, to, limit]
@@ -41,8 +43,8 @@ export function topMerchants(from, to, limit = 8) {
 
 export function dailySeries(from, to) {
   return all(
-    `SELECT date, SUM(CASE WHEN type='income' THEN amount ELSE 0 END) income,
-            SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) expense
+    `SELECT date, SUM(CASE WHEN type='income' THEN ${AMT} ELSE 0 END) income,
+            SUM(CASE WHEN type='expense' THEN ${AMT} ELSE 0 END) expense
      FROM transactions t WHERE ${NOT_EXCLUDED} AND date BETWEEN ? AND ? GROUP BY date ORDER BY date`,
     [from, to]
   );
@@ -59,13 +61,13 @@ export function monthlyTrend(n = 12) {
 /** Cơ cấu thu nhập theo nguồn (lương, đầu tư, cho thuê, lãi ngân hàng...) */
 export function incomeSources(from, to) {
   const byStream = all(
-    `SELECT s.id, s.name, s.type, SUM(t.amount) amount, COUNT(*) n
+    `SELECT s.id, s.name, s.type, SUM(${AMT}) amount, COUNT(*) n
      FROM transactions t JOIN income_streams s ON s.id = t.income_stream_id
      WHERE t.type='income' AND ${NOT_EXCLUDED} AND t.date BETWEEN ? AND ? GROUP BY s.id`,
     [from, to]
   );
   const byCategory = all(
-    `SELECT c.id, c.name, c.icon, c.group_name, SUM(t.amount) amount, COUNT(*) n
+    `SELECT c.id, c.name, c.icon, c.group_name, SUM(${AMT}) amount, COUNT(*) n
      FROM transactions t JOIN categories c ON c.id = t.category_id
      WHERE t.type='income' AND ${NOT_EXCLUDED} AND t.date BETWEEN ? AND ? AND t.income_stream_id IS NULL
      GROUP BY c.id`,
@@ -73,7 +75,7 @@ export function incomeSources(from, to) {
   );
   const passiveGroups = ['Thu nhập thụ động'];
   const passive = get(
-    `SELECT COALESCE(SUM(t.amount),0) s FROM transactions t JOIN categories c ON c.id = t.category_id
+    `SELECT COALESCE(SUM(${AMT}),0) s FROM transactions t JOIN categories c ON c.id = t.category_id
      WHERE t.type='income' AND ${NOT_EXCLUDED} AND t.date BETWEEN ? AND ? AND c.group_name IN (${passiveGroups.map(() => '?').join(',')})`,
     [from, to, ...passiveGroups]
   ).s;
@@ -103,7 +105,7 @@ export function averageMonthlyIncome(months = 6) {
 /** Chi thiết yếu vs chi tuỳ ý */
 export function essentialSplit(from, to) {
   const rows = all(
-    `SELECT c.essential, SUM(t.amount) amount FROM transactions t JOIN categories c ON c.id = t.category_id
+    `SELECT c.essential, SUM(${AMT}) amount FROM transactions t JOIN categories c ON c.id = t.category_id
      WHERE t.type='expense' AND ${NOT_EXCLUDED} AND t.date BETWEEN ? AND ? GROUP BY c.essential`,
     [from, to]
   );

@@ -3,35 +3,35 @@ import { db, get, run, insert, all } from './db.js';
 
 export const DEFAULT_CATEGORIES = [
   // ----- CHI -----
-  { name: 'Ăn uống', kind: 'expense', group_name: 'Sinh hoạt', icon: '🍜', essential: 1, keywords: 'an uong,com,pho,bun,tra sua,cafe,coffee,highlands,starbucks,phuc long,the coffee house,katinat,grabfood,shopeefood,baemin,nha hang,quan,an sang,an trua,an toi,do an,bakery,circle k,gs25,pizza,lau,nuong,buffet' },
-  { name: 'Đi chợ / Siêu thị', kind: 'expense', group_name: 'Sinh hoạt', icon: '🛒', essential: 1, keywords: 'sieu thi,bach hoa xanh,winmart,vinmart,coopmart,co.opmart,bigc,big c,lotte mart,aeon,go!,emart,di cho,thuc pham,rau,thit,ca' },
-  { name: 'Di chuyển', kind: 'expense', group_name: 'Sinh hoạt', icon: '🛵', essential: 1, keywords: 'grab,gojek,be,xanh sm,taxi,mai linh,vinasun,xang,petrolimex,pvoil,gui xe,ve xe,bus,metro,do xe,rua xe,sua xe,bao duong xe' },
-  { name: 'Nhà ở', kind: 'expense', group_name: 'Cố định', icon: '🏠', essential: 1, keywords: 'tien nha,thue nha,thue phong,chung cu,phi quan ly,quan ly chung cu,tro' },
-  { name: 'Điện nước & Internet', kind: 'expense', group_name: 'Cố định', icon: '💡', essential: 1, keywords: 'tien dien,evn,tien nuoc,sawaco,cap nuoc,internet,wifi,fpt,vnpt,viettel telecom,truyen hinh,gas' },
-  { name: 'Điện thoại', kind: 'expense', group_name: 'Cố định', icon: '📱', essential: 1, keywords: 'dien thoai,nap the,topup,mobifone,vinaphone,viettel,vietnamobile,cuoc dt' },
-  { name: 'Mua sắm', kind: 'expense', group_name: 'Lối sống', icon: '🛍️', essential: 0, keywords: 'shopee,lazada,tiki,sendo,tiktok shop,uniqlo,zara,h&m,mua sam,quan ao,giay,dien may,thegioididong,fpt shop,cellphones,amazon,mall' },
-  { name: 'Sức khoẻ', kind: 'expense', group_name: 'Sinh hoạt', icon: '🩺', essential: 1, keywords: 'pharmacity,long chau,an khang,nha thuoc,thuoc,benh vien,phong kham,kham benh,nha khoa,rang,guardian,vitamin,xet nghiem' },
-  { name: 'Giải trí', kind: 'expense', group_name: 'Lối sống', icon: '🎬', essential: 0, keywords: 'netflix,spotify,youtube premium,disney,cgv,lotte cinema,galaxy cinema,bhd,rap phim,game,steam,karaoke,bar,pub,bia,ruou,nhau,concert,ve xem' },
-  { name: 'Giáo dục & Phát triển', kind: 'expense', group_name: 'Đầu tư bản thân', icon: '📚', essential: 0, keywords: 'khoa hoc,hoc phi,udemy,coursera,sach,fahasa,nha sach,tieng anh,ielts,chatgpt,claude,notion,workshop,seminar,chung chi' },
-  { name: 'Thể thao & Gym', kind: 'expense', group_name: 'Đầu tư bản thân', icon: '🏋️', essential: 0, keywords: 'gym,california fitness,citigym,yoga,boi,pt,the thao,chay bo,cau long,tennis,pickleball' },
-  { name: 'Du lịch', kind: 'expense', group_name: 'Lối sống', icon: '✈️', essential: 0, keywords: 'du lich,booking,agoda,traveloka,ve may bay,vietjet,vietnam airlines,bamboo,khach san,resort,homestay,tour,airbnb' },
-  { name: 'Làm đẹp', kind: 'expense', group_name: 'Lối sống', icon: '💅', essential: 0, keywords: 'spa,salon,cat toc,lam toc,nail,my pham,hasaki,watson,skincare,massage' },
+  { name: 'Ăn uống', kind: 'expense', group_name: 'Sinh hoạt', icon: '🍜', essential: 1, keywords: 'an uong,com,pho,bun,tra sua,ca phe,cà phê,cafe,coffee,highlands,starbucks,phuc long,the coffee house,katinat,grabfood,shopeefood,baemin,nha hang,quan,an sang,an trua,an toi,do an,bakery,circle k,gs25,pizza,lau,nuong,buffet,tesco meal,boojum,camile,deliveroo,just eat,supermac,eddie rockets,centra,spar,bunsen,wagamama,chipotle,greggs,mcdonald,burger king,kfc,subway,dominos,nando' },
+  { name: 'Đi chợ / Siêu thị', kind: 'expense', group_name: 'Sinh hoạt', icon: '🛒', essential: 1, keywords: 'sieu thi,bach hoa xanh,winmart,vinmart,coopmart,co.opmart,bigc,big c,lotte mart,aeon,go!,emart,di cho,thuc pham,rau cu,thit ca,ca tuoi,tesco,lidl,aldi,dunnes,supervalu,asia market,marks spencer,m&s food,grocery,fresh market' },
+  { name: 'Di chuyển', kind: 'expense', group_name: 'Sinh hoạt', icon: '🛵', essential: 1, keywords: 'grab,gojek,be,xanh sm,taxi,mai linh,vinasun,xang,petrolimex,pvoil,gui xe,ve xe,bus,metro,do xe,rua xe,sua xe,bao duong xe,leap card,dublin bus,irish rail,luas,go-ahead,freenow,bolt,uber,aircoach,applegreen,maxol,transport for ireland,tfi' },
+  { name: 'Nhà ở', kind: 'expense', group_name: 'Cố định', icon: '🏠', essential: 1, keywords: 'tien nha,thue nha,thue phong,chung cu,phi quan ly,quan ly chung cu,tro,rent,daft,landlord,management fee,property tax,lpt' },
+  { name: 'Điện nước & Internet', kind: 'expense', group_name: 'Cố định', icon: '💡', essential: 1, keywords: 'tien dien,evn,tien nuoc,sawaco,cap nuoc,internet,wifi,fpt,vnpt,viettel telecom,truyen hinh,gas,electric ireland,esb,bord gais,sse airtricity,energia,virgin media,eir,sky ireland,pinergy,uisce,irish water' },
+  { name: 'Điện thoại', kind: 'expense', group_name: 'Cố định', icon: '📱', essential: 1, keywords: 'dien thoai,nap the,topup,mobifone,vinaphone,viettel,vietnamobile,cuoc dt,three,48months,vodafone,gomo,tesco mobile,eir mobile,an post mobile' },
+  { name: 'Mua sắm', kind: 'expense', group_name: 'Lối sống', icon: '🛍️', essential: 0, keywords: 'shopee,lazada,tiki,sendo,tiktok shop,uniqlo,zara,h&m,mua sam,quan ao,giay,dien may,thegioididong,fpt shop,cellphones,amazon,mall,penneys,primark,ikea,currys,harvey norman,argos,brown thomas,arnotts,dealz,tk maxx,decathlon,smyths' },
+  { name: 'Sức khoẻ', kind: 'expense', group_name: 'Sinh hoạt', icon: '🩺', essential: 1, keywords: 'pharmacity,long chau,an khang,nha thuoc,thuoc,benh vien,phong kham,kham benh,nha khoa,rang,guardian,vitamin,xet nghiem,boots,hickeys,mccabes,lloyds pharmacy,vhi,laya,irish life health,gp visit,blackrock clinic,mater private,dentist' },
+  { name: 'Giải trí', kind: 'expense', group_name: 'Lối sống', icon: '🎬', essential: 0, keywords: 'netflix,spotify,youtube premium,disney,cgv,lotte cinema,galaxy cinema,bhd,rap phim,game,steam,karaoke,bar,pub,bia,ruou,nhau,concert,ve xem,odeon,cineworld,omniplex,ticketmaster,eventbrite,3arena,aviva stadium,croke park,pub,guinness storehouse' },
+  { name: 'Giáo dục & Phát triển', kind: 'expense', group_name: 'Đầu tư bản thân', icon: '📚', essential: 0, keywords: 'khoa hoc,hoc phi,udemy,coursera,sach,fahasa,nha sach,tieng anh,ielts,chatgpt,claude,notion,workshop,seminar,chung chi,trinity,ucd,dcu,dit,tud,springboard,skillnet' },
+  { name: 'Thể thao & Gym', kind: 'expense', group_name: 'Đầu tư bản thân', icon: '🏋️', essential: 0, keywords: 'gym,california fitness,citigym,yoga,boi,pt,the thao,chay bo,cau long,tennis,pickleball,flyefit,ben dunne,icon health,westwood,swan leisure,parkrun' },
+  { name: 'Du lịch', kind: 'expense', group_name: 'Lối sống', icon: '✈️', essential: 0, keywords: 'du lich,booking,agoda,traveloka,ve may bay,vietjet,vietnam airlines,bamboo,khach san,resort,homestay,tour,airbnb,ryanair,aer lingus,trainline,eurostar,hostelworld,expedia,skyscanner' },
+  { name: 'Làm đẹp', kind: 'expense', group_name: 'Lối sống', icon: '💅', essential: 0, keywords: 'spa,salon,cat toc,lam toc,nail,my pham,hasaki,watson,skincare,massage,peter mark,toni guy,sostrene,penneys beauty' },
   { name: 'Quà tặng & Hiếu hỉ', kind: 'expense', group_name: 'Xã hội', icon: '🎁', essential: 0, keywords: 'qua,mung cuoi,phong bi,dam cuoi,sinh nhat,li xi,thoi noi,dam tang,hieu hi' },
   { name: 'Từ thiện', kind: 'expense', group_name: 'Xã hội', icon: '🤝', essential: 0, keywords: 'tu thien,quyen gop,ung ho,cuu tro,thien nguyen' },
-  { name: 'Gia đình & Con cái', kind: 'expense', group_name: 'Cố định', icon: '👨‍👩‍👧', essential: 1, keywords: 'bieu bo me,gui gia dinh,sua,bim,ta,hoc phi con,giu tre,mam non' },
-  { name: 'Bảo hiểm', kind: 'expense', group_name: 'Cố định', icon: '🛡️', essential: 1, keywords: 'bao hiem,prudential,manulife,aia,dai-ichi,generali,pvi,bhyt,bhxh,bao viet' },
-  { name: 'Thuế & Phí', kind: 'expense', group_name: 'Cố định', icon: '🧾', essential: 1, keywords: 'thue,tncn,le phi,phi truoc ba,phi dich vu,phi thuong nien,phi sms,phi chuyen khoan,phi duy tri' },
-  { name: 'Trả nợ & Lãi vay', kind: 'expense', group_name: 'Cố định', icon: '🏦', essential: 1, keywords: 'tra no,tra gop,lai vay,goc vay,thanh toan the,sao ke the,khoan vay' },
+  { name: 'Gia đình & Con cái', kind: 'expense', group_name: 'Cố định', icon: '👨‍👩‍👧', essential: 1, keywords: 'bieu bo me,gui gia dinh,sua,bim,ta,hoc phi con,giu tre,mam non,creche,childcare,gui tien ve nha,gui ve viet nam,bieu bo me' },
+  { name: 'Bảo hiểm', kind: 'expense', group_name: 'Cố định', icon: '🛡️', essential: 1, keywords: 'bao hiem,prudential,manulife,aia,dai-ichi,generali,pvi,bhyt,bhxh,bao viet,vhi healthcare,laya healthcare,irish life,aviva insurance,axa ireland,allianz ireland,fbd' },
+  { name: 'Thuế & Phí', kind: 'expense', group_name: 'Cố định', icon: '🧾', essential: 1, keywords: 'thue,tncn,le phi,phi truoc ba,phi dich vu,phi thuong nien,phi sms,phi chuyen khoan,phi duy tri,revenue,paye,usc,prsi,dirt,cgt,local property tax,tv licence' },
+  { name: 'Trả nợ & Lãi vay', kind: 'expense', group_name: 'Cố định', icon: '🏦', essential: 1, keywords: 'tra no,tra gop,lai vay,goc vay,thanh toan the,sao ke the,khoan vay,credit union,an post loan,avant money,ptsb loan,mortgage' },
   { name: 'Thú cưng', kind: 'expense', group_name: 'Lối sống', icon: '🐾', essential: 0, keywords: 'thu cung,cho,meo,pet,thuc an cho,thu y' },
   { name: 'Chi khác', kind: 'expense', group_name: 'Khác', icon: '📦', essential: 0, keywords: '' },
 
   // ----- THU -----
-  { name: 'Lương', kind: 'income', group_name: 'Thu nhập chủ động', icon: '💼', keywords: 'luong,salary,payroll,tra luong,thu nhap thang' },
+  { name: 'Lương', kind: 'income', group_name: 'Thu nhập chủ động', icon: '💼', keywords: 'luong,salary,payroll,tra luong,thu nhap thang,wages,net pay,payslip,stripe payroll' },
   { name: 'Thưởng', kind: 'income', group_name: 'Thu nhập chủ động', icon: '🎉', keywords: 'thuong,bonus,thuong tet,luong thang 13,kpi,hoa hong' },
   { name: 'Freelance / Dự án', kind: 'income', group_name: 'Thu nhập chủ động', icon: '💻', keywords: 'freelance,du an,project,job ngoai,cong tac vien,upwork,fiverr' },
   { name: 'Kinh doanh', kind: 'income', group_name: 'Thu nhập chủ động', icon: '🏪', keywords: 'kinh doanh,ban hang,doanh thu,shop,cua hang' },
   { name: 'Cổ tức', kind: 'income', group_name: 'Thu nhập thụ động', icon: '📈', keywords: 'co tuc,dividend,tra co tuc,cp thuong' },
-  { name: 'Lãi ngân hàng', kind: 'income', group_name: 'Thu nhập thụ động', icon: '🏦', keywords: 'lai tien gui,lai suat,tat toan,so tiet kiem,lai ngan hang,interest' },
+  { name: 'Lãi ngân hàng', kind: 'income', group_name: 'Thu nhập thụ động', icon: '🏦', keywords: 'lai tien gui,lai suat,tat toan,so tiet kiem,lai ngan hang,interest,savings interest,n26 interest,revolut savings' },
   { name: 'Cho thuê BĐS', kind: 'income', group_name: 'Thu nhập thụ động', icon: '🏡', keywords: 'tien thue nha,cho thue,tien tro,thue mat bang,thue can ho' },
   { name: 'Lãi vốn đầu tư', kind: 'income', group_name: 'Thu nhập thụ động', icon: '💹', keywords: 'ban co phieu,lai von,chot loi,capital gain,ban vang,crypto' },
   { name: 'Hoàn tiền', kind: 'income', group_name: 'Khác', icon: '↩️', keywords: 'hoan tien,refund,cashback,hoan phi,tra lai tien' },
@@ -83,6 +83,8 @@ export function bootstrap() {
     for (const c of DEFAULT_CATEGORIES) {
       insert('categories', { ...c, essential: c.essential || 0, keywords: c.keywords || '' });
     }
+  } else {
+    syncKeywords();
   }
   const fundCount = get('SELECT COUNT(*) AS c FROM funds').c;
   if (!fundCount) {
@@ -92,6 +94,35 @@ export function bootstrap() {
     insert('accounts', { name: 'Tiền mặt', type: 'cash', balance: 0, icon: '👛', color: '#94a3b8', auto_sync: 'manual' });
   }
   return { ok: true };
+}
+
+/**
+ * Tu khoa qua chung chung da bi go bo o cac ban truoc. Vi so khop theo tu,
+ * 'ca' se dinh vao 'ca phe' va 'rau' dinh vao 'rau cau' -> phan loai sai.
+ * Danh sach nay duoc xoa khoi moi danh muc khi khoi dong.
+ */
+const RETIRED_KEYWORDS = new Set(['ca', 'rau', 'thit', 'an', 'uong', 've']);
+
+/**
+ * Bo sung tu khoa moi cua ban cap nhat vao cac danh muc mac dinh da ton tai,
+ * dong thoi go bo cac tu khoa qua chung chung cua ban cu.
+ * Tu khoa nguoi dung tu dat van duoc giu nguyen.
+ */
+export function syncKeywords() {
+  for (const def of DEFAULT_CATEGORIES) {
+    if (!def.keywords) continue;
+    const row = get('SELECT id, keywords FROM categories WHERE name = ? AND kind = ?', [def.name, def.kind]);
+    if (!row) continue;
+    const before = String(row.keywords || '');
+    const have = new Set(before.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+    for (const k of RETIRED_KEYWORDS) have.delete(k);
+    for (const k of def.keywords.split(',')) {
+      const t = k.trim().toLowerCase();
+      if (t) have.add(t);
+    }
+    const after = [...have].join(',');
+    if (after !== before) run('UPDATE categories SET keywords = ? WHERE id = ?', [after, row.id]);
+  }
 }
 
 export function categoryByName(name, kind = 'expense') {

@@ -19,8 +19,8 @@ export function budgetStatus(mk = monthKey()) {
       ? get('SELECT name, icon, color FROM categories WHERE id = ?', [b.category_id])
       : get('SELECT name, icon, color FROM funds WHERE id = ?', [b.fund_id]);
     const spent = b.category_id
-      ? get("SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE type='expense' AND excluded=0 AND category_id = ? AND date BETWEEN ? AND ?", [b.category_id, from, to]).s
-      : get("SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE type='expense' AND excluded=0 AND fund_id = ? AND date BETWEEN ? AND ?", [b.fund_id, from, to]).s;
+      ? get("SELECT COALESCE(SUM(COALESCE(base_amount, amount)),0) s FROM transactions WHERE type='expense' AND excluded=0 AND category_id = ? AND date BETWEEN ? AND ?", [b.category_id, from, to]).s
+      : get("SELECT COALESCE(SUM(COALESCE(base_amount, amount)),0) s FROM transactions WHERE type='expense' AND excluded=0 AND fund_id = ? AND date BETWEEN ? AND ?", [b.fund_id, from, to]).s;
     let limit = b.amount;
     if (b.rollover) limit += rolloverAmount(b, mk);
     const pctUsed = limit ? spent / limit : 0;
@@ -50,8 +50,8 @@ function rolloverAmount(budget, mk) {
   const from = monthStart(prev);
   const to = monthEnd(prev);
   const spent = budget.category_id
-    ? get("SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE type='expense' AND excluded=0 AND category_id = ? AND date BETWEEN ? AND ?", [budget.category_id, from, to]).s
-    : get("SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE type='expense' AND excluded=0 AND fund_id = ? AND date BETWEEN ? AND ?", [budget.fund_id, from, to]).s;
+    ? get("SELECT COALESCE(SUM(COALESCE(base_amount, amount)),0) s FROM transactions WHERE type='expense' AND excluded=0 AND category_id = ? AND date BETWEEN ? AND ?", [budget.category_id, from, to]).s
+    : get("SELECT COALESCE(SUM(COALESCE(base_amount, amount)),0) s FROM transactions WHERE type='expense' AND excluded=0 AND fund_id = ? AND date BETWEEN ? AND ?", [budget.fund_id, from, to]).s;
   return Math.max(0, budget.amount - spent);
 }
 
@@ -59,7 +59,7 @@ function rolloverAmount(budget, mk) {
 export function suggestBudgets(months = 3) {
   const list = lastMonths(months);
   const rows = all(
-    `SELECT c.id, c.name, c.icon, c.essential, SUM(t.amount) total, COUNT(DISTINCT substr(t.date,1,7)) nm
+    `SELECT c.id, c.name, c.icon, c.essential, SUM(COALESCE(t.base_amount, t.amount)) total, COUNT(DISTINCT substr(t.date,1,7)) nm
      FROM transactions t JOIN categories c ON c.id = t.category_id
      WHERE t.type='expense' AND t.excluded=0 AND substr(t.date,1,7) IN (${list.map(() => '?').join(',')})
      GROUP BY c.id ORDER BY total DESC`,

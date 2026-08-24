@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Empty, Loading, Money, Modal, Form } from '../components/ui.jsx';
-import { vnDate, short, fmt } from '../lib/format.js';
+import { vnDate, short, fmt, baseCurrency, toMinor, toMajor, CURRENCIES } from '../lib/format.js';
 
 export default function Transactions({ onRefresh }) {
   const [data, setData] = useState(null);
@@ -30,7 +30,8 @@ export default function Transactions({ onRefresh }) {
   const accOptions = [{ value: '', label: '— Không —' }, ...accounts.map((a) => ({ value: String(a.id), label: a.name }))];
 
   async function save(v) {
-    const body = { ...v, amount: Number(v.amount), category_id: v.category_id ? Number(v.category_id) : null, account_id: v.account_id ? Number(v.account_id) : null };
+    const code = v.currency || accounts.find((a) => String(a.id) === String(v.account_id))?.currency || baseCurrency();
+    const body = { ...v, currency: code, amount: toMinor(v.amount, code), category_id: v.category_id ? Number(v.category_id) : null, account_id: v.account_id ? Number(v.account_id) : null };
     if (edit) await api.patch(`/transactions/${edit.id}`, body);
     else await api.post('/transactions', body);
     setEdit(null); setAdding(false); load(); onRefresh?.();
@@ -42,7 +43,8 @@ export default function Transactions({ onRefresh }) {
 
   const fields = [
     { k: 'type', label: 'Loại', type: 'select', options: [{ value: 'expense', label: 'Chi' }, { value: 'income', label: 'Thu' }, { value: 'transfer', label: 'Chuyển khoản' }], def: 'expense' },
-    { k: 'amount', label: 'Số tiền (VND)', type: 'number' },
+    { k: 'amount', label: 'Số tiền', type: 'number' },
+    { k: 'currency', label: 'Đồng tiền', type: 'select', options: Object.values(CURRENCIES).map((c) => ({ value: c.code, label: `${c.flag} ${c.code}` })), def: edit?.currency || baseCurrency() },
     { k: 'date', label: 'Ngày', type: 'date', def: new Date().toISOString().slice(0, 10) },
     { k: 'account_id', label: 'Tài khoản', type: 'select', options: accOptions },
     { k: 'category_id', label: 'Danh mục', type: 'select', options: catOptions },
@@ -99,7 +101,7 @@ export default function Transactions({ onRefresh }) {
         <Modal title={edit ? 'Sửa giao dịch' : 'Thêm giao dịch'} onClose={() => { setEdit(null); setAdding(false); }}>
           <Form
             fields={fields}
-            initial={edit ? { ...edit, category_id: edit.category_id ? String(edit.category_id) : '', account_id: edit.account_id ? String(edit.account_id) : '' } : {}}
+            initial={edit ? { ...edit, amount: toMajor(edit.amount, edit.currency), category_id: edit.category_id ? String(edit.category_id) : '', account_id: edit.account_id ? String(edit.account_id) : '' } : {}}
             onSubmit={save}
             onCancel={() => { setEdit(null); setAdding(false); }}
           />

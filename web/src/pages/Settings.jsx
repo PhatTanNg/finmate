@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { api, setKey } from '../lib/api.js';
 import { Card, Empty, Loading, Modal, Form } from '../components/ui.jsx';
-import { fmt, pct } from '../lib/format.js';
+import { fmt, pct, toMinor, baseCurrency } from '../lib/format.js';
 
 const RISK = { conservative: 'Thận trọng', balanced: 'Cân bằng', aggressive: 'Mạo hiểm' };
+/** Lương gộp/tháng mặc định để thử tính thuế, theo từng nước. */
+const DEFAULT_GROSS = { VN: '30000000', IE: '4500' };
 
 export default function Settings({ onRefresh }) {
   const [p, setP] = useState(null);
@@ -11,7 +13,7 @@ export default function Settings({ onRefresh }) {
   const [cats, setCats] = useState([]);
   const [saved, setSaved] = useState(false);
   const [tax, setTax] = useState(null);
-  const [gross, setGross] = useState('30000000');
+  const [gross, setGross] = useState('');
   const [addRule, setAddRule] = useState(false);
   const [auth, setAuth] = useState(null);
   const [backups, setBackups] = useState([]);
@@ -22,13 +24,20 @@ export default function Settings({ onRefresh }) {
   const loadAuth = () => api.get('/auth/status').then(setAuth).catch(() => setAuth({ pin_set: false }));
   const loadBackups = () => api.get('/backup/list').then((d) => setBackups(d.backups)).catch(() => setBackups([]));
   useEffect(() => {
-    api.get('/profile').then((d) => setP(d.profile));
+    api.get('/profile').then((d) => {
+      setP(d.profile);
+      const c = (d.profile?.tax_country || d.profile?.country || 'VN').toUpperCase();
+      setGross(DEFAULT_GROSS[c] || DEFAULT_GROSS.VN);
+    });
     api.get('/categories').then((d) => setCats(d.categories));
     loadRules();
     loadAuth();
     loadBackups();
   }, []);
   if (!p) return <Loading />;
+
+  const taxCountry = (p.tax_country || p.country || 'VN').toUpperCase();
+  const taxCur = tax?.config?.currency || (taxCountry === 'IE' ? 'EUR' : 'VND');
 
   async function changePin() {
     try {
@@ -65,7 +74,8 @@ export default function Settings({ onRefresh }) {
     setSaved(true); setTimeout(() => setSaved(false), 2000); onRefresh?.();
   }
   async function calcTax() {
-    setTax(await api.post('/tax/pit', { gross: Number(gross), dependents: Number(p.dependents) || 0 }));
+    const code = (p.tax_country || p.country || 'VN').toUpperCase() === 'IE' ? 'EUR' : 'VND';
+    setTax(await api.post('/tax/pit', { gross: toMinor(gross, code), dependents: Number(p.dependents) || 0 }));
   }
   async function resetChat() {
     if (!confirm('Xoá toàn bộ lịch sử trò chuyện và bắt đầu lại từ đầu?')) return;
@@ -127,24 +137,46 @@ export default function Settings({ onRefresh }) {
       </div>
 
       <div className="grid g2">
-        <Card title="Tính thuế TNCN (lương → thực nhận)">
+        <Card title={taxCountry === 'IE' ? 'Tính thuế Ireland (gross năm → thực nhận)' : 'Tính thuế TNCN (lương → thực nhận)'}>
           <div className="row" style={{ gap: 6 }}>
             <input className="inp" type="number" value={gross} onChange={(e) => setGross(e.target.value)} />
             <button className="btn" onClick={calcTax}>Tính</button>
           </div>
+          <div className="mini" style={{ marginTop: 4 }}>
+            {taxCountry === 'IE' ? 'Nhập lương gộp mỗi tháng (EUR) — hệ thống quy ra cả năm theo biểu thuế Ireland.' : 'Nhập lương gộp mỗi tháng (VND).'}
+          </div>
           {tax && (
             <>
               <div className="hr" />
-              <div className="grid g2">
-                <div><div className="mini">Lương gross</div><b>{fmt(tax.result.gross)}</b></div>
-                <div><div className="mini">Thực nhận</div><b className="up">{fmt(tax.result.net)}</b></div>
-                <div><div className="mini">Bảo hiểm (10.5%)</div><b className="down">{fmt(tax.result.insurance)}</b></div>
-                <div><div className="mini">Thuế TNCN</div><b className="down">{fmt(tax.result.tax)}</b></div>
-              </div>
-              <div className="mini" style={{ marginTop: 8 }}>
-                Giảm trừ bản thân {fmt(tax.config?.self_deduction)} + {p.dependents || 0} người phụ thuộc × {fmt(tax.config?.dependent_deduction)} = {fmt(tax.result.deduction)}.
-                Thu nhập tính thuế {fmt(tax.result.taxable)} · thuế suất biên {pct(tax.result.marginal_rate, 0)} · thuế thực tế {pct(tax.result.effective_rate)} · cả năm {fmt(tax.result.annual_tax)}.
-              </div>
+              {tax.result.country === 'IE' ? (
+                <>
+                  <div className="grid g2">
+                    <div><div className="mini">Gross/năm</div><b>{fmt(tax.result.gross, taxCur)}</b></div>
+                    <div><div className="mini">Thực nhận/năm</div><b className="up">{fmt(tax.result.net, taxCur)}</b></div>
+                    <div><div className="mini">Income Tax (PAYE)</div><b className="down">{fmt(tax.result.income_tax, taxCur)}</b></div>
+                    <div><div className="mini">USC</div><b className="down">{fmt(tax.result.usc, taxCur)}</b></div>
+                    <div><div className="mini">PRSI (4,2%)</div><b className="down">{fmt(tax.result.prsi, taxCur)}</b></div>
+                    <div><div className="mini">Thực nhận/tháng</div><b className="up">{fmt(tax.result.monthly_net, taxCur)}</b></div>
+                  </div>
+                  <div className="mini" style={{ marginTop: 8 }}>
+                    Ngưỡng 20% (SRCOP) {fmt(tax.config?.srcop, taxCur)} · tín dụng thuế {fmt(tax.config?.credits, taxCur)}.
+                    Thuế suất biên {pct(tax.result.marginal_rate, 0)} · thuế thực tế {pct(tax.result.effective_rate)} · tổng thuế {fmt(tax.result.total_tax, taxCur)}/năm.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid g2">
+                    <div><div className="mini">Lương gross</div><b>{fmt(tax.result.gross, taxCur)}</b></div>
+                    <div><div className="mini">Thực nhận</div><b className="up">{fmt(tax.result.net, taxCur)}</b></div>
+                    <div><div className="mini">Bảo hiểm (10.5%)</div><b className="down">{fmt(tax.result.insurance, taxCur)}</b></div>
+                    <div><div className="mini">Thuế TNCN</div><b className="down">{fmt(tax.result.tax, taxCur)}</b></div>
+                  </div>
+                  <div className="mini" style={{ marginTop: 8 }}>
+                    Giảm trừ bản thân {fmt(tax.config?.self_deduction, taxCur)} + {p.dependents || 0} người phụ thuộc × {fmt(tax.config?.dependent_deduction, taxCur)} = {fmt(tax.result.deduction, taxCur)}.
+                    Thu nhập tính thuế {fmt(tax.result.taxable, taxCur)} · thuế suất biên {pct(tax.result.marginal_rate, 0)} · thuế thực tế {pct(tax.result.effective_rate)} · cả năm {fmt(tax.result.annual_tax, taxCur)}.
+                  </div>
+                </>
+              )}
             </>
           )}
         </Card>

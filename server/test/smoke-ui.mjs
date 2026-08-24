@@ -42,6 +42,18 @@ check('Advisor /advisor/surplus', sp, ['plan.amount', 'plan.steps.0.label', 'pla
 const ins = await get('/insights');
 check('Insights /insights', ins, ['insights.0.id', 'insights.0.severity', 'insights.0.title', 'insights.0.body', 'insights.0.created_at']);
 
+// --- Đa tiền tệ ---------------------------------------------------------
+const accs = await get('/accounts');
+check('Accounts /accounts', accs, ['accounts.0.name', 'accounts.0.balance', 'accounts.0.currency', 'accounts.0.base_currency', 'accounts.0.base_balance', 'accounts.0.is_active', 'accounts.0.type']);
+const inc = await get('/income-streams');
+check('Income /income-streams', inc, ['streams.0.name', 'streams.0.net_amount', 'streams.0.currency', 'streams.0.base_net_amount', 'streams.0.base_gross_amount', 'passive.interest', 'passive.dividend', 'passive.rent', 'projected_interest', 'tax.total', 'tax.currency', 'tax.detail.0.name', 'tax.detail.0.kind', 'tax.detail.0.amount']);
+const fxr = await get('/fx/rates');
+check('Currency /fx/rates', fxr, ['base', 'rates.0.code', 'rates.0.rate', 'rates.0.inverse', 'status.last_ok', 'status.source']);
+const remit = await get('/remittance?months=12');
+check('Currency /remittance', remit, ['summary.count', 'summary.total_sent', 'summary.total_received', 'timing.verdict', 'timing.message', 'cost.cost', 'cost.cost_pct', 'list']);
+const invs = await get('/investments');
+check('Investments /investments', invs, ['portfolio.total_value', 'portfolio.holdings', 'portfolio.projected_dividend', 'real_estate.total_value', 'real_estate.net_monthly']);
+
 const st = await get('/automation/status');
 check('Automation /automation/status', st, ['last_run', 'recurring', 'accounts_synced', 'webhook_url', 'log']);
 const rec = await get('/recurring');
@@ -51,7 +63,11 @@ console.log('   monthly_fixed =', JSON.stringify(rec.monthly_fixed));
 const prof = await get('/profile');
 check('Settings /profile', prof, ['profile.name', 'profile.risk_profile', 'profile.swr', 'profile.expected_return', 'profile.inflation', 'profile.savings_rate_target', 'profile.emergency_months_target', 'profile.retire_age_target']);
 const tax = await post('/tax/pit', { gross: 30000000, dependents: 0 });
-check('Settings /tax/pit', tax, ['result.gross', 'result.net', 'result.insurance', 'result.tax', 'result.taxable', 'result.deduction', 'result.marginal_rate', 'result.effective_rate', 'result.annual_tax', 'config.self_deduction', 'config.dependent_deduction']);
+// Mỗi nước có bộ field riêng: Việt Nam có bảo hiểm + giảm trừ gia cảnh,
+// Ireland có PAYE/USC/PRSI + tín dụng thuế.
+check('Settings /tax/pit', tax, tax?.result?.country === 'IE'
+  ? ['result.gross', 'result.net', 'result.income_tax', 'result.usc', 'result.prsi', 'result.total_tax', 'result.taxable', 'result.marginal_rate', 'result.effective_rate', 'result.monthly_net', 'config.srcop', 'config.credits']
+  : ['result.gross', 'result.net', 'result.insurance', 'result.tax', 'result.taxable', 'result.deduction', 'result.marginal_rate', 'result.effective_rate', 'result.annual_tax', 'config.self_deduction', 'config.dependent_deduction']);
 const rules = await get('/rules');
 check('Settings /rules', rules, ['rules']);
 const cats = await get('/categories');

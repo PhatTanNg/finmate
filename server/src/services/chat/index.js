@@ -88,7 +88,9 @@ export async function chat(text) {
 
   // Câu hỏi kiến thức tài chính (không kèm số tiền, không phải lệnh ghi sổ)
   // -> trả lời bằng cơ sở tri thức, gắn với số liệu thật của người dùng.
-  if (!entities.amount && !WRITE_INTENTS.has(intent)) {
+  // Bỏ qua khi bộ luật đã khớp rất chắc (score 9: tỷ giá, kiều hối, thuế...)
+  // vì các handler đó trả lời sát tình huống hơn bài viết kiến thức chung.
+  if (!entities.amount && !WRITE_INTENTS.has(intent) && score < 9) {
     const topic = findTopic(message);
     if (topic) {
       const reply = answerTopic(topic);

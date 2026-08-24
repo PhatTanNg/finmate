@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Stat, Empty, Loading, Modal, Form } from '../components/ui.jsx';
-import { fmt, short, vnDate } from '../lib/format.js';
+import { fmt, short, vnDate, baseCurrency, toMinor } from '../lib/format.js';
 
 const SAMPLE = 'VCB: 23/08/2026 12:34 TK 0071000123456 -350,000VND. So du: 42,150,000VND. ND: THANH TOAN GRABFOOD';
 
@@ -142,14 +142,14 @@ export default function Automation({ onRefresh }) {
             fields={[
               { k: 'name', label: 'Tên', ph: 'Tiền thuê nhà', full: true },
               { k: 'type', label: 'Loại', type: 'select', options: [{ value: 'expense', label: 'Chi' }, { value: 'income', label: 'Thu' }], def: 'expense' },
-              { k: 'amount', label: 'Số tiền', type: 'number' },
+              { k: 'amount', label: `Số tiền (${baseCurrency()})`, type: 'number' },
               { k: 'frequency', label: 'Chu kỳ', type: 'select', options: [{ value: 'monthly', label: 'Hàng tháng' }, { value: 'weekly', label: 'Hàng tuần' }, { value: 'daily', label: 'Hàng ngày' }, { value: 'quarterly', label: 'Hàng quý' }, { value: 'yearly', label: 'Hàng năm' }], def: 'monthly' },
               { k: 'day_of_month', label: 'Ngày trong tháng', type: 'number', def: 1 },
               { k: 'account_id', label: 'Tài khoản', type: 'select', options: [{ value: '', label: '— Mặc định —' }, ...accounts.map((a) => ({ value: String(a.id), label: a.name }))] },
               { k: 'category_id', label: 'Danh mục', type: 'select', options: [{ value: '', label: '— Tự phân loại —' }, ...cats.map((c) => ({ value: String(c.id), label: `${c.icon || ''} ${c.name}` }))] },
             ]}
             onSubmit={async (v) => {
-              await api.post('/recurring', { ...v, amount: Number(v.amount), day_of_month: Number(v.day_of_month) || 1, account_id: v.account_id ? Number(v.account_id) : null, category_id: v.category_id ? Number(v.category_id) : null, auto_post: 1, active: 1, start_date: new Date().toISOString().slice(0, 10) });
+              await api.post('/recurring', { ...v, amount: toMinor(v.amount), currency: baseCurrency(), day_of_month: Number(v.day_of_month) || 1, account_id: v.account_id ? Number(v.account_id) : null, category_id: v.category_id ? Number(v.category_id) : null, auto_post: 1, active: 1, start_date: new Date().toISOString().slice(0, 10) });
               setAdding(false); load(); onRefresh?.();
             }}
             onCancel={() => setAdding(false)}

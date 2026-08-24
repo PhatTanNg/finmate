@@ -1,26 +1,35 @@
-/** Tiền tệ: lưu số nguyên VND. */
+/**
+ * Tiền tệ & công thức tài chính.
+ * Số tiền luôn là **số nguyên đơn vị nhỏ nhất** của đồng tiền tương ứng
+ * (VND: 1đ, EUR: 1 cent) — xem util/currency.js.
+ */
+import { fmtMoney, shortMoney, DEFAULT_CURRENCY } from './currency.js';
 
 export const round = (n) => Math.round(Number(n) || 0);
 
-export function fmt(n, currency = 'VND') {
-  const v = Math.round(Number(n) || 0);
-  if (currency !== 'VND') return `${v.toLocaleString('en-US')} ${currency}`;
-  return `${v.toLocaleString('vi-VN')}đ`;
+/**
+ * Đồng tiền hiển thị mặc định. Dùng provider để util không phải import
+ * tầng service (tránh phụ thuộc vòng và giữ test chạy được độc lập).
+ */
+let baseProvider = () => DEFAULT_CURRENCY;
+export function setBaseCurrencyProvider(fn) {
+  if (typeof fn === 'function') baseProvider = fn;
+}
+export function displayCurrency() {
+  try {
+    return baseProvider() || DEFAULT_CURRENCY;
+  } catch {
+    return DEFAULT_CURRENCY;
+  }
 }
 
-/** Rút gọn: 1.500.000 -> "1,5 triệu" */
-export function short(n) {
-  const v = Math.round(Number(n) || 0);
-  const abs = Math.abs(v);
-  const sign = v < 0 ? '-' : '';
-  if (abs >= 1e9) return `${sign}${trim(abs / 1e9)} tỷ`;
-  if (abs >= 1e6) return `${sign}${trim(abs / 1e6)} triệu`;
-  if (abs >= 1e3) return `${sign}${trim(abs / 1e3)}k`;
-  return `${sign}${abs}đ`;
+export function fmt(n, currency = null) {
+  return fmtMoney(n, currency || displayCurrency());
 }
 
-function trim(x) {
-  return String(Number(x.toFixed(x >= 100 ? 0 : 1))).replace('.', ',');
+/** Rút gọn: 1.500.000đ -> "1,5 triệu" ; 150000 EUR-cent -> "€1.5k" */
+export function short(n, currency = null) {
+  return shortMoney(n, currency || displayCurrency());
 }
 
 export const pct = (x, digits = 1) => `${((Number(x) || 0) * 100).toFixed(digits).replace('.', ',')}%`;

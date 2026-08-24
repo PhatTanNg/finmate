@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useState } from 'react';
 import { api, getKey, setKey, setLockHandler } from './lib/api.js';
-import { short } from './lib/format.js';
+import { short, setBaseCurrency } from './lib/format.js';
 import Lock from './pages/Lock.jsx';
 import Chat from './pages/Chat.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -16,6 +16,7 @@ import Fire from './pages/Fire.jsx';
 import Advisor from './pages/Advisor.jsx';
 import Insights from './pages/Insights.jsx';
 import Automation from './pages/Automation.jsx';
+import Currency from './pages/Currency.jsx';
 import Settings from './pages/Settings.jsx';
 
 const NAV = [
@@ -33,6 +34,7 @@ const NAV = [
   { k: 'income', ico: '💼', label: 'Nguồn thu' },
   { k: 'investments', ico: '📈', label: 'Đầu tư' },
   { k: 'debts', ico: '💳', label: 'Nợ vay' },
+  { k: 'currency', ico: '💱', label: 'Tiền tệ & chuyển tiền' },
   { k: 'fire', ico: '🔥', label: 'Tự do tài chính' },
   { g: 'Cố vấn' },
   { k: 'advisor', ico: '🧭', label: 'Cố vấn' },
@@ -46,9 +48,13 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [open, setOpen] = useState(false);
   const [auth, setAuth] = useState(null); // null = đang kiểm tra
+  const [curKey, setCurKey] = useState(0); // buộc vẽ lại khi đổi đồng tiền gốc
 
   const refresh = useCallback(() => {
-    api.get('/dashboard').then(setD).catch((e) => setErr(e.message));
+    api.get('/dashboard').then((r) => {
+      if (setBaseCurrency(r.base_currency || r.profile?.currency)) setCurKey((k) => k + 1);
+      setD(r);
+    }).catch((e) => setErr(e.message));
   }, []);
 
   const checkAuth = useCallback(async () => {
@@ -80,6 +86,7 @@ export default function App() {
       case 'chat': return <Chat onRefresh={refresh} />;
       case 'dashboard': return d ? <Dashboard d={d} go={go} /> : null;
       case 'transactions': return <Transactions onRefresh={refresh} />;
+      case 'currency': return <Currency onRefresh={refresh} />;
       case 'insights': return <Insights onRefresh={refresh} />;
       case 'accounts': return <Accounts onRefresh={refresh} />;
       case 'funds': return <Funds onRefresh={refresh} />;
@@ -132,7 +139,7 @@ export default function App() {
 
       <main className="main">
         {err && <div className="toast err" onClick={() => setErr(null)}>{err}</div>}
-        {page()}
+        <Fragment key={curKey}>{page()}</Fragment>
       </main>
     </div>
   );

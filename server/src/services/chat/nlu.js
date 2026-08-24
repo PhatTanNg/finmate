@@ -2,13 +2,19 @@
 import { all, get } from '../../db.js';
 import { norm, findAmounts, parseAmount, parseDate, parseRange, parsePercent, scoreKeywords } from '../../util/vi.js';
 import { today } from '../../util/date.js';
+import { convert, baseCurrency } from '../fx.js';
 
 const QUESTION_HINTS = ['bao nhieu', 'the nao', 'khi nao', 'bao gio', 'co nen', 'nen khong', 'lam sao', 'tai sao', 'co du', '?', 'la gi', 'ra sao', 'hay khong', 'duoc khong', 'tinh hinh', 'cho minh xem', 'xem '];
 
 export function extractEntities(text) {
   const n = norm(text);
   const amounts = findAmounts(text).filter((a) => a.value > 0);
-  const main = amounts.length ? [...amounts].sort((a, b) => b.value - a.value)[0] : null;
+  // Số tiền chính = số lớn nhất sau khi quy về đồng tiền gốc, để câu lẫn nhiều
+  // đồng tiền ("gửi 1000 euro về mua 20 triệu") không so sai đơn vị.
+  const base = baseCurrency();
+  const main = amounts.length
+    ? [...amounts].sort((a, b) => convert(b.value, b.currency, base) - convert(a.value, a.currency, base))[0]
+    : null;
   const percent = parsePercent(text);
   const range = parseRange(text);
   const date = parseDate(text);
@@ -35,9 +41,18 @@ export function extractEntities(text) {
     if (s > best) { best = s; category = c; }
   }
 
-  const symbol = (text.match(/\b([A-Z]{3})\b/g) || []).find((s) => !['VND', 'USD', 'ATM', 'GDP', 'CEO'].includes(s));
+  const symbol = (text.match(/\b([A-Z]{3})\b/g) || []).find((s) => !['VND', 'USD', 'EUR', 'GBP', 'ATM', 'GDP', 'CEO', 'USC', 'PIT', 'IRL'].includes(s));
 
-  return { amounts, amount: main ? main.value : null, amount_confidence: main ? main.confidence : 0, percent, date, range, horizonMonths, account, fund, category, category_score: best, symbol };
+  return {
+    amounts,
+    amount: main ? main.value : null,
+    currency: main ? main.currency : null,
+    currency_explicit: main ? !!main.explicit_currency : false,
+    amount_base: main ? convert(main.value, main.currency, base) : null,
+    base_currency: base,
+    amount_confidence: main ? main.confidence : 0,
+    percent, date, range, horizonMonths, account, fund, category, category_score: best, symbol,
+  };
 }
 
 /**
@@ -49,11 +64,15 @@ const POSSESSIVE = ['cua minh', 'cua toi', 'cua em', 'hien tai', 'dang the nao',
 
 const RULES = [
   // --- thao tác đặc biệt ---
-  { intent: 'undo', w: 9, t: (n) => has(n, 'undo', 'xoa giao dich', 'huy giao dich', 'nham roi', 'ghi nham', 'bo giao dich', 'xoa cai vua') },
-  { intent: 'help', w: 9, t: (n) => has(n, 'lam duoc gi', 'giup duoc gi', 'huong dan', 'cach dung', 'ban co the lam', 'chuc nang', 'help', 'menu') || ['giup toi', 'giup minh', 'giup em', 'help me'].includes(n) },
+  { intent: 'undo', w: 9, t: (n) => has(n, 'undo', 'xoa giao dich', 'huy giao dich', 'nham roi', 'ghi nham', 'bo giao dich', 'xoa cai vua') },  { intent: 'help', w: 9, t: (n) => has(n, 'lam duoc gi', 'giup duoc gi', 'huong dan', 'cach dung', 'ban co the lam', 'chuc nang', 'help', 'menu') || ['giup toi', 'giup minh', 'giup em', 'help me'].includes(n) },
   { intent: 'greeting', w: 9, t: (n, e) => !e.amount && n.length <= 28 && has(n, 'xin chao', 'chao ban', 'chao buoi', 'hello', 'hey', 'alo', 'chao app', 'chao') },
   { intent: 'set_price', w: 9, t: (n, e) => e.symbol && e.amount && has(n, 'gia ', 'gia la', 'update gia', 'cap nhat gia') && !has(n, 'mua ', 'ban ', 'co phieu', 'chung khoan', ' cp ') },
-  { intent: 'update_profile', w: 8, t: (n) => has(n, 'minh ten', 'toi ten', 'goi minh la', 'minh sinh nam', 'toi sinh nam', 'minh nam nay', 'khau vi rui ro cua minh') },
+  { intent: 'update_profile', w: 8, t: (n) => has(n, 'minh ten', 'toi ten', 'goi minh la', 'minh sinh nam', 'toi sinh nam', 'khau vi rui ro cua minh') || /\b(minh|toi) nam nay \d/.test(n) },
+
+  // --- đa tiền tệ: tỷ giá & chuyển tiền quốc tế ---
+  { intent: 'query_fx', w: 9, t: (n) => has(n, 'ty gia', 'ti gia', 'exchange rate', 'euro bang bao nhieu', 'euro bao nhieu tien', 'eur vnd', 'vnd eur', 'quy doi', 'doi tien', 'sang vnd', 'sang tien viet', 'sang euro', 'sang eur', 'sang usd', 'bang bao nhieu tien viet') && !has(n, 'sang tiet kiem', 'sang vi ', 'sang tai khoan', 'vao quy', 'sang quy') },
+  { intent: 'remittance', w: 9, t: (n) => has(n, 'gui tien ve', 'chuyen tien ve', 've viet nam', 've vn', 'gui ve nha', 'remit', 'kieu hoi', 'chuyen khoan quoc te', 'nen gui tien', 'gui ve que') },
+  { intent: 'query_tax', w: 9, t: (n) => has(n, 'paye', 'usc', 'prsi', 'thue ireland', 'thue o ireland', 'dirt', 'tax credit', 'thue ben nay', 'thue tncn', 'thue thu nhap') || (has(n, 'thue') && has(n, 'luong', 'thu nhap', 'bao nhieu', 'tinh sao', 'phai nop', 'net', 'gross')) },
 
   // --- lệnh cấu hình (phải đứng trước ghi giao dịch) ---
   { intent: 'set_allocation', w: 8, t: (n, e) => has(n, 'chia quy', 'chia thu nhap', 'phan bo thu nhap', 'phan bo luong', 'ty le quy', 'ti le quy', 'doi ty le', 'chia luong') || (e.percent != null && has(n, 'quy ', 'thiet yeu', 'tu do tai chinh', 'huong thu', 'khan cap')) },
@@ -64,7 +83,7 @@ const RULES = [
   { intent: 'add_account', w: 8, t: (n, e) => e.amount && has(n, 'them tai khoan', 'tao tai khoan', 'mo tai khoan', 'them vi', 'them the', 'them so tiet kiem', 'khai bao tai khoan', 'cap nhat so du', 'tai khoan moi') },
   { intent: 'add_income_stream', w: 8, t: (n, e) => has(n, 'them nguon thu', 'khai bao nguon thu', 'nguon thu moi', 'them thu nhap') || (e.amount && has(n, 'moi thang', 'hang thang', 'mot thang', '/thang') && has(n, 'luong', 'day hoc', 'freelance', 'cho thue', 'lam them', 'part time', 'kiem duoc', 'thu nhap', 'nguon thu')) },
   { intent: 'add_debt', w: 8, t: (n, e) => e.amount && has(n, 'them no', 'khai bao no', 'dang vay', 'minh vay', 'toi vay', 'khoan vay', 'vay ngan hang', 'tra gop', 'vay ban', 'no the', 'them khoan no') && !has(n, 'bao gio', 'khi nao', 'ke hoach', 'tinh hinh') },
-  { intent: 'add_holding', w: 8, t: (n, e) => has(n, 'co phieu', 'chung khoan', 'chung chi quy', ' cp ', 'ma ck') && has(n, 'mua', 'ban ', 'dang giu', 'so huu', 'them') && (e.symbol || e.amount) },
+  { intent: 'add_holding', w: 8, t: (n, e) => has(n, 'co phieu', 'chung khoan', 'chung chi quy', ' cp ', 'ma ck', 'etf') && has(n, 'mua', 'ban ', 'dang giu', 'so huu', 'them', 'minh co', 'toi co', 'em co', 'dang co', 'gia von') && (e.symbol || e.amount) },
   { intent: 'add_recurring', w: 7, t: (n, e) => e.amount && has(n, 'hang thang', 'moi thang', 'dinh ky', 'hang tuan', 'moi tuan', 'hang nam', 'moi ngay', 'hang ngay', 'thue bao', 'subscription') },
 
   // --- tư vấn ---
@@ -80,10 +99,17 @@ const RULES = [
   { intent: 'query_income', w: 7, t: (n) => has(n, 'thu nhap bao nhieu', 'kiem duoc bao nhieu', 'tong thu nhap', 'nguon thu', 'thu nhap cua', 'thu nhap thang', 'luong cua minh', 'luong cua toi', 'thu nhap') },
   { intent: 'query_forecast', w: 7, t: (n) => has(n, 'du bao', 'thang sau', 'sap toi co du', 'co du tien khong', 'het tien khi nao', 'dong tien', 'cash flow', 'thang toi') },
   { intent: 'query_spending', w: 7, t: (n) => has(n, 'tieu bao nhieu', 'chi bao nhieu', 'da xai', 'chi tieu', 'ton nhieu nhat', 'tieu gi nhieu', 'thong ke chi', 'chi nhieu vao dau', 'xai het bao nhieu', 'tieu het bao nhieu', 'da tieu') },
-  { intent: 'query_balance', w: 7, t: (n) => has(n, 'con bao nhieu tien', 'so du', 'con nhieu tien khong', 'trong tai khoan', 'tien con lai', 'con xai duoc bao nhieu', 'tieu duoc bao nhieu', 'con bao nhieu') },
+  { intent: 'query_balance', w: 7, t: (n) => has(n, 'con bao nhieu tien', 'so du', 'con nhieu tien khong', 'trong tai khoan', 'tien con lai', 'con xai duoc bao nhieu', 'tieu duoc bao nhieu', 'con bao nhieu', 'co bao nhieu tien', 'dang co bao nhieu', 'bao nhieu tien trong') },
 ];
 
-const TX_EXPENSE_HINTS = ['mua', 'an ', 'an sang', 'an trua', 'an toi', 'uong', 'do xang', 'tra tien', 'thanh toan', 'chi ', 'tieu ', 'ca phe', 'com ', 'grab', 'ship', 've ', 'sam', 'nap tien', 'hoa don', 'vua tra', 'dong tien', 'tra phi'];
+const TX_EXPENSE_HINTS = ['mua', 'an', 'an sang', 'an trua', 'an toi', 'uong', 'do xang', 'tra tien', 'thanh toan', 'chi', 'tieu', 'ca phe', 'com', 'grab', 'ship', 've', 'sam', 'nap tien', 'hoa don', 'vua tra', 'dong tien', 'tra phi'];
+
+/**
+ * So khớp theo TỪ chứ không theo chuỗi con. Bắt buộc với tiếng Việt đã bỏ dấu:
+ * "luong" chứa "uong", "thang" chứa "an" — nếu dùng includes() thì câu
+ * "lương tháng này 3566 euro" sẽ bị hiểu nhầm thành khoản chi.
+ */
+const hasWord = (n, ws) => ws.some((w) => new RegExp(`(^|[^a-z0-9])${w.trim()}([^a-z0-9]|$)`).test(n));
 
 export function detectIntent(text) {
   const n = norm(text);
@@ -102,8 +128,13 @@ export function detectIntent(text) {
     const incomeHint = /nhan luong|nhan tien|duoc tra|duoc thuong|thuong tet|thu duoc|ban duoc|co tuc|lai ngan hang|tien ve|tien thue nha|hoan tien|luong ve|nhan duoc|khach tra/.test(n);
     if (transferHint) return { intent: 'add_transfer', score: 5, entities: ent, is_question: isQuestion };
     if (incomeHint) return { intent: 'add_income', score: 5, entities: ent, is_question: isQuestion };
+    // Danh mục nhận ra là danh mục THU (lương, cổ tức, tiền thuê nhà...) mà câu
+    // không có dấu hiệu tiêu tiền → đây là khoản thu, không phải khoản chi.
+    if (ent.category?.kind === 'income' && ent.category_score >= 2 && !hasWord(n, TX_EXPENSE_HINTS)) {
+      return { intent: 'add_income', score: 4, entities: ent, is_question: isQuestion };
+    }
     // chỉ ghi chi khi thực sự có dấu hiệu tiêu tiền hoặc nhận ra danh mục rõ ràng
-    if (has(n, ...TX_EXPENSE_HINTS) || ent.category_score >= 2) {
+    if (hasWord(n, TX_EXPENSE_HINTS) || ent.category_score >= 2) {
       return { intent: 'add_expense', score: 4, entities: ent, is_question: isQuestion };
     }
   }
