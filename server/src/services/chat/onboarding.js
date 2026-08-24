@@ -434,8 +434,20 @@ export function handleOnboarding(text) {
   return { reply: res.reply, quick: res.quick || [], step: res.next };
 }
 
-export function startOnboarding() {
-  update('profile', 1, { onboarding_step: 'welcome', onboarded: 0 });
+/** Câu hỏi của bước thiết lập đang dang dở, để nhắc lại sau khi trả lời câu hỏi xen ngang. */
+const STEP_PROMPT = {
+  welcome: 'bạn tên gì và sinh năm bao nhiêu?',
+  income: 'thu nhập chính hằng tháng của bạn khoảng bao nhiêu?',
+  accounts: 'bạn đang có những tài khoản, ví nào và số dư mỗi nơi bao nhiêu?',
+  other_income: 'ngoài thu nhập chính, bạn còn nguồn thu nào khác không?',
+  fixed_costs: 'mỗi tháng bạn có những khoản cố định nào (thuê nhà, điện nước, đăng ký...)?',
+  debts: 'bạn có khoản nợ hay khoản vay nào đang trả không?',
+  goals: 'bạn đang muốn đạt mục tiêu tiền bạc nào?',
+  lifestyle: 'phong cách chi tiêu của bạn thế nào?',
+};
+export const currentOnboardingQuestion = () => STEP_PROMPT[profile()?.onboarding_step || 'welcome'] || null;
+
+export function startOnboarding() {  update('profile', 1, { onboarding_step: 'welcome', onboarded: 0 });
   return {
     reply: `Chào bạn 👋 Mình là **FinMate** — cố vấn tài chính riêng của bạn.\n\nMình sẽ giúp bạn:\n• Theo dõi **mọi đồng tiền vào ra** mà không cần nhập tay\n• Tự chia tiền vào các quỹ ngay khi có thu nhập\n• Bám sát mọi nguồn thu: lương, chứng khoán, lãi ngân hàng, cho thuê nhà...\n• Dự đoán **ngày bạn đạt tự do tài chính** và cách rút ngắn nó\n\nĐể bắt đầu, cho mình biết **tên và năm sinh** của bạn nhé.\n_Ví dụ: "Mình tên Nam, sinh năm 1996"_`,
     quick: [],

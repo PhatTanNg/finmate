@@ -89,7 +89,7 @@ export function Form({ fields, initial = {}, submit = 'Lưu', onSubmit, onCancel
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(v); }}>
       <div className="fields">
-        {fields.map((f) => (
+        {fields.filter((f) => !f.when || f.when(v)).map((f) => (
           <div key={f.k} style={f.full ? { gridColumn: '1 / -1' } : undefined}>
             <label className="f">{f.label}</label>
             {f.type === 'select' ? (

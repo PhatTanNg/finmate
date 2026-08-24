@@ -104,7 +104,7 @@ export default function Automation({ onRefresh }) {
     load(); onRefresh?.(); setBusy(false);
   }
   async function testSms() {
-    try { setSmsResult(await api.post('/ingest', { text: sms })); load(); onRefresh?.(); }
+    try { setSmsResult(await api.post(`/ingest?token=${encodeURIComponent(d.token || '')}`, { text: sms })); load(); onRefresh?.(); }
     catch (e) { setSmsResult({ error: e.message }); }
   }
   async function importCsv(dry) {

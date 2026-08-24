@@ -76,6 +76,11 @@ export function suggestBudgets(months = 3) {
 }
 
 export function upsertBudget(data) {
+  if (data.amount !== undefined) {
+    const amt = Math.round(Number(data.amount));
+    if (!Number.isFinite(amt) || amt <= 0) throw new Error('Hạn mức ngân sách phải là số dương');
+    data = { ...data, amount: amt };
+  }
   if (data.id) {
     update('budgets', data.id, data);
     return get('SELECT * FROM budgets WHERE id = ?', [data.id]);

@@ -32,6 +32,13 @@ export default function Transactions({ onRefresh }) {
   async function save(v) {
     const code = v.currency || accounts.find((a) => String(a.id) === String(v.account_id))?.currency || baseCurrency();
     const body = { ...v, currency: code, amount: toMinor(v.amount, code), category_id: v.category_id ? Number(v.category_id) : null, account_id: v.account_id ? Number(v.account_id) : null };
+    if (v.type === 'transfer') {
+      if (!v.counter_account_id) { alert('Chuyển khoản cần chọn tài khoản nhận, nếu không số tiền sẽ bị trừ mà không vào đâu cả.'); return; }
+      if (String(v.counter_account_id) === String(v.account_id)) { alert('Tài khoản gửi và nhận không được trùng nhau.'); return; }
+      body.counter_account_id = Number(v.counter_account_id);
+    } else {
+      delete body.counter_account_id;
+    }
     if (edit) await api.patch(`/transactions/${edit.id}`, body);
     else await api.post('/transactions', body);
     setEdit(null); setAdding(false); load(); onRefresh?.();
@@ -47,7 +54,8 @@ export default function Transactions({ onRefresh }) {
     { k: 'currency', label: 'Đồng tiền', type: 'select', options: Object.values(CURRENCIES).map((c) => ({ value: c.code, label: `${c.flag} ${c.code}` })), def: edit?.currency || baseCurrency() },
     { k: 'date', label: 'Ngày', type: 'date', def: new Date().toISOString().slice(0, 10) },
     { k: 'account_id', label: 'Tài khoản', type: 'select', options: accOptions },
-    { k: 'category_id', label: 'Danh mục', type: 'select', options: catOptions },
+    { k: 'counter_account_id', label: 'Chuyển đến tài khoản', type: 'select', options: [{ value: '', label: '— Chọn tài khoản nhận —' }, ...accounts.map((a) => ({ value: String(a.id), label: `${a.name} (${a.currency})` }))], when: (v) => v.type === 'transfer' },
+    { k: 'category_id', label: 'Danh mục', type: 'select', options: catOptions, when: (v) => v.type !== 'transfer' },
     { k: 'merchant', label: 'Nơi chi/nguồn thu' },
     { k: 'note', label: 'Ghi chú', full: true },
   ];

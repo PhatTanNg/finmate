@@ -118,9 +118,19 @@ const tokenOf = (req) =>
 /** Người dùng đang thao tác trong app (đã mở khoá), hay chưa hề đặt PIN. */
 export const sessionOk = (req) => !pinIsSet() || validSession(tokenOf(req));
 
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+/** Yêu cầu phát ra từ chính máy chạy server, không phải từ máy khác trong LAN. */
+export const isLocalReq = (req) => LOOPBACK.has(req.ip) || LOOPBACK.has(req.socket?.remoteAddress || '');
+
 export function requireAuth(req, res, next) {
-  if (!pinIsSet()) return next();
   if (OPEN_PATHS.some((re) => re.test(req.path))) return next();
+  // Chưa đặt PIN thì app chỉ dùng được ngay trên máy chạy server. Nếu mở ra LAN
+  // (FINMATE_HOST=0.0.0.0) mà chưa có PIN thì toàn bộ dữ liệu tài chính sẽ phơi
+  // cho mọi thiết bị cùng mạng — chặn lại và yêu cầu đặt PIN trước.
+  if (!pinIsSet()) {
+    if (isLocalReq(req)) return next();
+    return res.status(401).json({ ok: false, error: 'Hãy đặt mã PIN trong Cài đặt trước khi mở app từ thiết bị khác', locked: true, need_pin: true });
+  }
   if (validSession(tokenOf(req))) return next();
   return res.status(401).json({ ok: false, error: 'Cần mở khoá bằng mã PIN', locked: true });
 }

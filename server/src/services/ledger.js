@@ -124,6 +124,18 @@ export function createTransaction(input = {}, opts = {}) {
   const amount = Math.round(Math.abs(Number(input.amount) || 0));
   if (!amount) throw new Error('Số tiền không hợp lệ');
 
+  // Chuyển khoản thiếu tài khoản đích sẽ trừ tiền bên gửi mà không cộng cho ai
+  // — tiền bốc hơi khỏi sổ. Thà báo lỗi còn hơn làm sai âm thầm. Ngoại lệ duy
+  // nhất: bút toán mua/bán chứng khoán, ở đó đầu đối ứng là danh mục đầu tư
+  // chứ không phải một tài khoản tiền.
+  if (type === 'transfer') {
+    const to = input.counter_account_id ?? input.to_account_id;
+    const assetLeg = input.holding_id != null;
+    if (!to && !assetLeg) throw new Error('Chuyển khoản phải có tài khoản nhận');
+    if (to && Number(to) === Number(input.account_id)) throw new Error('Không thể chuyển vào chính tài khoản đó');
+    if (to) input = { ...input, counter_account_id: Number(to) };
+  }
+
   if (input.external_id) {
     const dup = get('SELECT * FROM transactions WHERE external_id = ?', [input.external_id]);
     if (dup) return { duplicate: true, transaction: dup, allocation: [] };
@@ -137,7 +149,14 @@ export function createTransaction(input = {}, opts = {}) {
   data.occurred_at = input.occurred_at || nowISO();
   data.source = input.source || 'manual';
 
-  if (!data.account_id) data.account_id = defaultAccountId(type, input.currency);
+  // Vế tiền về từ lệnh bán chứng khoán chỉ có tài khoản nhận. Nếu tự điền thêm
+  // tài khoản nguồn thì tiền vừa bị trừ vừa được cộng — thành ra không vào đâu.
+  if (!data.account_id && !(type === 'transfer' && data.counter_account_id)) {
+    data.account_id = defaultAccountId(type, input.currency);
+  }
+  if (type === 'transfer' && data.counter_account_id && Number(data.counter_account_id) === Number(data.account_id)) {
+    throw new Error('Không thể chuyển vào chính tài khoản đó');
+  }
   fillCurrency(data, input);
 
   const text = [input.note, input.merchant, input.raw].filter(Boolean).join(' ');

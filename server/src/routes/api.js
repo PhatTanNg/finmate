@@ -532,10 +532,15 @@ router.post('/currency/base', wrap(async (req, res) => {
   if (Number(before.inflation) === oldAssume.inflation) patch.inflation = newAssume.inflation;
   update('profile', 1, patch);
   ensureSeedRates();
+  // Quỹ chưa có đồng nào thì đổi luôn sang đồng tiền mới — nếu để nguyên VND
+  // trong khi lương về bằng euro thì mọi lần phân bổ đều phải quy đổi vòng vo
+  // và số dư quỹ hiện ra sai đơn vị.
+  const emptyFunds = all('SELECT id FROM funds WHERE COALESCE(balance,0) = 0 AND currency <> ?', [code]);
+  for (const f of emptyFunds) update('funds', f.id, { currency: code });
   const changed = recomputeBaseAmounts();
   recomputeFundBalances();
   snapshot();
-  ok(res, { currency: code, recomputed: changed, profile: get('SELECT * FROM profile WHERE id = 1') });
+  ok(res, { currency: code, recomputed: changed, funds_switched: emptyFunds.length, profile: get('SELECT * FROM profile WHERE id = 1') });
 }));
 
 // ---- chuyển tiền quốc tế (kiều hối) --------------------------------------

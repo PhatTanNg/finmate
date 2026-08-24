@@ -4,7 +4,7 @@ import { today, monthKey, monthStart, monthEnd } from '../../util/date.js';
 import { norm } from '../../util/vi.js';
 import { detectIntent } from './nlu.js';
 import { HANDLERS } from './handlers.js';
-import { handleOnboarding, startOnboarding } from './onboarding.js';
+import { handleOnboarding, startOnboarding, currentOnboardingQuestion } from './onboarding.js';
 import { llmEnabled, classify, answer } from './llm.js';
 import { runAgent, agentEnabled } from './agent.js';
 import { totals } from '../reports.js';
@@ -66,6 +66,13 @@ function snapshotContext() {
 
 const OPEN_QUESTION_INTENTS = new Set(['unknown']);
 
+/** Ý định chỉ đọc dữ liệu — an toàn để trả lời ngay cả khi đang thiết lập. */
+const READ_INTENTS = new Set([
+  'query_balance', 'query_spending', 'query_networth', 'query_fire', 'query_forecast',
+  'query_debt', 'query_goal', 'query_budget', 'query_investment', 'query_income',
+  'query_fx', 'query_tax', 'summary', 'help',
+]);
+
 /** Ý định ghi/sửa dữ liệu — không được để câu hỏi kiến thức chiếm chỗ. */
 const WRITE_INTENTS = new Set([
   'add_expense', 'add_income', 'add_transfer', 'add_account', 'add_income_stream', 'add_debt',
@@ -114,6 +121,23 @@ export async function chat(text) {
   }
 
   if (isOnboarding) {
+    // Đang thiết lập nhưng người dùng hỏi một câu tra cứu ("số dư AIB còn bao
+    // nhiêu?") thì phải trả lời câu hỏi đó, chứ không được coi câu hỏi là dữ
+    // liệu khai báo cho bước đang hỏi.
+    const probe = detectIntent(message);
+    if (probe.is_question && probe.score >= 6 && READ_INTENTS.has(probe.intent) && !probe.entities.amount) {
+      const h = HANDLERS[probe.intent];
+      if (h) {
+        let answerNow;
+        try { answerNow = h(message, probe.entities); } catch { answerNow = null; }
+        if (answerNow?.reply) {
+          const step = currentOnboardingQuestion();
+          const reply = step ? `${answerNow.reply}\n\n---\nMình quay lại phần thiết lập nhé — ${step}` : answerNow.reply;
+          saveMessage('assistant', reply, 'onboarding-answer', { intent: probe.intent });
+          return { reply, intent: probe.intent, onboarding: true, quick: quickFor(true) };
+        }
+      }
+    }
     const res = handleOnboarding(message);
     saveMessage('assistant', res.reply, 'onboarding', { step: res.step });
     return { ...res, onboarding: !res.onboarded, intent: 'onboarding' };

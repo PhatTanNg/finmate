@@ -38,18 +38,33 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.text({ type: 'text/plain', limit: '2mb' }));
 
-// Cho phép webhook gửi SMS thô dạng text/plain
+// Cửa webhook: kiểm tra token trước mọi thứ khác.
 app.use('/api', (req, res, next) => {
-  if (typeof req.body === 'string') req.body = { text: req.body };
-  // POST /api/ingest là cửa duy nhất mở ra ngoài (iOS Shortcuts gọi vào).
-  // Nó luôn phải kèm token bí mật — trừ khi người dùng đang thao tác trong app
-  // với phiên PIN hợp lệ.
+  // POST /api/ingest là cửa duy nhất mở ra ngoài (iOS Shortcuts gọi vào), nên
+  // nó luôn phải kèm token bí mật — kể cả khi người dùng chưa đặt mã PIN.
   if (/^\/ingest\/?$/.test(req.path)) {
     const given = req.get('x-finmate-token') || req.query.token;
-    if (given !== ingestToken() && !sessionOk(req)) {
+    if (given !== ingestToken() && !(pinIsSet() && sessionOk(req))) {
       return res.status(401).json({ ok: false, error: 'token không hợp lệ' });
     }
   }
+  next();
+});
+
+// JSON hỏng là lỗi của bên gửi, không phải sự cố server — trả 400 kèm lời giải
+// thích thay vì 500 khó hiểu (iOS Shortcuts rất hay gửi chuỗi sai định dạng).
+app.use('/api', (err, req, res, next) => {
+  if (err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError)) {
+    return res.status(400).json({ ok: false, error: 'Dữ liệu gửi lên không phải JSON hợp lệ' });
+  }
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ ok: false, error: 'Dữ liệu gửi lên quá lớn' });
+  }
+  return next(err);
+});
+
+app.use('/api', (req, res, next) => {
+  if (typeof req.body === 'string') req.body = { text: req.body };
   next();
 });
 

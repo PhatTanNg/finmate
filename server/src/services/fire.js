@@ -7,7 +7,8 @@ import { averageMonthlyExpense, averageMonthlyIncome, essentialSplit, incomeSour
 import { monthStart, monthEnd, monthKey, addMonths as addM, lastMonths } from '../util/date.js';
 import { projectedAnnualInterest } from './interest.js';
 import { portfolio, realEstate } from './investments.js';
-import { baseCurrency } from './fx.js';
+import { baseCurrency, convert } from './fx.js';
+import { normalizeCurrency } from '../util/currency.js';
 
 export function profile() {
   return get('SELECT * FROM profile WHERE id = 1') || {};
@@ -27,17 +28,51 @@ export function marketAssumptions(code = baseCurrency()) {
 
 /** Thu nhập thụ động hàng tháng hiện tại (lãi NH + cổ tức + cho thuê) */
 export function passiveIncomeMonthly() {
-  const interest = Math.round(projectedAnnualInterest() / 12);
+  const modelInterest = Math.round(projectedAnnualInterest() / 12);
   const pf = portfolio();
-  const dividend = Math.round(pf.projected_dividend / 12);
+  const modelDividend = Math.round(pf.projected_dividend / 12);
   const re = realEstate();
-  const rent = re.net_monthly;
+  const modelRent = re.net_monthly;
+
+  // Người dùng có thể khai thẳng nguồn thu thụ động (lãi ngân hàng, cổ tức, tiền
+  // thuê nhà) mà chưa nhập chi tiết sổ tiết kiệm hay danh mục cổ phiếu. Lấy số
+  // lớn hơn giữa mô hình và số đã khai để không bỏ sót, cũng không cộng trùng.
+  const declared = declaredPassiveByType();
+  const interest = Math.max(modelInterest, declared.interest);
+  const dividend = Math.max(modelDividend, declared.dividend);
+  const rent = Math.max(modelRent, declared.rent);
+  const other = declared.other;
+
   const months = lastMonths(6);
   const observed = months.length
     ? Math.round(months.reduce((s, m) => s + (Number(incomeSources(monthStart(m), monthEnd(m)).passive) || 0), 0) / months.length)
     : 0;
-  const modeled = interest + dividend + rent;
-  return { interest, dividend, rent, modeled, observed, total: Math.max(modeled, observed) };
+  const modeled = interest + dividend + rent + other;
+  return { interest, dividend, rent, other, modeled, observed, total: Math.max(modeled, observed) };
+}
+
+const PASSIVE_TYPES = {
+  interest: 'interest', savings: 'interest', deposit: 'interest',
+  dividend: 'dividend', investment: 'dividend', stock: 'dividend',
+  rental: 'rent', rent: 'rent', property: 'rent',
+  royalty: 'other', passive: 'other',
+};
+const PER_MONTH = { monthly: 1, weekly: 52 / 12, biweekly: 26 / 12, quarterly: 1 / 3, yearly: 1 / 12, annual: 1 / 12, irregular: 1 };
+
+/** Thu nhập thụ động do người dùng tự khai trong mục "Nguồn thu", quy về mỗi tháng. */
+function declaredPassiveByType() {
+  const out = { interest: 0, dividend: 0, rent: 0, other: 0 };
+  const base = baseCurrency();
+  for (const s of all('SELECT * FROM income_streams WHERE active = 1')) {
+    const bucket = PASSIVE_TYPES[String(s.type || '').toLowerCase()];
+    if (!bucket) continue;
+    const amount = Number(s.net_amount) || Number(s.gross_amount) || 0;
+    if (amount <= 0) continue;
+    const perMonth = amount * (PER_MONTH[String(s.frequency || 'monthly').toLowerCase()] ?? 1);
+    out[bucket] += convert(Math.round(perMonth), normalizeCurrency(s.currency) || base, base);
+  }
+  for (const k of Object.keys(out)) out[k] = Math.round(out[k]);
+  return out;
 }
 
 export function fireStats(overrides = {}) {

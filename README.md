@@ -272,7 +272,9 @@ npm run start:lan          # nghe trên 0.0.0.0, in sẵn địa chỉ LAN
 Mặc định server **chỉ nghe 127.0.0.1** để an toàn. Chỉ mở ra LAN sau khi đã đặt PIN — server sẽ cảnh báo nếu chưa. Mở `http://<ip-máy>:4000` trên điện thoại rồi "Thêm vào màn hình chính" để dùng như app.
 
 ### 3. Bật webhook nhận giao dịch
-Tab **Tự động hoá** → chép địa chỉ + token → cấu hình iOS Shortcuts (có hướng dẫn 6 bước ngay trong app) hoặc MacroDroid, xem phần [Tự động hoá](#tự-động-hoá-thu-chi). Endpoint `POST /api/ingest` dùng token riêng nên điện thoại không cần giữ PIN — nhưng **luôn bắt buộc có token đúng**, kể cả khi chưa đặt PIN. Token có thể đổi bất cứ lúc nào bằng nút "Đổi token".
+Tab **Tự động hoá** → chép địa chỉ + token → cấu hình iOS Shortcuts (có hướng dẫn 6 bước ngay trong app) hoặc MacroDroid, xem phần [Tự động hoá](#tự-động-hoá-thu-chi). Endpoint `POST /api/ingest` dùng token riêng nên điện thoại không cần giữ PIN — nhưng **luôn bắt buộc có token đúng**, kể cả khi chưa đặt PIN. Token có thể đổi bất cứ lúc nào bằng nút "Đổi token"; Shortcut trên máy cũ sẽ ngừng gửi được ngay lập tức.
+
+Ngoài ra, khi **chưa đặt PIN** thì app chỉ phục vụ yêu cầu phát ra từ chính máy chạy server. Nếu bạn mở ra mạng LAN bằng `FINMATE_HOST=0.0.0.0` để dùng trên điện thoại, hãy đặt PIN trước — nếu không, mọi thiết bị cùng wifi sẽ bị từ chối kèm lời nhắc đặt PIN.
 
 ### 4. Sao lưu
 - Tự động mỗi ngày vào `server/data/backups/` (giữ 14 bản gần nhất).
@@ -319,10 +321,13 @@ cd server && node test/smoke-chat.mjs      # 29 ý định chat
 cd server && node test/smoke-knowledge.mjs # 19 câu hỏi tài chính mở
 cd server && node test/smoke-tools.mjs     # 42 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
 cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
+cd server && node test/scenarios.mjs       # 203 kịch bản người dùng thật, 17 nhóm tính năng
 cd web    && node test/render.mjs          # render thật 16 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools` và `smoke-agent` — hai lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent` và `scenarios` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+
+`scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 
 ---
 

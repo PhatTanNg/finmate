@@ -76,10 +76,20 @@ export function recomputeFundBalances() {
   for (const f of listFunds({ includeArchived: true })) update('funds', f.id, { balance: fundBalance(f.id) });
 }
 
-export function postFund({ fund_id, amount, date = today(), kind = 'adjust', ref_tx_id = null, goal_id = null, note = null }) {
+/**
+ * Ghi một bút toán vào quỹ. `currency` là đồng tiền của số tiền truyền vào —
+ * nếu khác đồng tiền của quỹ thì quy đổi trước, nếu không sẽ cộng nhầm cent
+ * euro vào một quỹ ghi bằng đồng Việt Nam.
+ */
+export function postFund({ fund_id, amount, date = today(), kind = 'adjust', ref_tx_id = null, goal_id = null, note = null, currency = null }) {
   if (!fund_id || !amount) return null;
-  const id = insert('fund_ledger', { fund_id, amount: Math.round(amount), date, kind, ref_tx_id, goal_id, note });
-  run('UPDATE funds SET balance = balance + ? WHERE id = ?', [Math.round(amount), fund_id]);
+  const fund = get('SELECT currency FROM funds WHERE id = ?', [fund_id]);
+  const from = normalizeCurrency(currency) || baseCurrency();
+  const to = normalizeCurrency(fund?.currency) || from;
+  const amt = from === to ? Math.round(amount) : convert(Math.round(amount), from, to, date);
+  if (!amt) return null;
+  const id = insert('fund_ledger', { fund_id, amount: amt, date, kind, ref_tx_id, goal_id, note });
+  run('UPDATE funds SET balance = balance + ? WHERE id = ?', [amt, fund_id]);
   return id;
 }
 
@@ -120,12 +130,17 @@ export function allocateIncome({ amount, date = today(), txId = null, note = 'Ph
   // bù chênh lệch làm tròn vào quỹ ưu tiên cao nhất
   if (plan.length) plan[0].amount += total - allocated;
 
-  // xử lý trần quỹ: phần vượt đẩy sang quỹ tích luỹ ưu tiên kế tiếp
+  // Xử lý trần quỹ: phần vượt đẩy sang quỹ tích luỹ ưu tiên kế tiếp. Trần và số
+  // dư ghi theo đồng tiền của quỹ, còn khoản thu tính theo đồng tiền gốc — phải
+  // quy về cùng đơn vị rồi mới so sánh.
+  const base = baseCurrency();
   let overflow = 0;
   for (const p of plan) {
     const cap = p.fund.cap || 0;
     if (cap > 0) {
-      const room = Math.max(0, cap - p.fund.balance);
+      const fundCur = normalizeCurrency(p.fund.currency) || base;
+      const roomFund = Math.max(0, cap - p.fund.balance);
+      const room = fundCur === base ? roomFund : convert(roomFund, fundCur, base, date);
       if (p.amount > room) {
         overflow += p.amount - room;
         p.amount = room;
@@ -143,7 +158,7 @@ export function allocateIncome({ amount, date = today(), txId = null, note = 'Ph
   const result = [];
   for (const p of plan) {
     if (p.amount === 0) continue;
-    postFund({ fund_id: p.fund.id, amount: p.amount, date, kind: 'allocation', ref_tx_id: txId, note });
+    postFund({ fund_id: p.fund.id, amount: p.amount, date, kind: 'allocation', ref_tx_id: txId, note, currency: base });
     fundGoalsFromFund(p.fund.id, p.amount, date);
     result.push({ fund_id: p.fund.id, name: p.fund.name, amount: p.amount, percent: p.fund.percent });
   }

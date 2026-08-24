@@ -8,7 +8,7 @@ import { today, toISO } from '../util/date.js';
 import { norm } from '../util/vi.js';
 import { parseNumberFor, toMinor, normalizeCurrency, decimalsOf } from '../util/currency.js';
 import { baseCurrency } from './fx.js';
-import { createTransaction, defaultAccountId } from './ledger.js';
+import { createTransaction, defaultAccountId, accountCurrency } from './ledger.js';
 
 const CREDIT_WORDS = [
   'ghi co', 'nhan duoc', 'nhan tien', 'cong tien', 'tien vao', 'credit', 'nhan chuyen khoan', 'da nhan',
@@ -67,8 +67,9 @@ const codeOf = (token) => CUR_TOKENS.find((c) => c.re.test(String(token).trim())
 
 /** Từ khoá đứng ngay trước một con số nghĩa là "đây là số dư", không phải số tiền giao dịch. */
 const BAL_HINT = /(?:balance|bal|available|remaining|so du|số dư|sd|con lai|còn lại)[^\d€£$₫]{0,14}$/i;
-/** Từ khoá cho biết con số phía sau là số thẻ/tài khoản — tuyệt đối không được coi là tiền. */
-const ID_HINT = /(?:card|thẻ|the|ending|acc(?:ount)?|a\/c|tk|tai khoan|tài khoản|ref|no\.?|number|iban|bin)[^\d]{0,10}$/i;
+/** Từ khoá cho biết con số phía sau là số thẻ/tài khoản — tuyệt đối không được coi là tiền.
+ *  Phải chặn theo ranh giới từ, nếu không "ref" sẽ khớp vào giữa chữ "refund" và nuốt mất số tiền hoàn lại. */
+const ID_HINT = /(?:\b(?:card|ending|acc(?:ount)?|a\/c|tk|ref|no|number|iban|bin)\b\.?|thẻ|tài khoản|tai khoan|\bthe\b)[^\d]{0,10}$/i;
 
 /**
  * Tìm mọi cụm tiền tệ trong tin nhắn: "EUR 45.20", "45,20 EUR", "€1,450.00", "-350,000VND".
@@ -355,6 +356,7 @@ const COL_ALIASES = {
   credit: ['credit', 'ghi co', 'thu', 'tien vao', 'deposit', 'phat sinh co'],
   description: ['description', 'noi dung', 'nội dung', 'dien giai', 'mo ta', 'detail', 'remark', 'memo'],
   balance: ['balance', 'so du', 'số dư', 'so du cuoi'],
+  currency: ['currency', 'ccy', 'don vi', 'đơn vị', 'dong tien', 'đồng tiền', 'loai tien'],
 };
 
 function findCol(headers, key) {
@@ -382,42 +384,50 @@ export function importCSV(text, { account_id = null, dry_run = false } = {}) {
     credit: findCol(headers, 'credit'),
     description: findCol(headers, 'description'),
     balance: findCol(headers, 'balance'),
+    currency: findCol(headers, 'currency'),
   };
   if (idx.date < 0) return { imported: 0, duplicates: 0, errors: ['Không tìm thấy cột ngày'], items: [] };
 
   const accountId = account_id || defaultAccountId('expense');
+  const acctCode = accountCurrency(accountId, baseCurrency());
   let imported = 0;
   let duplicates = 0;
   const items = [];
   const errors = [];
 
+  // Số tiền trong sao kê ghi theo đơn vị đời thường ("-12.30"), phải quy về
+  // đơn vị nhỏ nhất của đúng đồng tiền — EUR ra cent, VND ra đồng.
+  const toUnits = (raw, code) => {
+    const n = parseNumberFor(raw, code);
+    return n == null ? 0 : toMinor(Math.abs(n), code);
+  };
+
   for (const r of rows.slice(1)) {
     try {
-      const when = parseWhen(r[idx.date]) ;
+      const when = parseWhen(r[idx.date]);
       const date = /^\d{4}-\d{2}-\d{2}/.test(r[idx.date]) ? r[idx.date].slice(0, 10) : when.date;
+      const code = idx.currency >= 0 ? (normalizeCurrency(r[idx.currency], acctCode) || acctCode) : acctCode;
       let amount = 0;
       let type = 'expense';
       if (idx.debit >= 0 || idx.credit >= 0) {
-        const debit = idx.debit >= 0 ? parseMoney(r[idx.debit]) || 0 : 0;
-        const credit = idx.credit >= 0 ? parseMoney(r[idx.credit]) || 0 : 0;
+        const debit = idx.debit >= 0 ? toUnits(r[idx.debit], code) : 0;
+        const credit = idx.credit >= 0 ? toUnits(r[idx.credit], code) : 0;
         if (credit > 0) { amount = credit; type = 'income'; }
         else { amount = debit; type = 'expense'; }
       } else if (idx.amount >= 0) {
-        const v = parseMoney(r[idx.amount]) || 0;
-        const negative = String(r[idx.amount]).trim().startsWith('-');
-        amount = Math.abs(v);
-        type = negative ? 'expense' : 'income';
+        amount = toUnits(r[idx.amount], code);
+        type = /^\s*[-(]/.test(String(r[idx.amount])) ? 'expense' : 'income';
       }
       if (!amount) continue;
       const description = idx.description >= 0 ? r[idx.description] : '';
-      const parsed = { date, time: when.time, amount, type, description };
+      const parsed = { date, time: when.time, amount, type, description, currency: code };
       const externalId = fingerprint(parsed, accountId);
       if (dry_run) {
         items.push({ ...parsed, external_id: externalId });
         continue;
       }
       const res = createTransaction({
-        type, amount, date, account_id: accountId, note: description, merchant: guessMerchant(description),
+        type, amount, date, currency: code, account_id: accountId, note: description, merchant: guessMerchant(description),
         source: 'csv', external_id: externalId, raw: r.join(' | '),
       });
       if (res.duplicate) duplicates++;

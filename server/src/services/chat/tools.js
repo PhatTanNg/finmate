@@ -88,21 +88,33 @@ const tenTaiKhoan = () => all('SELECT name FROM accounts WHERE is_active = 1').m
  *  GHI DỮ LIỆU                                                        *
  * ------------------------------------------------------------------ */
 
-function ghi_giao_dich({ loai = 'expense', so_tien, dong_tien, mo_ta, danh_muc, tai_khoan, ngay, noi_chi }) {
+function ghi_giao_dich({ loai = 'expense', so_tien, dong_tien, mo_ta, danh_muc, tai_khoan, tai_khoan_nhan, ngay, noi_chi }) {
   const acc = findAccount(tai_khoan);
   const code = normalizeCurrency(dong_tien || acc?.currency || baseCurrency());
   const { value } = minor(so_tien, code);
   if (!value) return { ok: false, error: 'Số tiền phải lớn hơn 0.' };
 
-  const cat = danh_muc ? categoryByName(danh_muc, loai === 'income' ? 'income' : 'expense') : null;
+  const type = loai === 'income' ? 'income' : loai === 'transfer' ? 'transfer' : 'expense';
+  let to = null;
+  if (type === 'transfer') {
+    to = findAccount(tai_khoan_nhan);
+    if (!to) {
+      const ds = all('SELECT name FROM accounts WHERE is_active = 1').map((a) => a.name).join(', ');
+      return { ok: false, error: `Chuyển khoản cần biết tiền vào tài khoản nào (tham số tai_khoan_nhan). Các tài khoản đang có: ${ds}.` };
+    }
+    if (acc && to.id === acc.id) return { ok: false, error: 'Tài khoản gửi và nhận đang trùng nhau.' };
+  }
+
+  const cat = danh_muc && type !== 'transfer' ? categoryByName(danh_muc, type === 'income' ? 'income' : 'expense') : null;
   const res = createTransaction({
-    type: loai === 'income' ? 'income' : loai === 'transfer' ? 'transfer' : 'expense',
+    type,
     amount: value,
     currency: code,
     note: mo_ta || danh_muc || '',
     merchant: noi_chi || null,
     date: ngay || today(),
     account_id: acc?.id,
+    counter_account_id: to?.id,
     category_id: cat?.id,
     source: 'chat',
   });
@@ -112,7 +124,7 @@ function ghi_giao_dich({ loai = 'expense', so_tien, dong_tien, mo_ta, danh_muc, 
     ok: true,
     mutates: true,
     id: t.id,
-    da_ghi: { loai: t.type, so_tien: t.amount, dong_tien: t.currency, danh_muc: c ? `${c.icon || ''} ${c.name}`.trim() : null, tai_khoan: acc?.name || null, ngay: t.date },
+    da_ghi: { loai: t.type, so_tien: t.amount, dong_tien: t.currency, danh_muc: c ? `${c.icon || ''} ${c.name}`.trim() : null, tai_khoan: acc?.name || null, tai_khoan_nhan: to?.name || null, ngay: t.date },
     canh_bao: res.warnings || null,
   };
 }
@@ -565,6 +577,7 @@ export const TOOLS = [
     mo_ta: S('Mô tả ngắn, ví dụ "ăn trưa cơm tấm"'),
     danh_muc: S('Tên danh mục nếu người dùng nói rõ. Bỏ trống để app tự phân loại'),
     tai_khoan: S('Tên hoặc id tài khoản/ví'),
+    tai_khoan_nhan: S('Chỉ dùng khi loai=transfer: tên hoặc id tài khoản nhận tiền. Bắt buộc, nếu thiếu thì tiền sẽ không vào đâu cả'),
     noi_chi: S('Tên cửa hàng/nơi chi'),
     ngay: S('YYYY-MM-DD, bỏ trống = hôm nay'),
   }, ['so_tien']),
@@ -718,7 +731,7 @@ export const TOOLS = [
  * Thay vì để tool im lặng ghi số 0, ta ánh xạ lại các tên hay nhầm nhất.
  */
 const ALIASES = {
-  ghi_giao_dich: { amount: 'so_tien', so_luong: 'so_tien', gia_tri: 'so_tien', ghi_chu: 'mo_ta', noi_dung: 'mo_ta', ten: 'mo_ta', vi: 'tai_khoan', tai_khoan_nguon: 'tai_khoan', currency: 'dong_tien', date: 'ngay', type: 'loai' },
+  ghi_giao_dich: { amount: 'so_tien', so_luong: 'so_tien', gia_tri: 'so_tien', ghi_chu: 'mo_ta', noi_dung: 'mo_ta', ten: 'mo_ta', vi: 'tai_khoan', tai_khoan_nguon: 'tai_khoan', tai_khoan_dich: 'tai_khoan_nhan', den_tai_khoan: 'tai_khoan_nhan', to_account: 'tai_khoan_nhan', currency: 'dong_tien', date: 'ngay', type: 'loai' },
   capnhat_so_du: { so_du_moi: 'so_du', so_du_hien_tai: 'so_du', balance: 'so_du', so_tien: 'so_du', ten: 'tai_khoan', tai_khoan_id: 'tai_khoan' },
   tao_tai_khoan: { so_du_hien_tai: 'so_du', balance: 'so_du', so_tien: 'so_du', ten_tai_khoan: 'ten', name: 'ten' },
   them_nguon_thu: { so_tien: 'so_tien_net', thu_nhap: 'so_tien_net', luong: 'so_tien_net', net: 'so_tien_net', gross: 'so_tien_gross', luong_gross: 'so_tien_gross', ngay: 'ngay_nhan', payday: 'ngay_nhan', cong_ty: 'noi_lam' },
