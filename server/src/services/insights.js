@@ -171,6 +171,19 @@ export function generateInsights() {
       'Kỷ lục cá nhân mới. Tiếp tục giữ nhịp tích luỹ.', { net: nw.net });
   }
 
+  // 15. Chưa có gì để phân tích -> nói thẳng thiếu gì, thay vì im lặng
+  if (out.length === 0) {
+    const missing = [];
+    if (avgExpense === 0) missing.push('chưa có khoản chi nào được ghi');
+    if (avgIncome === 0) missing.push('chưa có khoản thu nào được ghi');
+    if (!all('SELECT id FROM accounts LIMIT 1').length) missing.push('chưa khai tài khoản nào');
+    push(out, `need_data_${mk}`, 'tip', 'info', 'Cần thêm dữ liệu để cố vấn cho bạn',
+      missing.length
+        ? `Hiện ${missing.join(', ')}. Bật đọc tin nhắn ngân hàng ở tab Tự động hoá, hoặc nhắn cho cố vấn kiểu "hôm nay tiêu 200k ăn trưa" — app sẽ tự ghi sổ.`
+        : 'Dữ liệu mới chỉ đủ để hiển thị số dư. Sau vài tuần giao dịch, app sẽ chỉ ra được xu hướng chi tiêu và rủi ro dòng tiền.',
+      { missing }, 'Mở tab Tự động hoá để bật ghi nhận tự động.');
+  }
+
   // Lưu (nâng cấp nội dung nếu key đã tồn tại và chưa bị ẩn)
   for (const i of out) {
     const existing = get('SELECT * FROM insights WHERE key = ?', [i.key]);

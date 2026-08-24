@@ -2,7 +2,7 @@
 import { all, get, insert, update, run } from '../../db.js';
 import { today, monthKey, monthStart, monthEnd } from '../../util/date.js';
 import { norm } from '../../util/vi.js';
-import { detectIntent } from './nlu.js';
+import { detectIntent, looksLikeQuestion } from './nlu.js';
 import { HANDLERS } from './handlers.js';
 import { handleOnboarding, startOnboarding, currentOnboardingQuestion } from './onboarding.js';
 import { llmEnabled, classify, answer } from './llm.js';
@@ -92,6 +92,53 @@ function quickFor(onboarding) {
     : ['Tình hình tài chính của mình', 'Tháng này tiêu bao nhiêu?', 'Mình nên làm gì tiếp theo?', 'Bao giờ mình tự do tài chính?'];
 }
 
+/**
+ * Trả lời một câu hỏi bằng đường xử lý thường: cơ sở tri thức -> bộ luật ->
+ * handler. Không lưu tin nhắn, để nơi gọi tự quyết định lưu thế nào.
+ */
+async function answerNormally(message) {
+  let { intent, score, entities, is_question } = detectIntent(message);
+
+  // Câu hỏi kiến thức tài chính (không kèm số tiền, không phải lệnh ghi sổ)
+  // -> trả lời bằng cơ sở tri thức, gắn với số liệu thật của người dùng.
+  // Bỏ qua khi bộ luật đã khớp rất chắc (score 9: tỷ giá, kiều hối, thuế...)
+  // vì các handler đó trả lời sát tình huống hơn bài viết kiến thức chung.
+  if (!entities.amount && !WRITE_INTENTS.has(intent) && score < 9) {
+    const topic = findTopic(message);
+    if (topic) {
+      return {
+        reply: answerTopic(topic), intent: 'explain', topic: topic.key, score,
+        quick: ['Việc nên làm tiếp theo', 'Tình hình tài chính của mình', 'Bao giờ tự do tài chính'],
+      };
+    }
+  }
+
+  // bộ luật không chắc -> nhờ LLM phân loại (nếu có cấu hình)
+  if ((intent === 'unknown' || score < 3) && llmEnabled()) {
+    const guess = await classify(message);
+    if (guess && guess.confidence >= 0.5 && HANDLERS[guess.intent]) {
+      intent = guess.intent;
+      if (guess.amount && !entities.amount) entities.amount = guess.amount;
+    }
+  }
+
+  const handler = HANDLERS[intent] || HANDLERS.unknown;
+  let result;
+  try {
+    result = handler(message, entities) || HANDLERS.unknown(message, entities);
+  } catch (e) {
+    result = { reply: `Mình gặp trục trặc khi xử lý: ${e.message}. Bạn thử diễn đạt khác giúp mình nhé.` };
+  }
+
+  // câu hỏi mở: để LLM diễn giải dựa trên số liệu thật
+  if (OPEN_QUESTION_INTENTS.has(intent) && is_question && llmEnabled()) {
+    const llmReply = await answer(message, snapshotContext());
+    if (llmReply) result = { reply: llmReply, data: result.data, quick: result.quick };
+  }
+
+  return { ...result, intent, score };
+}
+
 export async function chat(text) {
   const message = String(text || '').trim();
   if (!message) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
@@ -121,69 +168,35 @@ export async function chat(text) {
   }
 
   if (isOnboarding) {
-    // Đang thiết lập nhưng người dùng hỏi một câu tra cứu ("số dư AIB còn bao
-    // nhiêu?") thì phải trả lời câu hỏi đó, chứ không được coi câu hỏi là dữ
-    // liệu khai báo cho bước đang hỏi.
+    // Đang thiết lập nhưng người dùng hỏi một câu thật ("số dư AIB còn bao
+    // nhiêu?", "mình nên trả khoản nào trước?") thì phải trả lời câu hỏi đó
+    // rồi quay lại bước đang dở — tuyệt đối không được coi câu hỏi là dữ liệu
+    // khai báo, vì như vậy vừa mất câu hỏi vừa ghi sai số liệu tài chính.
     const probe = detectIntent(message);
-    if (probe.is_question && probe.score >= 6 && READ_INTENTS.has(probe.intent) && !probe.entities.amount) {
-      const h = HANDLERS[probe.intent];
-      if (h) {
-        let answerNow;
-        try { answerNow = h(message, probe.entities); } catch { answerNow = null; }
-        if (answerNow?.reply) {
-          const step = currentOnboardingQuestion();
-          const reply = step ? `${answerNow.reply}\n\n---\nMình quay lại phần thiết lập nhé — ${step}` : answerNow.reply;
-          saveMessage('assistant', reply, 'onboarding-answer', { intent: probe.intent });
-          return { reply, intent: probe.intent, onboarding: true, quick: quickFor(true) };
-        }
+    // Câu hỏi có kèm con số vẫn là câu hỏi khi ý định là tra cứu — "1 euro
+    // bằng bao nhiêu tiền Việt?" không được ghi thành lương 1 EUR/tháng.
+    const asking = looksLikeQuestion(message)
+      && !WRITE_INTENTS.has(probe.intent)
+      && (!probe.entities.amount || READ_INTENTS.has(probe.intent));
+    if (asking) {
+      const ans = await answerNormally(message);
+      if (ans?.reply) {
+        const step = currentOnboardingQuestion();
+        const reply = step ? `${ans.reply}\n\n---\nMình quay lại phần thiết lập nhé — ${step}` : ans.reply;
+        saveMessage('assistant', reply, 'onboarding-answer', { intent: ans.intent });
+        return { reply, intent: ans.intent, onboarding: true, quick: quickFor(true) };
       }
     }
+
     const res = handleOnboarding(message);
     saveMessage('assistant', res.reply, 'onboarding', { step: res.step });
     return { ...res, onboarding: !res.onboarded, intent: 'onboarding' };
   }
 
-  let { intent, score, entities, is_question } = detectIntent(message);
-
-  // Câu hỏi kiến thức tài chính (không kèm số tiền, không phải lệnh ghi sổ)
-  // -> trả lời bằng cơ sở tri thức, gắn với số liệu thật của người dùng.
-  // Bỏ qua khi bộ luật đã khớp rất chắc (score 9: tỷ giá, kiều hối, thuế...)
-  // vì các handler đó trả lời sát tình huống hơn bài viết kiến thức chung.
-  if (!entities.amount && !WRITE_INTENTS.has(intent) && score < 9) {
-    const topic = findTopic(message);
-    if (topic) {
-      const reply = answerTopic(topic);
-      saveMessage('assistant', reply, 'explain', { topic: topic.key });
-      return { reply, intent: 'explain', topic: topic.key, quick: ['Việc nên làm tiếp theo', 'Tình hình tài chính của mình', 'Bao giờ tự do tài chính'] };
-    }
-  }
-
-  // bộ luật không chắc -> nhờ LLM phân loại (nếu có cấu hình)
-  if ((intent === 'unknown' || score < 3) && llmEnabled()) {
-    const guess = await classify(message);
-    if (guess && guess.confidence >= 0.5 && HANDLERS[guess.intent]) {
-      intent = guess.intent;
-      if (guess.amount && !entities.amount) entities.amount = guess.amount;
-    }
-  }
-
-  const handler = HANDLERS[intent] || HANDLERS.unknown;
-  let result;
-  try {
-    result = handler(message, entities) || HANDLERS.unknown(message, entities);
-  } catch (e) {
-    result = { reply: `Mình gặp trục trặc khi xử lý: ${e.message}. Bạn thử diễn đạt khác giúp mình nhé.` };
-  }
-
-  // câu hỏi mở: để LLM diễn giải dựa trên số liệu thật
-  if (OPEN_QUESTION_INTENTS.has(intent) && is_question && llmEnabled()) {
-    const llmReply = await answer(message, snapshotContext());
-    if (llmReply) result = { reply: llmReply, data: result.data, quick: result.quick };
-  }
-
+  const result = await answerNormally(message);
   if (result.refresh) generateInsights();
-  saveMessage('assistant', result.reply, intent, result.data ? { intent } : {});
-  return { ...result, intent, score };
+  saveMessage('assistant', result.reply, result.intent, result.data ? { intent: result.intent } : {});
+  return result;
 }
 
 export function ensureWelcome() {

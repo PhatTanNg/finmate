@@ -4,7 +4,27 @@ import { norm, findAmounts, parseAmount, parseDate, parseRange, parsePercent, sc
 import { today } from '../../util/date.js';
 import { convert, baseCurrency } from '../fx.js';
 
-const QUESTION_HINTS = ['bao nhieu', 'the nao', 'khi nao', 'bao gio', 'co nen', 'nen khong', 'lam sao', 'tai sao', 'co du', '?', 'la gi', 'ra sao', 'hay khong', 'duoc khong', 'tinh hinh', 'cho minh xem', 'xem '];
+const QUESTION_HINTS = ['bao nhieu', 'the nao', 'khi nao', 'bao gio', 'bao lau', 'co nen', 'nen khong', 'lam sao', 'tai sao', 'co du', '?', 'la gi', 'ra sao', 'hay khong', 'duoc khong', 'tinh hinh', 'cho minh xem', 'xem ', 'khoan nao', 'cai nao', 'quy nao', 'thang nao', 'o dau', 'may thang', 'may nam'];
+
+/**
+ * Nhận diện câu hỏi ở mức rộng hơn QUESTION_HINTS — dùng cho những chỗ mà
+ * hiểu nhầm câu hỏi thành dữ liệu khai báo gây hậu quả nặng (ví dụ: đang
+ * onboarding, người dùng hỏi "mình nên trả khoản nào trước" mà bị ghi thành
+ * câu trả lời cho bước đang hỏi).
+ */
+export function looksLikeQuestion(text) {
+  const n = norm(text);
+  if (String(text).trim().endsWith('?')) return true;
+  if (QUESTION_HINTS.some((q) => n.includes(q))) return true;
+  // Câu cụt ("không", "chưa", "bỏ qua") là câu TRẢ LỜI chứ không phải câu hỏi —
+  // các mẫu suy đoán bên dưới chỉ áp dụng cho câu đủ dài.
+  if (n.split(/\s+/).filter(Boolean).length < 4) return false;
+  // Câu hỏi có/không tiếng Việt thường kết thúc bằng "chưa/không/chăng/nhỉ".
+  if (/\b(chua|khong|chang|nhi|ha)\s*[.!]?$/.test(n)) return true;
+  // Dạng lựa chọn "gửi tiết kiệm hay mua trái phiếu", "quán lãi hay lỗ".
+  if (/\w+\s+hay\s+\w+/.test(n)) return true;
+  return /\bnen\b|\bnao\b|\bmay\b|\bcach nao\b|\bgiup minh\b|\bgiai thich\b|\bco phai\b|\bgi nhat\b|\bgi nhieu\b/.test(n);
+}
 
 export function extractEntities(text) {
   const n = norm(text);
@@ -70,7 +90,7 @@ const RULES = [
   { intent: 'update_profile', w: 8, t: (n) => has(n, 'minh ten', 'toi ten', 'goi minh la', 'minh sinh nam', 'toi sinh nam', 'khau vi rui ro cua minh') || /\b(minh|toi) nam nay \d/.test(n) },
 
   // --- đa tiền tệ: tỷ giá & chuyển tiền quốc tế ---
-  { intent: 'query_fx', w: 9, t: (n) => has(n, 'ty gia', 'ti gia', 'exchange rate', 'euro bang bao nhieu', 'euro bao nhieu tien', 'eur vnd', 'vnd eur', 'quy doi', 'doi tien', 'sang vnd', 'sang tien viet', 'sang euro', 'sang eur', 'sang usd', 'bang bao nhieu tien viet') && !has(n, 'sang tiet kiem', 'sang vi ', 'sang tai khoan', 'vao quy', 'sang quy') },
+  { intent: 'query_fx', w: 9, t: (n) => has(n, 'ty gia', 'ti gia', 'exchange rate', 'euro bang bao nhieu', 'euro bao nhieu tien', 'eur vnd', 'vnd eur', 'quy doi', 'doi tien', 'sang vnd', 'sang tien viet', 'sang euro', 'sang eur', 'sang usd', 'bang bao nhieu tien viet') && !has(n, 'sang tiet kiem', 'sang vi ', 'sang tai khoan', 'vao quy', 'sang quy', 'mo quy', 'tao quy', 'lap quy', 'them quy', 'mo mot quy') },
   { intent: 'remittance', w: 9, t: (n) => has(n, 'gui tien ve', 'chuyen tien ve', 've viet nam', 've vn', 'gui ve nha', 'remit', 'kieu hoi', 'chuyen khoan quoc te', 'nen gui tien', 'gui ve que') },
   { intent: 'query_tax', w: 9, t: (n) => has(n, 'paye', 'usc', 'prsi', 'thue ireland', 'thue o ireland', 'dirt', 'tax credit', 'thue ben nay', 'thue tncn', 'thue thu nhap') || (has(n, 'thue') && has(n, 'luong', 'thu nhap', 'bao nhieu', 'tinh sao', 'phai nop', 'net', 'gross')) },
 
@@ -78,8 +98,8 @@ const RULES = [
   { intent: 'set_allocation', w: 8, t: (n, e) => has(n, 'chia quy', 'chia thu nhap', 'phan bo thu nhap', 'phan bo luong', 'ty le quy', 'ti le quy', 'doi ty le', 'chia luong') || (e.percent != null && has(n, 'quy ', 'thiet yeu', 'tu do tai chinh', 'huong thu', 'khan cap')) },
   { intent: 'create_budget', w: 8, t: (n, e) => e.amount && has(n, 'ngan sach', 'gioi han chi', 'chi toi da', 'budget') && has(n, 'dat', 'tao', 'set', 'them', 'gioi han', 'toi da', 'chi cho') },
   { intent: 'query_budget', w: 7, t: (n) => has(n, 'ngan sach', 'budget') },
-  { intent: 'create_goal', w: 8, t: (n, e) => (has(n, 'tao muc tieu', 'dat muc tieu', 'them muc tieu', 'lap muc tieu', 'muc tieu moi') || (e.amount && has(n, 'muon mua', 'muon tiet kiem', 'du dinh mua', 'len ke hoach mua', 'muon co', 'muon di du lich', 'de dum', 'tiet kiem de'))) && !has(n, ...POSSESSIVE) },
-  { intent: 'query_goal', w: 7, t: (n) => has(n, 'muc tieu', 'tien do', 'goal') },
+  { intent: 'create_goal', w: 8, t: (n, e) => (has(n, 'tao muc tieu', 'dat muc tieu', 'them muc tieu', 'lap muc tieu', 'muc tieu moi', 'mo quy', 'tao quy', 'lap quy', 'them quy') || (e.amount && has(n, 'muon mua', 'muon tiet kiem', 'du dinh mua', 'len ke hoach mua', 'muon co', 'muon di du lich', 'de dum', 'tiet kiem de'))) && !has(n, ...POSSESSIVE) },
+  { intent: 'query_goal', w: 7, t: (n) => has(n, 'muc tieu', 'tien do', 'goal', 'de danh tien mua', 'lam sao de danh', 'de dum mua', 'tiet kiem de mua') },
   { intent: 'add_account', w: 8, t: (n, e) => e.amount && has(n, 'them tai khoan', 'tao tai khoan', 'mo tai khoan', 'them vi', 'them the', 'them so tiet kiem', 'khai bao tai khoan', 'cap nhat so du', 'tai khoan moi') },
   { intent: 'add_income_stream', w: 8, t: (n, e) => has(n, 'them nguon thu', 'khai bao nguon thu', 'nguon thu moi', 'them thu nhap') || (e.amount && has(n, 'moi thang', 'hang thang', 'mot thang', '/thang') && has(n, 'luong', 'day hoc', 'freelance', 'cho thue', 'lam them', 'part time', 'kiem duoc', 'thu nhap', 'nguon thu')) },
   { intent: 'add_debt', w: 8, t: (n, e) => e.amount && has(n, 'them no', 'khai bao no', 'dang vay', 'minh vay', 'toi vay', 'khoan vay', 'vay ngan hang', 'tra gop', 'vay ban', 'no the', 'them khoan no') && !has(n, 'bao gio', 'khi nao', 'ke hoach', 'tinh hinh') },
@@ -88,17 +108,17 @@ const RULES = [
 
   // --- tư vấn ---
   { intent: 'affordability', w: 8, t: (n) => has(n, 'co nen mua', 'nen mua khong', 'mua duoc khong', 'co du tien mua', 'co nen chi', 'co kham noi', 'co nen sam', 'du tien mua', 'co nen dau tu vao') },
-  { intent: 'surplus_advice', w: 8, t: (n) => has(n, 'nen lam gi', 'lam gi voi', 'dau tu vao dau', 'nen dau tu gi', 'tien nhan roi', 'nhan roi', 'xai tien sao', 'tieu vao dau', 'dung tien sao', 'du tien', 'con du', 'dang du', 'tien du', 'thua tien', 'tien thua', 'toi du', 'minh du') },
-  { intent: 'summary', w: 7, t: (n) => has(n, 'tinh hinh tai chinh', 'tong quan', 'suc khoe tai chinh', 'review tai chinh', 'bao cao tong the', 'diem tai chinh', 'tom tat', 'summary', 'tinh hinh cua minh') },
+  { intent: 'surplus_advice', w: 8, t: (n) => has(n, 'nen lam gi', 'lam gi voi', 'dau tu vao dau', 'nen dau tu gi', 'tien nhan roi', 'nhan roi', 'xai tien sao', 'tieu vao dau', 'dung tien sao', 'du tien', 'con du', 'dang du', 'tien du', 'thua tien', 'tien thua', 'toi du', 'minh du') && !has(n, 'nghi huu', 'tu do tai chinh', 'fire', 've huu') },
+  { intent: 'summary', w: 7, t: (n) => has(n, 'tinh hinh tai chinh', 'tong quan', 'suc khoe tai chinh', 'review tai chinh', 'bao cao tong the', 'diem tai chinh', 'tom tat', 'summary', 'tinh hinh cua minh', 'de danh duoc bao nhieu', 'tiet kiem duoc bao nhieu', 'du duoc bao nhieu') },
 
   // --- truy vấn ---
   { intent: 'query_fire', w: 7, t: (n) => has(n, 'tu do tai chinh', 'nghi huu', 'fire', 'bao gio giau', 'khi nao du tien nghi', 'retire', 'khong can lam viec') },
-  { intent: 'query_networth', w: 7, t: (n) => has(n, 'tai san rong', 'net worth', 'tong tai san', 'tat ca tai san', 'giau co nao') },
-  { intent: 'query_debt', w: 7, t: (n) => has(n, 'bao gio het no', 'no bao nhieu', 'tra no', 'khi nao tra xong', 'ke hoach tra no', 'tinh hinh no', 'du no', 'con no', 'khoan no') },
+  { intent: 'query_networth', w: 7, t: (n) => has(n, 'tai san rong', 'net worth', 'tong tai san', 'tat ca tai san', 'giau co nao', 'bao nhieu tai san', 'tai san bao nhieu') },
+  { intent: 'query_debt', w: 7, t: (n) => has(n, 'bao gio het no', 'bao lau het no', 'bao lau thi het no', 'het no', 'thoat no', 'no bao nhieu', 'no tong cong', 'tong no', 'tra no', 'tra khoan nao', 'khoan nao truoc', 'khi nao tra xong', 'ke hoach tra no', 'tinh hinh no', 'du no', 'con no', 'khoan no') },
   { intent: 'query_investment', w: 7, t: (n) => has(n, 'danh muc dau tu', 'danh muc', 'portfolio', 'co phieu cua', 'lai lo', 'dang lai bao nhieu', 'co phieu', 'chung khoan') },
-  { intent: 'query_income', w: 7, t: (n) => has(n, 'thu nhap bao nhieu', 'kiem duoc bao nhieu', 'tong thu nhap', 'nguon thu', 'thu nhap cua', 'thu nhap thang', 'luong cua minh', 'luong cua toi', 'thu nhap') },
+  { intent: 'query_income', w: 7, t: (n) => has(n, 'thu nhap bao nhieu', 'kiem duoc bao nhieu', 'tong thu nhap', 'nguon thu', 'thu nhap cua', 'thu nhap thang', 'luong cua minh', 'luong cua toi', 'thu nhap', 'thu dong', 'tien thu dong') },
   { intent: 'query_forecast', w: 7, t: (n) => has(n, 'du bao', 'thang sau', 'sap toi co du', 'co du tien khong', 'het tien khi nao', 'dong tien', 'cash flow', 'thang toi') },
-  { intent: 'query_spending', w: 7, t: (n) => has(n, 'tieu bao nhieu', 'chi bao nhieu', 'da xai', 'chi tieu', 'ton nhieu nhat', 'tieu gi nhieu', 'thong ke chi', 'chi nhieu vao dau', 'xai het bao nhieu', 'tieu het bao nhieu', 'da tieu') },
+  { intent: 'query_spending', w: 7, t: (n) => has(n, 'tieu bao nhieu', 'chi bao nhieu', 'da xai', 'chi tieu', 'ton nhieu nhat', 'tieu gi nhieu', 'thong ke chi', 'chi nhieu vao dau', 'xai het bao nhieu', 'tieu het bao nhieu', 'da tieu', 'lai hay lo', 'cat khoan nao', 'cat giam', 'tiet kiem hon', 'de danh duoc bao nhieu', 'de danh bao nhieu') },
   { intent: 'query_balance', w: 7, t: (n) => has(n, 'con bao nhieu tien', 'so du', 'con nhieu tien khong', 'trong tai khoan', 'tien con lai', 'con xai duoc bao nhieu', 'tieu duoc bao nhieu', 'con bao nhieu', 'co bao nhieu tien', 'dang co bao nhieu', 'bao nhieu tien trong') },
 ];
 

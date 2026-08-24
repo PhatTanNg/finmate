@@ -1288,7 +1288,7 @@ const CHAT_CASES = [
   ['tạo mục tiêu du lịch nhật 3000 euro trong 12 tháng', (t) => /mục tiêu|du lịch|3000|tháng/i.test(t)],
   ['chuyển 500 euro từ AIB sang tiền mặt', (t) => /chuyển|€|tài khoản/i.test(t)],
   ['nhận lương 5200 euro', (t) => /lương|thu nhập|phân bổ|quỹ|ghi/i.test(t)],
-  ['mở quỹ đổi xe 30000 euro trước hè 2028', (t) => /quỹ|xe|30|tháng/i.test(t)],
+  ['mở quỹ đổi xe 30000 euro trước hè 2028', (t) => /quỹ|mục tiêu/i.test(t) && !/^💱/.test(t.trim())],
   ['xin chào', (t) => t.length > 20],
   ['asdkjhaskdjh', (t) => t.length > 20],
 ];

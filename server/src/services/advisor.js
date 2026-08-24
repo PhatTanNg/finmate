@@ -27,8 +27,11 @@ export function healthScore() {
   const investRatio = nw.assets ? (nw.breakdown.investments + nw.breakdown.real_estate) / nw.assets : 0;
 
   const components = [
-    { key: 'emergency', label: 'Quỹ khẩn cấp', weight: 20, score: clamp01(ef.months_covered / (ef.target_months || 6)) * 100,
-      detail: `${num(ef.months_covered)} / ${ef.target_months} tháng chi phí` },
+    // Chưa có dữ liệu chi tiêu thì không thể chấm quỹ khẩn cấp — cho điểm trung
+    // tính 60 thay vì 0 để không dìm điểm oan người mới cài app.
+    { key: 'emergency', label: 'Quỹ khẩn cấp', weight: 20,
+      score: ef.has_data ? clamp01(ef.months_covered / (ef.target_months || 6)) * 100 : 60,
+      detail: ef.has_data ? `${num(ef.months_covered)} / ${ef.target_months} tháng chi phí` : 'Chưa đủ dữ liệu chi tiêu để tính' },
     { key: 'savings', label: 'Tỷ lệ tiết kiệm', weight: 20, score: clamp01(savingsRate / (p.savings_rate_target || 0.3)) * 100,
       detail: `${Math.round(num(savingsRate) * 100)}% thu nhập` },
     { key: 'debt', label: 'Gánh nặng nợ', weight: 15, score: (1 - clamp01(ds.dti / 0.4)) * 100 * (ds.high_interest.length ? 0.6 : 1),
@@ -170,7 +173,7 @@ export function nextActions(limit = 6) {
     actions.push({ impact: 100, title: `Tất toán nợ lãi cao: ${ds.high_interest.join(', ')}`,
       detail: `Trả trước hạn tiết kiệm được phần lớn trong ${short(ds.total_interest_remaining || 0)} tiền lãi còn lại.`, tab: 'debts' });
   }
-  if (!ef.ok) {
+  if (!ef.ok && ef.gap > 0) {
     actions.push({ impact: 90, title: `Nạp thêm ${short(ef.gap)} vào quỹ khẩn cấp`,
       detail: `Đang có ${ef.months_covered} tháng, mục tiêu ${ef.target_months} tháng.`, tab: 'funds' });
   }
@@ -191,5 +194,19 @@ export function nextActions(limit = 6) {
     detail: `Hiện thụ động phủ ${Math.round(fire.passive_coverage * 100)}% chi phí sống. Mốc 100% = tự do tài chính.`, tab: 'fire' });
   if (!get("SELECT id FROM goals WHERE status='active'")) actions.push({ impact: 45, title: 'Đặt mục tiêu tài chính đầu tiên', detail: 'Mục tiêu cụ thể giúp app tự động phân bổ tiền mỗi khi có thu nhập.', tab: 'goals' });
 
-  return actions.sort((a, b) => b.impact - a.impact).slice(0, limit);
+  // Người mới cài app chưa có giao dịch nào: mọi phép tính phía trên đều vô
+  // nghĩa. Việc cần làm duy nhất là bật ghi nhận chi tiêu.
+  if (!ef.has_data) {
+    actions.push({ impact: 95, title: 'Bật ghi nhận chi tiêu để app tính được cho bạn',
+      detail: 'Chưa có khoản chi nào được ghi nên app chưa biết bạn sống hết bao nhiêu mỗi tháng. Bật đọc tin nhắn ngân hàng hoặc nhắn cho cố vấn "hôm nay tiêu 200k ăn trưa".',
+      tab: 'automation' });
+  }
+
+  // Không bao giờ đề xuất việc gắn số tiền bằng 0 — đó là dấu hiệu thiếu dữ
+  // liệu chứ không phải việc cần làm.
+  const meaningless = /(^|\s)0\s*(đ|₫|VND|EUR|USD|GBP)\b/i;
+  return actions
+    .filter((a) => !meaningless.test(a.title))
+    .sort((a, b) => b.impact - a.impact)
+    .slice(0, limit);
 }

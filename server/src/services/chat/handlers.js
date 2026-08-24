@@ -366,7 +366,7 @@ function affordability(text, ent) {
   const item = String(text).replace(/\d[\d.,]*\s*(trieu|triệu|k|nghin|nghìn|ty|tỷ|d|đ)?/gi, '').replace(/(co nen|mua|khong|duoc|\?)/gi, '').trim();
 
   const lines = [`🛒 **${item || 'Món này'} — ${fmt(price)}**`, ''];
-  lines.push(ok ? `✅ **Mua được.** Sau khi trừ hoá đơn cố định bạn còn ${short(sts.available)} khả dụng.` : `⚠️ **Nên cân nhắc.** Khả dụng an toàn chỉ ${short(sts.available)}${!ef.ok ? `, và quỹ khẩn cấp mới đủ ${ef.months_covered}/${ef.target_months} tháng` : ''}.`);
+  lines.push(ok ? `✅ **Mua được.** Sau khi trừ hoá đơn cố định bạn còn ${short(sts.available)} khả dụng.` : `⚠️ **Nên cân nhắc.** Khả dụng an toàn chỉ ${short(sts.available)}${!ef.ok && ef.has_data ? `, và quỹ khẩn cấp mới đủ ${ef.months_covered}/${ef.target_months} tháng` : ''}.`);
   if (okFund) lines.push(`🎈 Quỹ Hưởng thụ đang có ${short(fun.balance)} — đủ để mua mà không đụng vào kế hoạch dài hạn.`);
   else if (fun) lines.push(`🎈 Quỹ Hưởng thụ mới có ${short(fun.balance)}. Nếu chờ thêm ${Math.ceil((price - fun.balance) / Math.max(1, (fun.percent / 100) * averageMonthlyIncome(6)))} tháng thì mua "sạch" không áy náy.`);
   lines.push(`⏳ Bằng ${Math.round((price / Math.max(1, avgExpense)) * 10) / 10} tháng chi phí sống của bạn.`);
@@ -394,7 +394,7 @@ function summary() {
       h.components.map((c) => `• ${c.label}: ${bar(c.score)} ${c.score}/100 — ${c.detail}`).join('\n'),
       '',
       `**Tháng ${mk}:** thu ${short(t.income)} · chi ${short(t.expense)} · tiết kiệm ${Math.round(t.savings_rate * 100)}%`,
-      `**Tài sản ròng:** ${fmt(nw.net)} · **Quỹ khẩn cấp:** ${ef.months_covered}/${ef.target_months} tháng`,
+      `**Tài sản ròng:** ${fmt(nw.net)} · **Quỹ khẩn cấp:** ${ef.has_data ? `${ef.months_covered}/${ef.target_months} tháng` : 'chưa đủ dữ liệu chi tiêu'}`,
       f.fi_date ? `**Tự do tài chính:** ${vnDate(f.fi_date)} (${Math.round(f.progress * 100)}% chặng đường)` : null,
       '',
       ins.length ? `**Cần chú ý:**\n${ins.map((i) => `• ${i.title}`).join('\n')}` : null,

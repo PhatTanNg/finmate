@@ -90,7 +90,7 @@ const TOPICS = [
       '',
       'Nguyên tắc an toàn: chỉ dùng tiền **mất hoàn toàn cũng không ảnh hưởng cuộc sống** — thực tế là **tối đa 5% tài sản ròng**' + `, tức khoảng **${short(c.nw.net * 0.05)}** với bạn.`,
       '',
-      `${!c.ef.ok ? `⚠️ Quỹ khẩn cấp của bạn mới đủ **${c.ef.months_covered} tháng** — hãy lấp đầy trước khi nghĩ tới crypto.` : '✅ Quỹ khẩn cấp của bạn đã đủ, nên phần rủi ro cao là lựa chọn cá nhân.'}`,
+      `${!c.ef.ok ? `⚠️ Quỹ khẩn cấp của bạn ${c.ef.has_data ? `mới đủ **${c.ef.months_covered} tháng**` : 'chưa đo được (app chưa có dữ liệu chi tiêu)'} — hãy lấp đầy trước khi nghĩ tới crypto.` : '✅ Quỹ khẩn cấp của bạn đã đủ, nên phần rủi ro cao là lựa chọn cá nhân.'}`,
       `${c.debt.high_interest?.length ? `⚠️ Bạn còn nợ lãi cao (${c.debt.high_interest.join(', ')}). Trả nợ ${c.debt.avg_rate.toFixed(1)}%/năm là "lợi nhuận" chắc chắn, hơn hẳn kỳ vọng đầu cơ.` : ''}`,
       '',
       'Ở Việt Nam crypto chưa được pháp luật bảo vệ như tài sản tài chính — rủi ro sàn và pháp lý là có thật. Nếu tham gia: chia nhỏ mua đều (DCA), tự quản khoá, không dùng đòn bẩy.',
@@ -146,7 +146,7 @@ const TOPICS = [
   },
   {
     key: 'prepay_debt',
-    kw: ['tra no truoc han', 'tat toan som', 'nen tra no', 'tra het no hay dau tu', 'no truoc han'],
+    kw: ['tra no truoc han', 'tat toan som', 'nen tra no', 'tra het no hay dau tu', 'no truoc han', 'tra som', 'tra truoc han', 'tra xe som', 'tra nha som'],
     title: '💳 Trả nợ trước hạn hay đầu tư?',
     build: (c) => B([
       `So sánh đơn giản: **lãi vay ${c.debt.avg_rate ? c.debt.avg_rate.toFixed(1) + '%/năm' : '—'}** với **lợi suất đầu tư kỳ vọng ${pct(c.p.expected_return ?? 0.09, 1)}/năm**.`,
@@ -233,7 +233,7 @@ const TOPICS = [
       '',
       '**Ba câu hỏi trước khi hành động:**',
       '1. Tiền này bạn có cần trong 3 năm tới không? Nếu không, biến động chỉ là con số trên màn hình.',
-      `2. Quỹ khẩn cấp còn nguyên chứ? Bạn đang có ${c.ef.months_covered} tháng. Có đệm thì không bị ép bán đáy.`,
+      `2. Quỹ khẩn cấp còn nguyên chứ? ${c.ef.has_data ? `Bạn đang có ${c.ef.months_covered} tháng.` : 'App chưa đo được vì chưa có dữ liệu chi tiêu.'} Có đệm thì không bị ép bán đáy.`,
       '3. Lý do bạn mua ban đầu còn đúng không? Nếu còn, giảm giá là **hàng giảm giá**, không phải tin xấu.',
       '',
       'Sai lầm đắt nhất là bán khi hoảng rồi mua lại khi đã tăng. Nếu thấy khó ngủ, đó là dấu hiệu tỷ trọng cổ phiếu đang cao hơn khẩu vị thật của bạn — hãy hạ tỷ trọng khi thị trường bình thường, không phải lúc đang hoảng.',
@@ -271,11 +271,13 @@ const TOPICS = [
   },
   {
     key: 'emergency',
-    kw: ['quy khan cap', 'quy du phong', 'mat viec', 'that nghiep'],
+    kw: ['quy khan cap', 'quy du phong', 'mat viec', 'that nghiep', 'de danh bao nhieu', 'thang it viec', 'thu nhap khong deu', 'thang khong co viec'],
     title: '🛟 Quỹ khẩn cấp — tấm đệm đầu tiên',
     build: (c) => B([
-      `Bạn đang có **${short(c.ef.current)}**, đủ sống **${c.ef.months_covered} tháng** nếu mất thu nhập. Mục tiêu: **${c.ef.target_months} tháng = ${short(c.ef.target_amount)}**.`,
-      c.ef.ok ? '✅ Đã đủ — bạn có thể tự tin đầu tư phần dư.' : `👉 Còn thiếu **${short(c.ef.gap)}**. Đây là ưu tiên số 1 trước mọi khoản đầu tư rủi ro.`,
+      c.ef.has_data
+        ? `Bạn đang có **${short(c.ef.current)}**, đủ sống **${c.ef.months_covered} tháng** nếu mất thu nhập. Mục tiêu: **${c.ef.target_months} tháng = ${short(c.ef.target_amount)}**.`
+        : `Bạn đang có **${short(c.ef.current)}** tiền lỏng. App chưa tính được "đủ sống mấy tháng" vì chưa ghi nhận khoản chi nào — bật đọc tin nhắn ngân hàng hoặc nhắn cho mình vài khoản chi là ra ngay.`,
+      c.ef.ok ? '✅ Đã đủ — bạn có thể tự tin đầu tư phần dư.' : c.ef.has_data ? `👉 Còn thiếu **${short(c.ef.gap)}**. Đây là ưu tiên số 1 trước mọi khoản đầu tư rủi ro.` : `👉 Quy tắc chung: để dành ${c.ef.target_months} tháng chi phí sinh hoạt trước mọi khoản đầu tư rủi ro.`,
       '',
       '**Để ở đâu:** tài khoản tiết kiệm không kỳ hạn hoặc kỳ hạn ngắn rút linh hoạt. Tiêu chí là **rút được trong 24h mà không lỗ**, không phải lãi cao.',
       '**Bao nhiêu là đủ:** 3 tháng nếu thu nhập ổn định và không ai phụ thuộc; 6 tháng nếu có người phụ thuộc; 9-12 tháng nếu thu nhập bấp bênh hoặc tự kinh doanh.',

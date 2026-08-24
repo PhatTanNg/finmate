@@ -92,8 +92,10 @@ export default function Fire() {
           </div>
           <Progress value={(ef.months_covered || 0) / (ef.target_months || 6)} tone={ef.ok ? 'ok' : 'warn'} />
           <div className="mini" style={{ marginTop: 6 }}>
-            Đủ sống <b>{ef.months_covered}</b> tháng nếu mất thu nhập.{' '}
-            {ef.ok ? '✅ An toàn.' : `Còn thiếu ${short(ef.gap)} — nên ưu tiên lấp đầy trước khi đầu tư mạo hiểm.`}
+            {ef.has_data === false
+              ? 'Chưa có khoản chi nào được ghi nên app chưa biết bạn sống hết bao nhiêu mỗi tháng. Bật đọc tin nhắn ngân hàng hoặc nhắn cho cố vấn để app tính giúp.'
+              : <>Đủ sống <b>{ef.months_covered}</b> tháng nếu mất thu nhập.{' '}
+                {ef.ok ? '✅ An toàn.' : `Còn thiếu ${short(ef.gap)} — nên ưu tiên lấp đầy trước khi đầu tư mạo hiểm.`}</>}
           </div>
         </Card>
 

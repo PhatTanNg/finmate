@@ -322,12 +322,28 @@ cd server && node test/smoke-knowledge.mjs # 19 câu hỏi tài chính mở
 cd server && node test/smoke-tools.mjs     # 42 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
 cd server && node test/smoke-agent.mjs     # vòng lặp AI agent qua LLM giả lập (không cần key)
 cd server && node test/scenarios.mjs       # 203 kịch bản người dùng thật, 17 nhóm tính năng
+cd server && node test/personas.mjs        # 8 hành trình người dùng đầu-cuối, 160 bước
 cd web    && node test/render.mjs          # render thật 16 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent` và `scenarios` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `scenarios` và `personas` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
+
+`personas.mjs` bổ sung góc nhìn ngược lại: thay vì bắn từng tính năng, nó dựng **8 con người khác nhau, mỗi người một server và một cơ sở dữ liệu riêng** — như 8 người tải app về 8 máy — rồi đi trọn vòng đời từ lần mở app đầu tiên đến khi hỏi cố vấn:
+
+| # | Người dùng | Kiểm chứng điều gì |
+|---|---|---|
+| 1 | ✈️ Kỹ sư Việt ở Dublin | EUR + VND song song, kiều hối, thuế Ireland, ETF châu Âu lẫn cổ phiếu VN |
+| 2 | 🎓 Sinh viên làm thêm | Thu nhập rất nhỏ, số dư âm, ngân sách chặt, FIRE không ra số vô lý |
+| 3 | 🏢 Nhân viên văn phòng | Thuế VN có người phụ thuộc, khoản cố định, trả góp xe, SMS ngân hàng vào thẳng sổ |
+| 4 | 🎨 Người làm tự do | Thu nhập trồi sụt 9,6 lần, thu USD, quỹ đệm cho tháng ế |
+| 5 | 🏪 Chủ quán cà phê | Tách bạch tiền kinh doanh với tiền nhà, vay kinh doanh, BĐS cho thuê |
+| 6 | 🌴 Người sắp nghỉ hưu | Thu nhập thụ động phủ chi tiêu, không có lương, "sống được bao lâu nếu ngừng thu" |
+| 7 | 🆘 Người đang ngập nợ | 4 khoản nợ, tài sản ròng âm, tuyết lở vs bóng tuyết, điểm sức khoẻ phải thấp |
+| 8 | 💑 Vợ chồng trẻ | Hai lương gộp, mục tiêu mua nhà, ví riêng không bị đụng, vàng cưới |
+
+Bộ này bắt được những lỗi mà kiểm thử theo tính năng bỏ sót — ví dụ câu hỏi thật của người dùng bị luồng thiết lập nuốt mất, hay app đề xuất việc vô nghĩa kiểu "nạp thêm 0đ" khi chưa có dữ liệu chi tiêu.
 
 ---
 

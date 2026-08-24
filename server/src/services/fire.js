@@ -186,14 +186,18 @@ export function emergencyStatus() {
   const fund = get("SELECT * FROM funds WHERE type = 'emergency'");
   const liquid = accountsBase(['cash', 'bank', 'ewallet', 'savings']);
   const current = fund && fund.balance > 0 ? fund.balance : liquid;
-  const months = monthlyExpense ? current / monthlyExpense : 0;
+  const hasData = monthlyExpense > 0;
+  const months = hasData ? current / monthlyExpense : 0;
   return {
     current,
     monthly_expense: monthlyExpense,
-    months_covered: Math.round(months * 10) / 10,
+    // Chưa ghi nhận chi tiêu nào thì không thể biết trụ được mấy tháng —
+    // trả null thay vì 0 để nơi dùng không hiểu nhầm là "quỹ rỗng".
+    has_data: hasData,
+    months_covered: hasData ? Math.round(months * 10) / 10 : null,
     target_months: target,
-    target_amount: Math.round(monthlyExpense * target),
-    gap: Math.max(0, Math.round(monthlyExpense * target - current)),
-    ok: months >= target,
+    target_amount: hasData ? Math.round(monthlyExpense * target) : 0,
+    gap: hasData ? Math.max(0, Math.round(monthlyExpense * target - current)) : 0,
+    ok: hasData ? months >= target : false,
   };
 }
