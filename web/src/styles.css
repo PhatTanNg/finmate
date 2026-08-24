@@ -302,6 +302,11 @@ tbody tr:hover { background: var(--hover); }
 .hr { height: 1px; background: var(--line); margin: 12px 0; }
 .scrollx { overflow-x: auto; }
 
+/* Danh sách việc cần làm có đánh số — ngón tay chạm được trên điện thoại. */
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.steps li { padding-left: 2px; line-height: 1.45; }
+.steps li b { display: block; margin-bottom: 2px; }
+
 /* ---------- bảng lệnh (Ctrl/⌘ + K) ---------- */
 .cmdk-bg { position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(4px); z-index: 80; display: flex; justify-content: center; padding: 12vh 16px 16px; animation: fade .14s var(--ease); }
 .cmdk { width: min(540px, 100%); height: fit-content; max-height: 70vh; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; animation: popIn .18s var(--ease); }

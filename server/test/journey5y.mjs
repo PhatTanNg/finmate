@@ -519,6 +519,40 @@ async function evaluate(c, sim) {
     return `€600 → ${fmtShort(q.received)} (phí ${fmtEur(q.fee)}, tỉ giá ${Math.round(q.effective_rate).toLocaleString('vi-VN')})`;
   });
 
+  await step('Lộ trình thu nhập thụ động nói được vốn cần và ngày đạt mốc', async () => {
+    const r = (await c.GET('/passive/roadmap')).roadmap;
+    sane(r, 'lộ trình thụ động');
+    must(r.monthly_expense > 0, 'không biết chi phí sống thì không dựng được lộ trình');
+    must(Array.isArray(r.milestones) && r.milestones.length >= 4, 'thiếu các mốc');
+    must(Array.isArray(r.next_steps) && r.next_steps.length > 0, 'không đưa ra việc nào để làm');
+
+    // Sau 5 năm tích luỹ đều thì khoản góp mỗi tháng phải nằm trong khoảng
+    // thu-chi thật, không phải con số do một lần bán tài sản đẩy lên.
+    if (r.monthly_contribution > r.monthly_expense * 5) {
+      finding('cao', 'Khoản góp mỗi tháng bị thổi phồng', `Đề nghị góp ${fmtEur(r.monthly_contribution)}/tháng trong khi chi phí sống chỉ ${fmtEur(r.monthly_expense)}/tháng.`);
+    }
+    for (const m of r.milestones) {
+      if (m.reached) continue;
+      if (m.capital_needed === 0) finding('cao', 'Mốc chưa đạt nhưng báo cần 0 vốn', `Mốc "${m.label}" cần ${fmtEur(m.target)}/tháng mà báo vốn cần bằng 0.`);
+      if (m.months === 0) finding('cao', 'Mốc chưa đạt nhưng báo 0 tháng', `Mốc "${m.label}" chưa đạt mà nói đạt ngay hôm nay.`);
+    }
+    // Còn nợ đắt hoặc thiếu quỹ khẩn cấp thì không được vừa chặn vừa xui rót vốn.
+    if (r.blocked_by.length) {
+      const invest = r.next_steps.filter((s) => String(s.key).startsWith('invest_') && s.key !== 'invest_later');
+      if (invest.length) finding('cao', 'Lời khuyên tự mâu thuẫn', `Đang chặn vì ${r.blocked_by.map((b) => b.key).join(', ')} nhưng vẫn bảo rót vốn: "${invest[0].title}".`);
+    }
+    const half = r.milestones.find((m) => m.key === 'half');
+    return `thụ động ${fmtEur(r.current_passive)}/tháng (${r.coverage_pct}% chi phí) · góp ${fmtEur(r.monthly_contribution)}/tháng · nửa chi phí sau ${half?.months ?? '—'} tháng`;
+  });
+
+  await step('Hỏi thẳng về thu nhập thụ động thì được lộ trình, không phải bảng thống kê', async () => {
+    const r = await c.POST('/chat', { message: 'làm sao để có thu nhập thụ động?' });
+    must(r.intent === 'query_passive', `hiểu nhầm thành "${r.intent}"`);
+    must(/mốc|Mốc/.test(r.reply), 'trả lời không có mốc nào để hướng tới');
+    must(/Việc cần làm/i.test(r.reply), 'không nói được việc cần làm');
+    return r.reply.split('\n').find((l) => /phủ được/i.test(l))?.trim() || 'ok';
+  });
+
   await step('Dashboard vẫn nhanh sau 600+ giao dịch', async () => {
     const t0 = Date.now();
     const d = await c.GET('/dashboard');

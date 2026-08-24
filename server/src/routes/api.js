@@ -16,6 +16,7 @@ import { monthReport, monthlyTrend, categoryBreakdown, incomeSources, totals, av
 import { netWorth, snapshot, history as nwHistory } from '../services/networth.js';
 import { dailyForecast, monthlyForecast, safeToSpend } from '../services/forecast.js';
 import { fireStats, emergencyStatus, passiveIncomeMonthly, marketAssumptions } from '../services/fire.js';
+import { passiveRoadmap } from '../services/passive.js';
 import { budgetStatus, upsertBudget, suggestBudgets } from '../services/budgets.js';
 import { generateInsights, listInsights } from '../services/insights.js';
 import { healthScore, surplusPlan, nextActions, investmentSplit } from '../services/advisor.js';
@@ -405,6 +406,12 @@ router.get('/forecast', wrap(async (req, res) => ok(res, {
   safe_to_spend: safeToSpend(),
 })));
 router.get('/fire', wrap(async (req, res) => ok(res, { fire: fireStats(req.query), emergency: emergencyStatus(), passive: passiveIncomeMonthly() })));
+router.get('/passive/roadmap', wrap(async (req, res) => ok(res, {
+  roadmap: passiveRoadmap({
+    monthly_contribution: req.query.monthly_contribution !== undefined ? Number(req.query.monthly_contribution) : undefined,
+    risk: req.query.risk,
+  }),
+})));
 
 // ---- cố vấn ---------------------------------------------------------------
 

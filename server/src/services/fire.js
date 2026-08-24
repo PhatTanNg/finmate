@@ -42,13 +42,15 @@ export function passiveIncomeMonthly() {
   const dividend = Math.max(modelDividend, declared.dividend);
   const rent = Math.max(modelRent, declared.rent);
   const other = declared.other;
+  // Lương hưu không mô hình hoá được từ tài sản — chỉ có khi người dùng tự khai.
+  const pension = declared.pension;
 
   const months = lastMonths(6);
   const observed = months.length
     ? Math.round(months.reduce((s, m) => s + (Number(incomeSources(monthStart(m), monthEnd(m)).passive) || 0), 0) / months.length)
     : 0;
-  const modeled = interest + dividend + rent + other;
-  return { interest, dividend, rent, other, modeled, observed, total: Math.max(modeled, observed) };
+  const modeled = interest + dividend + rent + other + pension;
+  return { interest, dividend, rent, other, pension, modeled, observed, total: Math.max(modeled, observed) };
 }
 
 const PASSIVE_TYPES = {
@@ -88,7 +90,11 @@ export function declaredIncomeMonthly() {
 
 /** Thu nhập thụ động do người dùng tự khai trong mục "Nguồn thu", quy về mỗi tháng. */
 function declaredPassiveByType() {
-  const out = { interest: 0, dividend: 0, rent: 0, other: 0 };
+  // Mọi nhóm trong PASSIVE_TYPES đều phải có ô sẵn ở đây, nếu không `out[bucket]`
+  // là undefined và phép cộng cho ra NaN — con số hỏng lặng lẽ lan sang mọi báo
+  // cáo thu nhập thụ động.
+  const out = {};
+  for (const bucket of new Set(Object.values(PASSIVE_TYPES))) out[bucket] = 0;
   const base = baseCurrency();
   for (const s of all('SELECT * FROM income_streams WHERE active = 1')) {
     const bucket = PASSIVE_TYPES[String(s.type || '').toLowerCase()];

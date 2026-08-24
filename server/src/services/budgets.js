@@ -55,13 +55,19 @@ function rolloverAmount(budget, mk) {
   return Math.max(0, budget.amount - spent);
 }
 
-/** Gợi ý ngân sách dựa trên trung bình 3 tháng gần nhất */
+/**
+ * Gợi ý ngân sách dựa trên trung bình 3 tháng gần nhất.
+ *
+ * Bỏ qua nhóm "Tích luỹ": đặt hạn mức cho tiền đem đi đầu tư rồi khuyên cắt
+ * 10% là lời khuyên ngược — app sẽ giục người dùng tiết kiệm ít đi.
+ */
 export function suggestBudgets(months = 3) {
   const list = lastMonths(months);
   const rows = all(
     `SELECT c.id, c.name, c.icon, c.essential, SUM(COALESCE(t.base_amount, t.amount)) total, COUNT(DISTINCT substr(t.date,1,7)) nm
      FROM transactions t JOIN categories c ON c.id = t.category_id
-     WHERE t.type='expense' AND t.excluded=0 AND substr(t.date,1,7) IN (${list.map(() => '?').join(',')})
+     WHERE t.type='expense' AND t.excluded=0 AND COALESCE(c.group_name,'') != 'Tích luỹ'
+       AND substr(t.date,1,7) IN (${list.map(() => '?').join(',')})
      GROUP BY c.id ORDER BY total DESC`,
     list
   );

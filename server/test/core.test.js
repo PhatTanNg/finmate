@@ -9,6 +9,7 @@ import { grossToNet, netToGross, taxOnTaxable, BRACKETS } from '../src/services/
 import { detectIntent } from '../src/services/chat/nlu.js';
 import { findTopic } from '../src/services/chat/knowledge.js';
 import { parseBankMessage } from '../src/services/ingest.js';
+import { capitalNeeded, monthsToCapital } from '../src/services/passive.js';
 
 test('parseAmount hiểu cách viết tiền của người Việt', () => {
   const v = (s) => parseAmount(s)?.value;
@@ -147,4 +148,26 @@ test('parseBankMessage nhận tiền vào là thu nhập', () => {
   const p = parseBankMessage('TCB: TK 19036 +31,200,000VND luc 05/03/2026. ND: CONG TY ABC TRA LUONG THANG 2');
   assert.equal(p.amount, 31_200_000);
   assert.equal(p.type, 'income');
+});
+
+test('capitalNeeded tính đúng vốn cần để sinh ra một khoản thu mỗi tháng', () => {
+  // 1 triệu/tháng = 12 triệu/năm; ở lợi suất 6%/năm cần 200 triệu vốn.
+  assert.equal(capitalNeeded(1_000_000, 0.06), 200_000_000);
+  assert.equal(capitalNeeded(0, 0.06), 0);
+  // Lợi suất 0 thì không vốn nào đẻ ra thu nhập — phải nói thẳng, không chia cho 0.
+  assert.equal(capitalNeeded(1_000_000, 0), null);
+});
+
+test('monthsToCapital tính theo lãi kép hàng tháng, không phải cộng dồn thẳng', () => {
+  assert.equal(monthsToCapital(100, 10, 0.06, 100), 0, 'đã đủ thì 0 tháng');
+  // Góp 1 triệu/tháng, lợi suất 0 → 10 triệu mất đúng 10 tháng.
+  assert.equal(monthsToCapital(0, 1_000_000, 0, 10_000_000), 10);
+  // Có lãi kép thì phải tới sớm hơn hoặc bằng trường hợp không lãi.
+  const withYield = monthsToCapital(0, 1_000_000, 0.08, 100_000_000);
+  const without = monthsToCapital(0, 1_000_000, 0, 100_000_000);
+  assert.ok(withYield < without, `${withYield} phải nhỏ hơn ${without}`);
+  // Không góp, không lãi thì vĩnh viễn không tới — trả null chứ đừng lặp vô hạn.
+  assert.equal(monthsToCapital(0, 0, 0, 1_000_000), null);
+  // Mục tiêu quá xa so với khả năng cũng phải dừng lại và trả null.
+  assert.equal(monthsToCapital(0, 1, 0, 1_000_000_000_000), null);
 });

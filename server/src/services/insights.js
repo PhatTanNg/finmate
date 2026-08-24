@@ -21,7 +21,6 @@ export function generateInsights() {
   const mk = monthKey();
   const from = monthStart(mk);
   const to = monthEnd(mk);
-  const cur = totals(from, to);
   const avgExpense = averageMonthlyExpense(3);
   const avgIncome = averageMonthlyIncome(3);
 

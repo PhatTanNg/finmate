@@ -6,10 +6,12 @@ import { fmt, short, pct, vnDate, monthLabel } from '../lib/format.js';
 export default function Fire() {
   const [d, setD] = useState(null);
   const [fc, setFc] = useState(null);
+  const [pv, setPv] = useState(null);
 
   useEffect(() => {
     api.get('/fire').then(setD);
     api.get('/forecast?days=90&months=12').then(setFc);
+    api.get('/passive/roadmap').then((r) => setPv(r.roadmap)).catch(() => setPv(null));
   }, []);
   if (!d || !fc) return <Loading />;
 
@@ -51,6 +53,56 @@ export default function Fire() {
           <div><div className="mini">Thu nhập thụ động phủ</div><b>{pct(f.passive_coverage)}</b><div className="mini">chi phí sống</div></div>
         </div>
       </Card>
+
+      {pv && (
+        <Card title="Lộ trình để tiền tự nuôi bạn">
+          <div className="between" style={{ marginBottom: 8 }}>
+            <div><div className="mini">Thu nhập thụ động</div><b style={{ fontSize: 19 }}>{short(pv.current_passive)}<span className="mini">/tháng</span></b></div>
+            <div style={{ textAlign: 'right' }}><div className="mini">Chi phí sống</div><b style={{ fontSize: 19 }}>{short(pv.monthly_expense)}<span className="mini">/tháng</span></b></div>
+          </div>
+          <Progress value={(pv.coverage_pct || 0) / 100} tone={pv.coverage_pct >= 100 ? 'ok' : 'warn'} />
+          <div className="mini" style={{ marginTop: 6 }}>Đang phủ <b>{pv.coverage_pct}%</b> chi phí sống của bạn.</div>
+
+          {pv.blocked_by?.length > 0 && (
+            <div className="note-warn" style={{ marginTop: 12 }}>
+              ⚠️ <b>Chưa nên rót vốn vội.</b> Còn {pv.blocked_by.map((b) => (b.key === 'emergency' ? `quỹ khẩn cấp thiếu ${short(b.amount)}` : `nợ lãi cao ${short(b.amount)}`)).join(' và ')}.
+              Dọn xong hai việc đó thì mỗi đồng đầu tư mới thực sự là lãi.
+            </div>
+          )}
+
+          <div className="hr" />
+          <div className="mini" style={{ marginBottom: 6 }}>VIỆC CẦN LÀM</div>
+          <ol className="steps">
+            {(pv.next_steps || []).slice(0, 4).map((s) => (
+              <li key={s.key}><b>{s.title}</b><div className="mini">{s.body}</div></li>
+            ))}
+          </ol>
+
+          <div className="hr" />
+          <div className="scrollx">
+            <table>
+              <thead><tr><th>Mốc</th><th className="num">Cần/tháng</th><th className="num">Vốn cần</th><th className="num">Khi nào</th></tr></thead>
+              <tbody>
+                {(pv.milestones || []).map((m) => (
+                  <tr key={m.key}>
+                    <td>{m.label}</td>
+                    <td className="num">{short(m.target)}</td>
+                    <td className="num">{m.reached ? '—' : m.capital_needed === null ? '—' : short(m.capital_needed)}</td>
+                    <td className="num">
+                      {m.reached ? <span className="up">đã đạt ✅</span>
+                        : m.months === null ? <span className="dim">chưa tới được</span>
+                          : <span>{vnDate(m.date)} <span className="mini">({m.months} tháng)</span></span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mini" style={{ marginTop: 6 }}>
+            Tính theo khoản để dành <b>{short(pv.monthly_contribution)}/tháng</b> và lợi suất bình quân {pct(pv.blended_yield, 1)}/năm.
+          </div>
+        </Card>
+      )}
 
       {f.projection?.length > 0 && (
         <Card title="Đường tích luỹ dự phóng">

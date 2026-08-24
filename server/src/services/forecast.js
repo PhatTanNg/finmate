@@ -66,8 +66,13 @@ export function safeToSpend() {
   const daysLeft = Math.max(1, diffDays(today(), to) + 1);
   const buffer = Math.round(averageMonthlyExpense(3) * 0.1);
   const cashAvailable = Math.max(0, liquid - upcomingFixed - buffer);
-  // Còn bao nhiêu trong "hạn mức chi tiêu bình thường" của tháng
-  const budgetRemaining = Math.max(0, Math.round(averageMonthlyExpense(3)) - t.expense - upcomingFixed);
+  // Còn bao nhiêu trong "hạn mức chi tiêu bình thường" của tháng.
+  // Hai vế phải cùng thước đo: `averageMonthlyExpense` là chi phí SỐNG bình
+  // quân, nên phần đã dùng cũng phải là chi phí sống. Trừ cả tiền vừa đẩy vào
+  // quỹ/ETF thì người tháng nào cũng tích luỹ đều bị báo "hết hạn mức, 0đ/ngày"
+  // ngay sau ngày lương về.
+  const spentLiving = t.living_expense ?? t.expense;
+  const budgetRemaining = Math.max(0, Math.round(averageMonthlyExpense(3)) - spentLiving - upcomingFixed);
   const available = Math.min(cashAvailable, budgetRemaining);
   return {
     liquid,
@@ -78,7 +83,9 @@ export function safeToSpend() {
     available,
     days_left: daysLeft,
     per_day: Math.round(available / daysLeft),
-    spent_this_month: t.expense,
+    spent_this_month: spentLiving,
+    total_out_this_month: t.expense,
+    saved_this_month: t.saved || 0,
     income_this_month: t.income,
   };
 }

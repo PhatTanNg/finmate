@@ -483,7 +483,7 @@ const COLUMN_ALIASES = {
   income_streams: { kind: 'type', amount: 'net_amount', net: 'net_amount', gross: 'gross_amount' },
   accounts: { kind: 'type', amount: 'balance' },
   goals: { target: 'target_amount', current: 'current_amount', target_date: 'deadline' },
-  budgets: { amount: 'limit_amount', limit: 'limit_amount' },
+  budgets: { limit: 'amount', limit_amount: 'amount', max: 'amount' },
 };
 
 /** Đưa các bí danh về tên cột thật trước khi lọc. */
@@ -508,10 +508,41 @@ function pickColumns(table, data) {
   return Object.keys(data || {}).filter((k) => data[k] !== undefined && cols.has(k));
 }
 
+/**
+ * Những khoá bị bỏ đi một cách có chủ đích, không đáng cảnh báo: cờ điều khiển
+ * của API, khoá tra cứu theo tên đã được tầng service xử lý xong, và metadata
+ * do client gửi kèm.
+ */
+const HARMLESS_DROPS = new Set(['id', 'created_at', 'updated_at', 'learn', 'values', 'allocate', 'to_account_id']);
+const isHarmlessDrop = (k) => HARMLESS_DROPS.has(k) || k.endsWith('_name') || k.startsWith('_');
+
+/**
+ * Đếm những trường bị vứt vì không khớp cột nào. Vứt im lặng là cách hỏng dữ
+ * liệu tệ nhất: khoản vay 40 triệu lưu với lãi 0% mà không có một dòng lỗi nào,
+ * và mãi tới lúc chạy mô phỏng nhiều năm mới lộ ra. Có thống kê thì lần sau
+ * lỗi kiểu đó nổi lên ngay từ log.
+ */
+const droppedStats = new Map();
+export function droppedFieldStats() {
+  return [...droppedStats.entries()].map(([k, n]) => ({ field: k, count: n })).sort((a, b) => b.count - a.count);
+}
+
+function warnDropped(table, data, kept) {
+  const cols = tableColumns(table);
+  const keptSet = new Set(kept);
+  for (const k of Object.keys(data || {})) {
+    if (data[k] === undefined || keptSet.has(k) || cols.has(k) || isHarmlessDrop(k)) continue;
+    const key = `${table}.${k}`;
+    droppedStats.set(key, (droppedStats.get(key) || 0) + 1);
+    console.warn(`[db] bỏ qua trường không khớp cột nào: ${key} = ${JSON.stringify(data[k])?.slice(0, 60)}`);
+  }
+}
+
 /** Insert helper: insert(table, {col: val}) -> row id */
 export function insert(table, raw) {
   const data = applyAliases(table, raw);
   const cols = pickColumns(table, data);
+  warnDropped(table, data, cols);
   if (!cols.length) throw new Error('Không có trường hợp lệ nào để lưu.');
   const sql = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`;
   const res = run(sql, cols.map((c) => normVal(data[c])));
@@ -522,6 +553,7 @@ export function insert(table, raw) {
 export function update(table, id, raw) {
   const data = applyAliases(table, raw);
   const cols = pickColumns(table, data);
+  warnDropped(table, data, cols);
   if (!cols.length) return 0;
   const sql = `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`;
   return run(sql, [...cols.map((c) => normVal(data[c])), id]).changes;

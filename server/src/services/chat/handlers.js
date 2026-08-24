@@ -17,6 +17,7 @@ import { healthScore, surplusPlan, nextActions, investmentSplit } from '../advis
 import { createRecurring } from '../recurring.js';
 import { categoryByName, fundByName } from '../../bootstrap.js';
 import { listInsights } from '../insights.js';
+import { passiveRoadmap } from '../passive.js';
 import { findTopic, answerTopic } from './knowledge.js';
 import { parseNumberFor, normalizeCurrency, currency as curInfo, toMajor, toMinor } from '../../util/currency.js';
 import { baseCurrency, convert, getRate, rateTable, fxStatus } from '../fx.js';
@@ -123,10 +124,14 @@ function querySpending(text, ent) {
   const split = essentialSplit(r.from, r.to);
   const avg = averageMonthlyExpense(3);
   const days = Math.max(1, diffDays(r.from, r.to > today() ? today() : r.to) + 1);
+  // "Chi 3,8k" mà trong đó 1k là tiền đẩy vào ETF thì con số đó gây hiểu nhầm,
+  // nhất là khi dòng ngay dưới so với "nhịp 3 tháng" vốn chỉ tính chi phí sống.
+  const living = t.living_expense ?? t.expense;
   return {
     reply: bullet([
       `📊 **${r.label}**: chi **${fmt(t.expense)}**, thu ${fmt(t.income)} → ${t.net >= 0 ? `dôi dư ${short(t.net)}` : `âm ${short(-t.net)}`}`,
-      `Trung bình ${short(t.expense / days)}/ngày${avg ? ` (nhịp 3 tháng gần đây: ${short(avg)}/tháng)` : ''}`,
+      t.saved ? `_Trong đó ${short(t.saved)} là tiền bạn cất đi để tiết kiệm/đầu tư — chi phí sống thật là ${short(living)}._` : null,
+      `Trung bình ${short(living / days)}/ngày${avg ? ` (nhịp 3 tháng gần đây: ${short(avg)}/tháng)` : ''}`,
       '',
       '**Tốn nhiều nhất:**',
       cats.map((c, i) => `${i + 1}. ${c.icon || ''} ${c.name}: ${fmt(c.amount)} (${Math.round((c.amount / Math.max(1, t.expense)) * 100)}%)`).join('\n'),
@@ -319,6 +324,57 @@ function queryInvestment() {
       `\n💡 Thu nhập thụ động tổng: ${short(passiveIncomeMonthly().total)}/tháng`,
     ]),
     data: { portfolio: pf, real_estate: re },
+  };
+}
+
+/**
+ * Lộ trình xây thu nhập thụ động — trả lời "làm sao để tiền tự sinh ra tiền".
+ *
+ * Chấm điểm "thu nhập thụ động 10/100" rồi bỏ đó là bỏ người dùng giữa đường.
+ * Câu trả lời phải có ba phần: đang ở đâu, cần bao nhiêu vốn, và làm gì tuần này.
+ */
+function queryPassive(text, ent) {
+  const r = passiveRoadmap();
+  const p = r.passive_breakdown;
+  const parts = [
+    p.interest ? `• 🏦 Lãi ngân hàng: ${short(p.interest)}/tháng` : null,
+    p.dividend ? `• 📈 Cổ tức: ${short(p.dividend)}/tháng` : null,
+    p.rent ? `• 🏠 Cho thuê: ${short(p.rent)}/tháng` : null,
+    p.pension ? `• 👴 Lương hưu: ${short(p.pension)}/tháng` : null,
+    p.other ? `• ➕ Khác: ${short(p.other)}/tháng` : null,
+  ].filter(Boolean);
+
+  const half = r.milestones.find((m) => m.key === 'half');
+  const full = r.milestones.find((m) => m.key === 'full');
+  const when = (m) => {
+    if (!m) return null;
+    if (m.reached) return '**đã đạt** ✅';
+    if (m.months === null) return 'chưa tới được nếu không tăng khoản để dành';
+    if (m.months === 0) return '**gần chạm rồi**';
+    return `khoảng **${m.months} tháng** nữa (${vnDate(m.date)})`;
+  };
+
+  return {
+    reply: bullet([
+      `## 🌱 Lộ trình để tiền tự nuôi bạn`,
+      r.monthly_expense
+        ? `Thu nhập thụ động hiện tại **${short(r.current_passive)}/tháng**, phủ được **${r.coverage_pct}%** chi phí sống (${short(r.monthly_expense)}/tháng).`
+        : `Thu nhập thụ động hiện tại **${short(r.current_passive)}/tháng**. Ghi thêm vài tuần chi tiêu để mình tính được nó phủ bao nhiêu phần cuộc sống của bạn.`,
+      parts.length ? parts.join('\n') : '_Chưa có đồng nào chảy vào mà không cần bạn đi làm._',
+      '',
+      r.blocked_by.length
+        ? `⚠️ **Chưa nên rót vốn vội.** ${r.next_steps.filter((s) => ['emergency', 'debt'].includes(s.key)).map((s) => s.title).join(' · ')}`
+        : `Bạn có **${short(r.investable)}** nhàn rỗi (đã chừa ${short(r.emergency_reserve)} cho quỹ khẩn cấp) và để dành thêm **${short(r.monthly_contribution)}/tháng**.`,
+      '',
+      '**Việc cần làm:**',
+      r.next_steps.slice(0, 4).map((s, i) => `${i + 1}. ${s.title}\n   ${s.body}`).join('\n'),
+      '',
+      '**Các mốc:**',
+      `• Phủ nửa chi phí sống (${short(half?.target || 0)}/tháng): ${when(half)}`,
+      `• Nghỉ làm vẫn đủ sống (${short(full?.target || 0)}/tháng): ${when(full)}`,
+      r.blended_yield ? `\n_Tính theo lợi suất bình quân ${pct(r.blended_yield)}/năm của bộ kênh hợp khẩu vị "${r.risk_profile}" và đồng tiền ${r.currency}._` : null,
+    ]),
+    data: { roadmap: r },
   };
 }
 
@@ -956,6 +1012,7 @@ export const HANDLERS = {
   query_budget: queryBudget,
   query_investment: queryInvestment,
   query_income: queryIncome,
+  query_passive: queryPassive,
   surplus_advice: surplusAdvice,
   affordability,
   summary,

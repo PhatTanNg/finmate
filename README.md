@@ -80,6 +80,7 @@ Onboarding theo từng bước, hiểu ~30 loại ý định và tự phát hi�
 | `tôi có nên mua macbook 45 triệu không` | phân tích khả năng chi trả, ảnh hưởng tới mục tiêu |
 | `tôi dư 200 triệu nên làm gì` | thác nước ưu tiên: nợ lãi cao → quỹ khẩn cấp → đầu tư → hưởng thụ |
 | `bao giờ tôi tự do tài chính` | ngày FIRE + các kịch bản rút ngắn |
+| `làm sao để có thu nhập thụ động` | lộ trình từng mốc: vốn cần, ngày đạt, việc làm ngay |
 | `undo` | hoàn tác thao tác vừa rồi |
 
 Ngoài ra còn **19 chủ đề kiến thức** trả lời gắn với số liệu thật của bạn: lạm phát, lãi kép, vàng, crypto, mua nhà hay thuê, bảo hiểm, ETF, quy tắc 50/30/20, thị trường giảm mạnh, thuế TNCN, cho bạn vay tiền, tiêu tiền cho bản thân sao cho hợp lý...
@@ -107,6 +108,7 @@ Ngoài ra còn **19 chủ đề kiến thức** trả lời gắn với số li�
 ### 4. Cố vấn & dự báo
 - **Điểm sức khoẻ tài chính** (0–100) với chẩn đoán từng thành phần.
 - **FIRE**: ngày tự do tài chính, tuổi nghỉ hưu, các kịch bản (tăng tiết kiệm, giảm chi, tăng thu).
+- **Lộ trình thu nhập thụ động**: từ "tiền của bạn đang phủ bao nhiêu % chi phí sống" tới vốn cần cho từng mốc (10% → 25% → 50% → 100%), ngày dự kiến đạt, và việc phải làm tuần này. Còn thiếu quỹ khẩn cấp hoặc còn nợ lãi trên 8%/năm thì app **chặn** gợi ý rót vốn thay vì vừa bảo trả nợ vừa bảo đầu tư.
 - **Dự báo dòng tiền 90 ngày**: ngày số dư thấp nhất, cảnh báo cạn tiền.
 - **Số tiền an toàn để tiêu hôm nay** (đã trừ hoá đơn sắp tới và hạn mức ngân sách).
 - **Quỹ khẩn cấp**: đang đủ mấy tháng, cần thêm bao nhiêu.
@@ -239,6 +241,7 @@ finmate/
 │  │  │  ├─ recurring.js      # khoản định kỳ, bù kỳ bỏ lỡ
 │  │  │  ├─ goals/budgets/debts/investments/networth/...
 │  │  │  ├─ fire.js           # FIRE, quỹ khẩn cấp, giả định theo đồng tiền
+│  │  │  ├─ passive.js        # lộ trình thu nhập thụ động: kênh, vốn cần, mốc, việc làm ngay
 │  │  │  ├─ forecast.js       # dòng tiền 90 ngày, số tiền an toàn để tiêu
 │  │  │  ├─ advisor.js        # điểm sức khoẻ, thác nước tiền dư
 │  │  │  ├─ insights.js       # phát hiện bất thường
