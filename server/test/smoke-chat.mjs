@@ -1,6 +1,17 @@
 const BASE = 'http://localhost:4000/api';
+
+// /api/ingest là cửa duy nhất mở ra mạng ngoài nên nó đòi token bí mật — kể cả
+// khi chưa đặt PIN. Test phải lấy token đúng như iOS Shortcuts vẫn làm, chứ gọi
+// chay thì server chặn 401 và ta lại tưởng bộ nhận sao kê hỏng.
+const INGEST_TOKEN = await fetch(BASE + '/automation/status')
+  .then((r) => r.json())
+  .then((j) => j.token)
+  .catch(() => null);
+
 const post = async (p, body) => {
-  const r = await fetch(BASE + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const headers = { 'Content-Type': 'application/json' };
+  if (INGEST_TOKEN && p.startsWith('/ingest')) headers['x-finmate-token'] = INGEST_TOKEN;
+  const r = await fetch(BASE + p, { method: 'POST', headers, body: JSON.stringify(body) });
   return r.json();
 };
 

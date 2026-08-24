@@ -49,9 +49,11 @@ Có hai chế độ, tự chọn theo cấu hình:
 
 **A. Cố vấn AI thật sự** (khi có `FINMATE_LLM_KEY` — [xem cách bật](#kết-nối-llm-tuỳ-chọn))
 
-Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **48 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **68 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
 
 **App là công cụ làm việc của AI.** Nó không chỉ tra cứu và khuyên — nó tự dựng và vận hành cấu trúc tài chính cho bạn: tạo tài khoản, mở quỹ mới, đặt mục tiêu và hạn hoàn thành, đổi tỷ lệ phân bổ, sắp xếp lại độ ưu tiên, đóng quỹ không còn phù hợp và dồn số dư sang quỹ khác. Việc nào hoàn tác được thì nó làm luôn rồi báo lại; chỉ những việc xoá vĩnh viễn mới hỏi bạn trước.
+
+**Dọn dẹp và sửa sai cũng là việc của nó.** Bộ công cụ ban đầu chỉ biết *thêm vào*, nên khi sổ sách lộn xộn — trùng mục tiêu, nợ đã trả xong, nguồn thu cũ — AI chỉ biết hứa mà không làm được. Giờ nó liệt kê, sửa và xoá được mọi loại tài nguyên (mục tiêu, nguồn thu, nợ, đầu tư, ngân sách, khoản định kỳ, tài khoản, từng giao dịch), gộp bản trùng lặp, và làm lại từ đầu khi bạn muốn.
 
 - **Onboarding bằng hội thoại tự nhiên**: lần đầu mở app, AI trò chuyện để tìm hiểu bạn — tên, tuổi, đang sống ở đâu, thu nhập, các tài khoản và số dư, nợ, mục tiêu — và **ghi ngay vào app trong lúc nói chuyện**. Bạn kể một lúc nhiều thứ cũng được, nó lưu hết.
 - **Tự thao tác trong app**: bạn nói "AIB còn 5000 euro" → nó cập nhật số dư; "đặt ngân sách ăn uống 400 euro" → nó tạo ngân sách; "mình vừa trả 300 euro thẻ tín dụng" → nó ghi trả nợ và tính lại dư nợ. Mỗi thao tác đều hiện chip xác nhận dưới câu trả lời (✍️ Đã ghi giao dịch, 💰 Đã cập nhật số dư…).
@@ -254,12 +256,13 @@ FINMATE_LLM_MODEL=qwen2.5:14b
 
 Vào tab **Cài đặt** để xem app đang chạy chế độ nào — thẻ "Cố vấn AI" ở đầu trang nói rõ đang dùng bộ luật hay AI thật, và model nào.
 
-Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **48 công cụ** (25 công cụ ghi/sửa dữ liệu, 23 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
+Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **68 công cụ** (34 công cụ ghi/sửa/xoá dữ liệu, 34 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu, dọn bản trùng — rồi mới trả lời.
 
 - **Mọi con số vẫn tính từ dữ liệu trong máy bạn.** LLM không được phép tự bịa số; nó chỉ diễn đạt kết quả công cụ trả về.
 - **Không được nói suông là đã làm.** Nếu model trả lời "đã ghi 45.000đ" mà chưa hề gọi công cụ nào, app chặn lại và nhắc nó làm thật; vẫn nói suông lần nữa thì câu trả lời đó **bị bỏ** và bộ luật xử lý thay — thà mất một câu văn hay còn hơn để người dùng tin là đã ghi trong khi sổ trống. (Model nhỏ hay bắt chước định dạng câu trả lời cũ trong lịch sử chat, nên các lượt do bộ luật sinh cũng được đánh dấu rõ trước khi đưa cho model.)
+- **Việc phá dữ liệu đòi chính bạn gõ, không nhận lời model tự khai.** Bài học phải trả giá bằng sổ thật: người dùng nói "đồng ý, dọn thật đi" (ý là dọn mục tiêu trùng), model hiểu nhầm, **tự điền mật khẩu xác nhận `XOA HET`** và xoá sạch 723 giao dịch — phải khôi phục từ bản sao lưu tự động. Giờ các thao tác phá dữ liệu kiểm thẳng **câu bạn vừa gõ**, thứ model không giả mạo được: xoá sạch đòi bạn tự gõ `XOA HET`; xoá tài khoản kèm lịch sử đòi bạn nói rõ "xoá cả giao dịch". Trước khi phá, app luôn **chụp lại một bản sao DB**, và **kiểm lại sau khi xoá** để không báo cáo dối.
 - **Gửi đi cái gì:** nội dung hội thoại + số liệu tóm tắt (không gửi toàn bộ lịch sử giao dịch). Nếu không muốn gửi gì ra ngoài, cứ để trống key — app vẫn đủ tính năng.
-- **Hỏng thì sao:** hết hạn mức, mất mạng, model trả sai — app tự động rơi về bộ luật offline. Lỗi được ghi ra log server và hiện ở `GET /api/health` (`llm.trang_thai`: số lượt gọi, số lượt lỗi, thông điệp lỗi gần nhất đã che key), nên bạn biết ngay khi key sai hay hết hạn mức thay vì chỉ thấy "AI bỗng kém thông minh".
+- **Hỏng thì sao:** hết hạn mức, mất mạng, model trả sai — app tự động rơi về bộ luật offline. Riêng lỗi tạm thời (429/503/529 "overloaded", đứt mạng) được **thử lại 2 lần với giãn cách 0,4s và 1,2s** trước khi bỏ cuộc: khi chạy thật với Claude haiku có lúc gần một phần ba lượt gọi trả 503 dù key vẫn tốt, nếu bỏ cuộc ngay thì mất oan phần AI mà vẫn tốn tiền. Lỗi vĩnh viễn (key sai, sai tên model, request hỏng) thì dừng ngay, không gọi lại cho phí. Mọi lỗi được ghi ra log server và hiện ở `GET /api/health` (`llm.trang_thai`: số lượt gọi, số lượt lỗi, số lần thử lại, thông điệp lỗi gần nhất đã che key — **không bị xoá** khi có lượt thành công sau đó, vì lỗi lác đác mới là thứ cần thấy nhất), nên bạn biết ngay khi key sai hay hết hạn mức thay vì chỉ thấy "AI bỗng kém thông minh".
 - **Model gọi sai tên tham số** (rất hay xảy ra) được ánh xạ lại tự động; công cụ báo lỗi kèm danh sách giá trị hợp lệ để agent tự sửa ở vòng sau.
 
 ---
@@ -303,7 +306,8 @@ finmate/
 │  │  │  ├─ ai_audit.js       # nhật ký thao tác của AI + hoàn tác (kể cả số dư)
 │  │  │  ├─ ai_memory.js      # trí nhớ dài hạn, nhét vào prompt mỗi lượt chat
 │  │  │  ├─ ai_review.js      # phiên rà soát chủ động theo chu kỳ
-│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (48 công cụ)
+│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (68 công cụ)
+│  │  │                       # tools_manage.js (sửa/xoá/dọn dẹp + chốt chặn phá dữ liệu)
 │  │  │                       # llm.js · anthropic.js (lớp dịch sang Claude) · nlu.js
 │  │  │                       # handlers.js · knowledge.js · life_events.js · onboarding.js
 │  │  └─ scripts/{seed,seed_ie,reset}.js
@@ -412,10 +416,12 @@ cd server && node test/smoke-auth.mjs        # PIN, phiên, sao lưu, xuất d�
 cd server && node test/smoke-ui.mjs          # mọi field frontend dùng đều tồn tại trong API
 cd server && node test/smoke-chat.mjs        # 29 ý định chat
 cd server && node test/smoke-knowledge.mjs   # 19 câu hỏi tài chính mở
-cd server && node test/smoke-tools.mjs       # 48 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
+cd server && node test/smoke-tools.mjs       # 68 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
 cd server && node test/smoke-agent.mjs       # vòng lặp AI agent qua LLM giả lập (không cần key)
 cd server && node test/smoke-ai.mjs          # nhật ký + hoàn tác, trí nhớ dài hạn, rà soát chủ động
 cd server && node test/smoke-llm.mjs         # lớp dịch sang Claude, chạy qua máy chủ giả (không cần key)
+cd server && node test/smoke-retry.mjs       # nhà cung cấp trả 503/529 thì tự thử lại, key sai thì bỏ cuộc ngay
+cd server && node test/smoke-manage.mjs      # sửa/xoá mọi tài nguyên; model tự gõ mật khẩu xoá thì bị chặn
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
@@ -425,7 +431,7 @@ cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học �
 cd web    && node test/render.mjs            # render thật 17 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-honesty`, `smoke-life-events`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 

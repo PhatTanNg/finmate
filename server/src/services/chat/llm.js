@@ -15,7 +15,7 @@ const KEY = process.env.FINMATE_LLM_KEY || process.env.ANTHROPIC_API_KEY || proc
 const PROVIDER = process.env.FINMATE_LLM_PROVIDER || detectProvider(KEY, RAW_URL);
 const URL_ = RAW_URL || 'https://api.openai.com/v1/chat/completions';
 const MODEL = process.env.FINMATE_LLM_MODEL || (PROVIDER === 'anthropic' ? 'claude-sonnet-4-5' : 'gpt-4o-mini');
-const MAX_TOKENS = Number(process.env.FINMATE_LLM_MAX_TOKENS) || 2048;
+const MAX_TOKENS = Number(process.env.FINMATE_LLM_MAX_TOKENS) || 4096;
 
 export const llmEnabled = () => Boolean(KEY);
 export const llmModel = () => MODEL;
@@ -28,21 +28,45 @@ export const llmProvider = () => PROVIDER;
  * chỉ thấy AI "bỗng dưng kém thông minh". Ghi lại lần gọi gần nhất để
  * /api/health nói thẳng ra chuyện đó.
  */
-const health = { ok: null, at: null, error: null, calls: 0, fails: 0 };
+const health = { ok: null, at: null, error: null, errorAt: null, calls: 0, fails: 0, retries: 0 };
 export function llmStatus() {
   return {
     bat: Boolean(KEY), nha_cung_cap: PROVIDER, model: MODEL,
-    lan_goi: health.calls, lan_loi: health.fails,
-    gan_nhat_ok: health.ok, gan_nhat_luc: health.at, loi_gan_nhat: health.error,
+    lan_goi: health.calls, lan_loi: health.fails, lan_thu_lai: health.retries,
+    gan_nhat_ok: health.ok, gan_nhat_luc: health.at,
+    loi_gan_nhat: health.error, loi_luc: health.errorAt,
   };
 }
-function noteOk() { health.ok = true; health.at = new Date().toISOString(); health.error = null; health.calls += 1; }
+function noteOk() { health.ok = true; health.at = new Date().toISOString(); health.calls += 1; }
 function noteFail(e) {
   health.ok = false; health.at = new Date().toISOString(); health.calls += 1; health.fails += 1;
   // Cắt ngắn và bỏ mọi thứ trông giống key: thông điệp này đi ra tới API health.
+  // Không xoá khi có lượt thành công sau đó — lỗi lác đác là thứ cần thấy nhất,
+  // mà chính nó lại là thứ dễ bị một lượt tốt kế tiếp xoá sạch dấu vết.
   health.error = String(e?.message || e).replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***').slice(0, 300);
+  health.errorAt = health.at;
   console.warn(`[finmate] gọi ${PROVIDER}/${MODEL} lỗi: ${health.error}`);
 }
+
+/**
+ * Anthropic trả 429/503/529 khá thường xuyên khi đông khách ("overloaded"), và
+ * đó là lỗi tạm thời — chờ một nhịp rồi gọi lại là xong. Trước đây app bỏ cuộc
+ * ngay lượt đầu nên gần một phần ba câu hỏi rơi về bộ luật dù key vẫn tốt và
+ * người dùng vẫn đang trả tiền cho model. Không thử lại lỗi 4xx khác (key sai,
+ * request hỏng — có gọi lại vẫn hỏng) và không thử lại khi quá hạn chờ, vì
+ * người dùng đang ngồi đợi câu trả lời.
+ */
+const RETRY_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 529]);
+const RETRY_DELAYS = [400, 1200];
+function isTransient(e) {
+  const msg = String(e?.message || e);
+  if (e?.name === 'AbortError') return false;
+  const m = msg.match(/^LLM (\d{3}):/);
+  if (m) return RETRY_STATUS.has(Number(m[1]));
+  // Lỗi mạng của fetch không có mã: đứt cáp, DNS chập chờn, TLS reset.
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network/i.test(msg);
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Gọi API chat. Trả về nguyên message của model (có thể chứa tool_calls)
@@ -92,17 +116,25 @@ async function callApi(messages, { json = false, timeout = 25000, temperature = 
   }
 }
 
-/** Bọc quanh lời gọi thật để mọi thành/bại đều được ghi nhận, rồi ném tiếp như cũ. */
+/** Bọc quanh lời gọi thật: ghi nhận thành/bại, thử lại khi lỗi tạm thời, rồi ném tiếp như cũ. */
 async function call(messages, opts = {}) {
   if (!KEY) return null;
-  try {
-    const r = await callApi(messages, opts);
-    noteOk();
-    return r;
-  } catch (e) {
-    noteFail(e);
-    throw e;
+  let last;
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt += 1) {
+    try {
+      const r = await callApi(messages, opts);
+      noteOk();
+      return r;
+    } catch (e) {
+      noteFail(e);
+      last = e;
+      if (attempt === RETRY_DELAYS.length || !isTransient(e)) break;
+      health.retries += 1;
+      console.warn(`[finmate] thử lại lần ${attempt + 1} sau ${RETRY_DELAYS[attempt]}ms`);
+      await sleep(RETRY_DELAYS[attempt]);
+    }
   }
+  throw last;
 }
 
 /** Một lượt gọi model có kèm danh sách công cụ. Trả message thô để agent xử lý tool_calls. */

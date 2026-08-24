@@ -13,7 +13,7 @@
     "seed:ie": "node src/scripts/seed_ie.js",
     "reset": "node src/scripts/reset.js",
     "test": "node --test test/*.test.js",
-    "test:smoke": "node test/smoke-agent.mjs && node test/smoke-tools.mjs && node test/smoke-ai.mjs && node test/smoke-llm.mjs && node test/smoke-honesty.mjs && node test/smoke-life-events.mjs && node test/smoke-chat.mjs && node test/smoke-knowledge.mjs && node test/smoke-auth.mjs && node test/smoke-ui.mjs",
+    "test:smoke": "node test/smoke-agent.mjs && node test/smoke-tools.mjs && node test/smoke-ai.mjs && node test/smoke-llm.mjs && node test/smoke-retry.mjs && node test/smoke-honesty.mjs && node test/smoke-manage.mjs && node test/smoke-life-events.mjs && node test/smoke-chat.mjs && node test/smoke-knowledge.mjs && node test/smoke-auth.mjs && node test/smoke-ui.mjs",
     "test:sim": "node test/scenarios.mjs && node test/journey5y.mjs && node test/lifetime.mjs && node test/personas.mjs",
     "test:all": "npm test && npm run test:smoke && npm run test:sim"
   },
@@ -22,3 +22,4 @@
     "express": "^4.21.2"
   }
 }
+

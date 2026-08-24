@@ -29,6 +29,7 @@ import { quote as fxQuote, timingAdvice, remittanceSummary, costInsight } from '
 import { taxCountry, grossToNetAuto, estimateAnnualTaxAuto, COUNTRIES } from '../tax_router.js';
 import { categoryByName, fundByName } from '../../bootstrap.js';
 import { generateInsights, listInsights } from '../insights.js';
+import { MANAGE_IMPL, MANAGE_TOOLS } from './tools_manage.js';
 
 const ACCOUNT_TYPES = ['cash', 'bank', 'ewallet', 'savings', 'investment', 'credit', 'credit_card', 'brokerage', 'crypto', 'real_estate', 'loan', 'other_asset'];
 const INCOME_TYPES = ['salary', 'business', 'freelance', 'dividend', 'interest', 'rental', 'capital_gain', 'royalty', 'other'];
@@ -730,6 +731,7 @@ export const TOOL_IMPL = {
   xem_no, xem_dau_tu, xem_suc_khoe, xem_xu_huong, tu_van_tien_du, xem_ty_gia,
   tinh_chuyen_tien, tinh_thue,
   ghi_nho, quen_di, xem_ghi_nho, xem_nhat_ky_thao_tac, hoan_tac,
+  ...MANAGE_IMPL,
 };
 
 export const TOOLS = [
@@ -916,6 +918,9 @@ export const TOOLS = [
     so_thao_tac: N('Số thao tác gần nhất cần hoàn tác, mặc định 1'),
     ma_thao_tac: N('Hoàn tác đúng một thao tác theo mã trong nhật ký'),
   }, []),
+
+  // Nhóm quản trị: sửa, xoá, dọn trùng, làm lại từ đầu.
+  ...MANAGE_TOOLS,
 ];
 
 /**
@@ -946,6 +951,23 @@ const ALIASES = {
   tinh_chuyen_tien: { tu_tien: 'tu', den_tien: 'den', amount: 'so_tien' },
   cap_nhat_ho_so: { name: 'ten', tuoi: 'nam_sinh', city: 'thanh_pho', nuoc_tinh_thue: 'quoc_gia_thue', nuoc: 'quoc_gia_thue', quoc_gia: 'quoc_gia_thue', country: 'quoc_gia_thue', tax_country: 'quoc_gia_thue', currency: 'dong_tien_goc', dong_tien: 'dong_tien_goc', tuoi_nghi_huu: 'tuoi_nghi_huu_mong_muon', retire_age: 'tuoi_nghi_huu_mong_muon', so_nguoi_phu_thuoc: 'nguoi_phu_thuoc' },
   xem_giao_dich: { limit: 'so_luong', keyword: 'tu_khoa', q: 'tu_khoa' },
+
+  // Nhóm quản trị — model rất hay gọi định danh là "ten" hoặc "id".
+  sua_muc_tieu: { ten: 'muc_tieu', goal: 'muc_tieu', id: 'muc_tieu', ten_muc_tieu: 'muc_tieu', so_tien_muc_tieu: 'so_tien', target: 'so_tien', deadline: 'han', han_chot: 'han', priority: 'uu_tien', status: 'trang_thai', name: 'ten_moi' },
+  xoa_muc_tieu: { ten: 'muc_tieu', goal: 'muc_tieu', id: 'muc_tieu', ten_muc_tieu: 'muc_tieu', name: 'muc_tieu' },
+  sua_nguon_thu: { ten: 'nguon_thu', income: 'nguon_thu', id: 'nguon_thu', so_tien: 'so_tien_net', luong: 'so_tien_net', net: 'so_tien_net', gross: 'so_tien_gross', payday: 'ngay_nhan', cong_ty: 'noi_lam', active: 'dang_hoat_dong', name: 'ten_moi' },
+  xoa_nguon_thu: { ten: 'nguon_thu', income: 'nguon_thu', id: 'nguon_thu', name: 'nguon_thu' },
+  sua_no: { ten: 'khoan_no', no: 'khoan_no', debt: 'khoan_no', id: 'khoan_no', du_no: 'so_du', so_tien: 'so_du', min_payment: 'tra_moi_thang', lender: 'chu_no', status: 'trang_thai', name: 'ten_moi' },
+  xoa_no: { ten: 'khoan_no', no: 'khoan_no', debt: 'khoan_no', id: 'khoan_no', name: 'khoan_no' },
+  xoa_dau_tu: { symbol: 'ma', ma_ck: 'ma', ten: 'ma', id: 'ma', name: 'ma' },
+  xoa_ngan_sach: { category: 'danh_muc', ten: 'danh_muc', id: 'danh_muc', name: 'danh_muc' },
+  sua_dinh_ky: { ten: 'giao_dich', id: 'giao_dich', recurring: 'giao_dich', so_tien_moi: 'so_tien', frequency: 'tan_suat', chu_ky: 'tan_suat', ngay: 'ngay_trong_thang', active: 'dang_hoat_dong', name: 'ten_moi' },
+  xoa_dinh_ky: { ten: 'giao_dich', id: 'giao_dich', recurring: 'giao_dich', name: 'giao_dich' },
+  sua_tai_khoan: { ten: 'tai_khoan', account: 'tai_khoan', id: 'tai_khoan', name: 'ten_moi', type: 'loai', bank: 'ngan_hang', institution: 'ngan_hang', active: 'dang_hoat_dong' },
+  xoa_tai_khoan: { ten: 'tai_khoan', account: 'tai_khoan', id: 'tai_khoan', name: 'tai_khoan', xoa_giao_dich: 'xoa_ca_giao_dich', force: 'xoa_ca_giao_dich' },
+  sua_giao_dich: { amount: 'so_tien', ghi_chu: 'mo_ta', note: 'mo_ta', noi_dung: 'mo_ta', date: 'ngay', category: 'danh_muc' },
+  don_trung_lap: { type: 'loai', nhom: 'loai', dry_run: 'thu_truoc', xem_truoc: 'thu_truoc', preview: 'thu_truoc' },
+  xoa_het_du_lieu: { confirm: 'xac_nhan', xacnhan: 'xac_nhan', ma_xac_nhan: 'xac_nhan', tu_khoa: 'xac_nhan', giu_ho_so: 'giu_lai_ho_so' },
 };
 
 function normalizeArgs(name, args) {
