@@ -56,6 +56,69 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Số tiền phải dương. Model đôi khi gửi số âm với ý "hoàn lại/giảm đi", nhưng
+ *  DB lấy trị tuyệt đối nên khoản đó bị ghi NGƯỢC HƯỚNG mà không ai biết. */
+function minorPositive(amount, currency, hint = '') {
+  const n = num(amount);
+  if (n == null) throw new Error('Số tiền không hợp lệ. Hãy truyền một con số, ví dụ 65000 hoặc 12.5.');
+  if (n <= 0) throw new Error(`Số tiền phải lớn hơn 0 (nhận được ${n}).${hint ? ' ' + hint : ''}`);
+  return minor(n, currency);
+}
+
+/** Ngưỡng "to bất thường" theo đơn vị lớn — chỉ để cảnh báo, không chặn. */
+const HUGE = { VND: 2_000_000_000, KRW: 500_000_000, JPY: 50_000_000, IDR: 5_000_000_000, THB: 10_000_000 };
+
+/**
+ * Cảnh báo khi số tiền lệch hẳn khỏi mức thường thấy.
+ * Không chặn — mua nhà, trả học phí là chuyện có thật. Nhưng model gõ thừa số 0
+ * (rất dễ với VND) sẽ làm vỡ mọi báo cáo, nên phải nói ra để agent xác nhận lại.
+ */
+function amountWarning(major, valueMinor, code) {
+  let avg = 0;
+  try { avg = averageMonthlyExpense(6) || 0; } catch { /* chưa đủ lịch sử */ }
+  if (avg > 0) {
+    let inBase = valueMinor;
+    try { inBase = convert(valueMinor, code, baseCurrency()); } catch { /* thiếu tỉ giá */ }
+    if (inBase > avg * 30) {
+      return `Số tiền này gấp ~${Math.round(inBase / avg)} lần mức chi trung bình một tháng. Hãy xác nhận lại với người dùng; nếu gõ nhầm hãy gọi hoan_tac_gan_nhat.`;
+    }
+    return null;
+  }
+  const limit = HUGE[code] ?? 200_000;
+  if (major > limit) return `Số tiền ${major} ${code} lớn bất thường. Hãy hỏi lại người dùng cho chắc; nếu gõ nhầm hãy gọi hoan_tac_gan_nhat.`;
+  return null;
+}
+
+/** Ngày quá xa làm hỏng báo cáo tháng và dự báo dòng tiền. */
+function dateWarning(ngay) {
+  if (!ngay) return null;
+  const d = String(ngay).slice(0, 10);
+  const diff = Math.round((Date.parse(d) - Date.parse(today())) / 86400000);
+  if (!Number.isFinite(diff)) return null;
+  if (diff > 60) return `Ngày ${d} là ${diff} ngày nữa. Nếu đây là khoản định kỳ sắp tới, hãy dùng tao_giao_dich_dinh_ky thay vì ghi sổ ngay.`;
+  if (diff < -3650) return `Ngày ${d} cách đây hơn 10 năm — có thể gõ nhầm năm.`;
+  return null;
+}
+
+/** Ưu tiên quy ước 1-9 (nhỏ = quan trọng hơn). Số âm khiến quỹ đó vượt cả quỹ thiết yếu. */
+function priorityOf(v) {
+  const n = Math.round(num(v));
+  if (!Number.isFinite(n)) return null;
+  return Math.min(99, Math.max(1, n));
+}
+
+/** Hạn đã qua thì mọi phép tính "mỗi tháng cần bỏ bao nhiêu" đều vô nghĩa. */
+function deadlineWarning(han) {
+  if (!han) return null;
+  const d = String(han).slice(0, 10);
+  return Date.parse(d) < Date.parse(today())
+    ? `Hạn ${d} đã nằm ở quá khứ nên không tính được số tiền cần góp mỗi tháng. Hãy hỏi người dùng hạn mới.`
+    : null;
+}
+
+/** Gộp nhiều cảnh báo thành một trường, bỏ các giá trị rỗng. */
+const warn = (...xs) => { const l = xs.filter(Boolean); return l.length ? l.join(' ') : null; };
+
 /** So khớp tên bỏ dấu, không phân biệt hoa thường — model hay gõ thiếu dấu. */
 const fold = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().trim();
 
@@ -91,8 +154,7 @@ const tenTaiKhoan = () => all('SELECT name FROM accounts WHERE is_active = 1').m
 function ghi_giao_dich({ loai = 'expense', so_tien, dong_tien, mo_ta, danh_muc, tai_khoan, tai_khoan_nhan, ngay, noi_chi }) {
   const acc = findAccount(tai_khoan);
   const code = normalizeCurrency(dong_tien || acc?.currency || baseCurrency());
-  const { value } = minor(so_tien, code);
-  if (!value) return { ok: false, error: 'Số tiền phải lớn hơn 0.' };
+  const { value } = minorPositive(so_tien, code, 'Nếu đây là khoản tiền vào, hãy đặt loai="income" thay vì dùng số âm.');
 
   const type = loai === 'income' ? 'income' : loai === 'transfer' ? 'transfer' : 'expense';
   let to = null;
@@ -106,6 +168,9 @@ function ghi_giao_dich({ loai = 'expense', so_tien, dong_tien, mo_ta, danh_muc, 
   }
 
   const cat = danh_muc && type !== 'transfer' ? categoryByName(danh_muc, type === 'income' ? 'income' : 'expense') : null;
+  // Phải đo TRƯỚC khi ghi: nếu đo sau, chính khoản bất thường này sẽ kéo mức
+  // trung bình lên và tự che giấu mình.
+  const canhBaoTien = amountWarning(num(so_tien), value, code);
   const res = createTransaction({
     type,
     amount: value,
@@ -125,7 +190,7 @@ function ghi_giao_dich({ loai = 'expense', so_tien, dong_tien, mo_ta, danh_muc, 
     mutates: true,
     id: t.id,
     da_ghi: { loai: t.type, so_tien: t.amount, dong_tien: t.currency, danh_muc: c ? `${c.icon || ''} ${c.name}`.trim() : null, tai_khoan: acc?.name || null, tai_khoan_nhan: to?.name || null, ngay: t.date },
-    canh_bao: res.warnings || null,
+    canh_bao: warn(res.warnings, canhBaoTien, dateWarning(ngay)),
   };
 }
 
@@ -184,24 +249,25 @@ function capnhat_so_du({ tai_khoan, so_du, dong_tien }) {
 function tao_muc_tieu({ ten, so_tien, han, dong_tien, gop_moi_thang, loai = 'save' }) {
   if (!ten || !so_tien) return { ok: false, error: 'Cần tên và số tiền mục tiêu.' };
   const code = normalizeCurrency(dong_tien || baseCurrency());
-  const { value } = minor(so_tien, code);
+  const { value } = minorPositive(so_tien, code, 'Số tiền mục tiêu phải dương.');
   const exist = all('SELECT * FROM goals').find((g) => g.name.toLowerCase() === String(ten).toLowerCase());
   const data = {
     name: ten, type: loai, target_amount: value, currency: code,
     deadline: han || null,
-    monthly_contribution: gop_moi_thang ? minor(gop_moi_thang, code).value : 0,
+    monthly_contribution: gop_moi_thang ? minorPositive(gop_moi_thang, code).value : 0,
     status: 'active',
   };
-  if (exist) { update('goals', exist.id, data); return { ok: true, mutates: true, da_cap_nhat: { id: exist.id, ...data } }; }
+  const canh_bao = deadlineWarning(han);
+  if (exist) { update('goals', exist.id, data); return { ok: true, mutates: true, da_cap_nhat: { id: exist.id, ...data }, canh_bao }; }
   const id = insert('goals', data);
-  return { ok: true, mutates: true, da_tao: { id, ten, so_tien: value, dong_tien: code, han: han || null } };
+  return { ok: true, mutates: true, da_tao: { id, ten, so_tien: value, dong_tien: code, han: han || null }, canh_bao };
 }
 
 function gop_tien_muc_tieu({ muc_tieu, so_tien, dong_tien }) {
   const g = findGoal(muc_tieu);
   if (!g) return { ok: false, error: `Không tìm thấy mục tiêu "${muc_tieu}".` };
   const code = normalizeCurrency(dong_tien || g.currency || baseCurrency());
-  const { value } = minor(so_tien, code);
+  const { value } = minorPositive(so_tien, code, 'Muốn rút bớt khỏi mục tiêu thì dùng so_tien_rut.');
   const now = (g.current_amount || 0) + convert(value, code, normalizeCurrency(g.currency || baseCurrency()));
   update('goals', g.id, { current_amount: now, status: now >= g.target_amount ? 'done' : 'active' });
   return {
@@ -239,12 +305,25 @@ function dat_phan_bo_quy({ phan_bo }) {
   for (const [ten, pct] of pairs) {
     const f = findFund(ten);
     if (!f) { bo_qua.push(ten); continue; }
-    update('funds', f.id, { percent: num(pct) || 0 });
-    done.push({ quy: f.name, phan_tram: num(pct) || 0 });
+    // % âm làm tổng bị kéo xuống, khiến các quỹ khác thực nhận nhiều hơn mức đặt.
+    const p = Math.max(0, num(pct) || 0);
+    update('funds', f.id, { percent: p });
+    done.push({ quy: f.name, phan_tram: p });
   }
   if (!done.length) return { ok: false, error: 'Không khớp quỹ nào.', quy_hop_le: listFunds().map((f) => f.name) };
-  const tong = listFunds().reduce((s, f) => s + (f.percent || 0), 0);
-  return { ok: true, mutates: true, da_dat: done, bo_qua: bo_qua.length ? bo_qua : undefined, tong_phan_tram: tong, canh_bao: tong > 100 ? 'Tổng vượt 100%' : null };
+  const active = listFunds();
+  const tong = active.reduce((s, f) => s + (f.percent || 0), 0);
+  const out = { ok: true, mutates: true, da_dat: done, bo_qua: bo_qua.length ? bo_qua : undefined, tong_phan_tram: tong };
+  // Tiền vẫn được chia hết, nhưng app chia theo TỈ LỆ chứ không theo con số tuyệt đối.
+  // Nếu tổng khác 100 thì % hiển thị không còn là % thực nhận — phải nói ra, nếu không
+  // agent sẽ báo với người dùng "đã đặt 80%" trong khi quỹ đó chỉ nhận 48%.
+  if (Math.abs(tong - 100) > 0.01 && tong > 0) {
+    out.canh_bao = `Tổng phân bổ đang là ${tong}% chứ không phải 100%, nên mỗi quỹ thực nhận theo tỉ lệ chứ không đúng con số vừa đặt. Hãy chỉnh lại cho tổng bằng 100%.`;
+    out.phan_tram_thuc_nhan = active
+      .filter((f) => f.percent > 0)
+      .map((f) => ({ quy: f.name, khai_bao: f.percent, thuc_nhan: Math.round((f.percent / tong) * 1000) / 10 }));
+  }
+  return out;
 }
 
 function chuyen_quy({ tu_quy, den_quy, so_tien, dong_tien, ly_do }) {
@@ -268,8 +347,8 @@ function tao_quy({ ten, loai = 'goal', phan_tram, muc_tieu, han_hoan_thanh, uu_t
   if (phan_tram != null) patch.percent = num(phan_tram) || 0;
   if (muc_tieu != null) patch.target_amount = minor(muc_tieu, code).value;
   if (han_hoan_thanh != null) patch.target_date = String(han_hoan_thanh).slice(0, 10);
-  if (uu_tien != null) patch.priority = Math.round(num(uu_tien));
-  if (tran != null) patch.cap = minor(tran, code).value;
+  if (uu_tien != null) patch.priority = priorityOf(uu_tien) ?? 100;
+  if (tran != null) patch.cap = minorPositive(tran, code, 'Trần quỹ phải dương.').value;
   if (tieu_duoc != null) patch.spendable = tieu_duoc ? 1 : 0;
   if (ghi_chu != null) patch.note = ghi_chu;
   if (icon != null) patch.icon = icon;
@@ -279,7 +358,7 @@ function tao_quy({ ten, loai = 'goal', phan_tram, muc_tieu, han_hoan_thanh, uu_t
     if (exist.archived) patch.archived = 0;
     update('funds', exist.id, patch);
     const f = get('SELECT * FROM funds WHERE id = ?', [exist.id]);
-    return { ok: true, mutates: true, da_cap_nhat: f.name, ke_hoach: fundPlan(f) };
+    return { ok: true, mutates: true, da_cap_nhat: f.name, ke_hoach: fundPlan(f), canh_bao: deadlineWarning(patch.target_date) };
   }
   if (!FUND_TYPES.includes(loai)) loai = 'goal';
   const id = insert('funds', {
@@ -293,7 +372,7 @@ function tao_quy({ ten, loai = 'goal', phan_tram, muc_tieu, han_hoan_thanh, uu_t
     note: patch.note ?? null, icon: patch.icon ?? null, color: patch.color ?? null,
   });
   const f = get('SELECT * FROM funds WHERE id = ?', [id]);
-  return { ok: true, mutates: true, da_tao: f.name, id, ke_hoach: fundPlan(f) };
+  return { ok: true, mutates: true, da_tao: f.name, id, ke_hoach: fundPlan(f), canh_bao: deadlineWarning(patch.target_date) };
 }
 
 /** Đặt mục tiêu + hạn hoàn thành, trả lại số tiền cần bỏ mỗi tháng. */
@@ -302,13 +381,13 @@ function dat_muc_tieu_quy({ quy, so_tien_muc_tieu, han_hoan_thanh, uu_tien, dong
   if (!f) return { ok: false, error: 'Không tìm thấy quỹ.', quy_hop_le: listFunds({ includeArchived: true }).map((x) => x.name) };
   const code = normalizeCurrency(dong_tien || f.currency || baseCurrency());
   const patch = {};
-  if (so_tien_muc_tieu != null) patch.target_amount = minor(so_tien_muc_tieu, code).value;
+  if (so_tien_muc_tieu != null) patch.target_amount = minorPositive(so_tien_muc_tieu, code, 'Số tiền mục tiêu phải dương.').value;
   if (han_hoan_thanh != null) patch.target_date = String(han_hoan_thanh).slice(0, 10);
-  if (uu_tien != null) patch.priority = Math.round(num(uu_tien));
+  if (uu_tien != null) patch.priority = priorityOf(uu_tien) ?? f.priority;
   if (!Object.keys(patch).length) return { ok: false, error: 'Cần ít nhất mục tiêu, hạn hoặc độ ưu tiên.' };
   update('funds', f.id, patch);
   const nf = get('SELECT * FROM funds WHERE id = ?', [f.id]);
-  return { ok: true, mutates: true, quy: nf.name, ke_hoach: fundPlan(nf), ghi_chu: 'monthly_needed là số tiền cần bỏ vào mỗi tháng để kịp hạn.' };
+  return { ok: true, mutates: true, quy: nf.name, ke_hoach: fundPlan(nf), canh_bao: deadlineWarning(patch.target_date), ghi_chu: 'monthly_needed là số tiền cần bỏ vào mỗi tháng để kịp hạn.' };
 }
 
 /** Đóng quỹ: ngừng phân bổ, dồn số dư sang quỹ khác. */
@@ -344,8 +423,8 @@ function them_nguon_thu({ ten, loai = 'salary', so_tien_net, so_tien_gross, dong
   if (!ten) return { ok: false, error: 'Cần tên nguồn thu.' };
   if (!INCOME_TYPES.includes(loai)) return { ok: false, error: `Loại phải thuộc: ${INCOME_TYPES.join(', ')}` };
   const code = normalizeCurrency(dong_tien || baseCurrency());
-  const net = so_tien_net ? minor(so_tien_net, code).value : 0;
-  const gross = so_tien_gross ? minor(so_tien_gross, code).value : 0;
+  const net = so_tien_net ? minorPositive(so_tien_net, code, 'Nguồn thu là tiền vào nên không thể âm.').value : 0;
+  const gross = so_tien_gross ? minorPositive(so_tien_gross, code, 'Nguồn thu là tiền vào nên không thể âm.').value : 0;
   const exist = all('SELECT * FROM income_streams').find((s) => s.name.toLowerCase() === String(ten).toLowerCase());
   const data = {
     name: ten, type: loai, currency: code, frequency: tan_suat,
@@ -361,12 +440,16 @@ function them_nguon_thu({ ten, loai = 'salary', so_tien_net, so_tien_gross, dong
 function them_no({ ten, so_du, lai_suat = 0, tra_moi_thang, dong_tien, loai = 'personal', chu_no }) {
   if (!ten || !so_du) return { ok: false, error: 'Cần tên khoản nợ và số dư.' };
   const code = normalizeCurrency(dong_tien || baseCurrency());
-  const bal = minor(so_du, code).value;
+  const bal = minorPositive(so_du, code, 'Số dư nợ là số tiền còn phải trả nên luôn dương.').value;
+  const rate = Number(lai_suat) || 0;
+  if (rate < 0 || rate > 200) {
+    return { ok: false, error: `Lãi suất ${rate}%/năm không hợp lý. Hãy truyền lãi suất năm dạng số nguyên (ví dụ 22 nghĩa là 22%/năm), trong khoảng 0-200.` };
+  }
   const exist = all('SELECT * FROM debts').find((d) => d.name.toLowerCase() === String(ten).toLowerCase());
   const data = {
     name: ten, type: loai, currency: code, balance: bal, principal: bal,
-    interest_rate: Number(lai_suat) || 0,
-    monthly_payment: tra_moi_thang ? minor(tra_moi_thang, code).value : 0,
+    interest_rate: rate,
+    monthly_payment: tra_moi_thang ? minorPositive(tra_moi_thang, code).value : 0,
     lender: chu_no || null, status: 'active',
   };
   if (exist) { update('debts', exist.id, data); return { ok: true, mutates: true, da_cap_nhat: { id: exist.id, ...data } }; }
@@ -387,11 +470,13 @@ function tra_no({ khoan_no, so_tien, dong_tien }) {
 
 function them_dau_tu({ ma, so_luong, gia_von, dong_tien, loai = 'stock', ten }) {
   if (!ma) return { ok: false, error: 'Cần mã chứng khoán/quỹ.' };
+  const qty = num(so_luong) || 0;
+  if (qty < 0) return { ok: false, error: `Số lượng nắm giữ không thể âm (nhận được ${qty}). Muốn ghi nhận bán bớt thì truyền số lượng còn lại sau khi bán.` };
   const code = normalizeCurrency(dong_tien || guessSymbolCurrency(ma, baseCurrency()));
   const h = upsertHolding({
     symbol: String(ma).toUpperCase(), name: ten || String(ma).toUpperCase(), asset_class: loai,
-    quantity: num(so_luong) || 0,
-    avg_cost: gia_von != null ? minor(gia_von, code).value : 0,
+    quantity: qty,
+    avg_cost: gia_von != null ? minorPositive(gia_von, code, 'Giá vốn phải dương.').value : 0,
     currency: code,
   });
   const saved = h?.holding || h || {};
@@ -401,8 +486,9 @@ function them_dau_tu({ ma, so_luong, gia_von, dong_tien, loai = 'stock', ten }) 
 function cap_nhat_gia({ ma, gia, dong_tien }) {
   if (!ma || !gia) return { ok: false, error: 'Cần mã và giá.' };
   const code = normalizeCurrency(dong_tien || guessSymbolCurrency(ma, baseCurrency()));
-  setHoldingPrice(String(ma).toUpperCase(), minor(gia, code).value);
-  return { ok: true, mutates: true, ma: String(ma).toUpperCase(), gia_moi: minor(gia, code).value, dong_tien: code };
+  const { value } = minorPositive(gia, code, 'Giá thị trường phải dương.');
+  setHoldingPrice(String(ma).toUpperCase(), value);
+  return { ok: true, mutates: true, ma: String(ma).toUpperCase(), gia_moi: value, dong_tien: code };
 }
 
 function tao_giao_dich_dinh_ky({ ten, loai = 'expense', so_tien, dong_tien, tan_suat = 'monthly', ngay_trong_thang, danh_muc, tai_khoan }) {

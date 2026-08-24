@@ -132,6 +132,49 @@ if (e2?.error) { console.log('  ok   thiếu tham số trả error'); pass += 1;
 const e3 = runTool('gop_tien_muc_tieu', { muc_tieu: 'không có thật', so_tien: 10 });
 if (e3?.error) { console.log('  ok   mục tiêu lạ trả error'); pass += 1; } else { console.log('  FAIL mục tiêu lạ'); fail += 1; }
 
+console.log('\n— Lan can an toàn: chặn số liệu vô lý do AI suy luận sai —');
+const mustFail = (label, name, args) => {
+  const out = runTool(name, args);
+  if (out?.error) { pass += 1; console.log(`  ok   ${label}`); }
+  else { fail += 1; bad.push(label); console.log(`  FAIL ${label} -> ${JSON.stringify(out).slice(0, 200)}`); }
+  return out;
+};
+const mustWarn = (label, name, args) => {
+  const out = runTool(name, args);
+  if (out?.canh_bao) { pass += 1; console.log(`  ok   ${label}`); }
+  else { fail += 1; bad.push(label); console.log(`  FAIL ${label} (thiếu cảnh báo) -> ${JSON.stringify(out).slice(0, 200)}`); }
+  return out;
+};
+
+mustFail('chi tiêu số âm bị chặn', 'ghi_giao_dich', { loai: 'expense', so_tien: -500, mo_ta: 'âm' });
+mustFail('góp mục tiêu số âm bị chặn', 'gop_tien_muc_tieu', { muc_tieu: 'Du lịch Nhật', so_tien: -100 });
+mustFail('nguồn thu số âm bị chặn', 'them_nguon_thu', { ten: 'Lương âm', loai: 'salary', so_tien_net: -3000 });
+mustFail('lãi suất 5000%/năm bị chặn', 'them_no', { ten: 'Nợ lạ', so_du: 100, lai_suat: 5000 });
+mustFail('số lượng cổ phiếu âm bị chặn', 'them_dau_tu', { ma: 'TEST', so_luong: -10, gia_von: 400 });
+mustFail('giá thị trường âm bị chặn', 'cap_nhat_gia', { ma: 'TEST', gia: -50 });
+
+// Không chặn (mua nhà là có thật) nhưng phải nói ra để agent hỏi lại.
+mustWarn('số tiền lớn bất thường có cảnh báo', 'ghi_giao_dich', { loai: 'expense', so_tien: 5_000_000, dong_tien: 'EUR', mo_ta: 'gõ thừa số 0' });
+mustWarn('ngày ở tương lai xa có cảnh báo', 'ghi_giao_dich', { loai: 'expense', so_tien: 20, dong_tien: 'EUR', ngay: '2099-01-01', mo_ta: 'sai năm' });
+mustWarn('hạn mục tiêu ở quá khứ có cảnh báo', 'tao_muc_tieu', { ten: 'Hạn cũ', so_tien: 1000, han: '2020-01-01', dong_tien: 'EUR' });
+
+runTool('tao_quy', { ten: 'Quỹ ưu tiên lạ', loai: 'fun', uu_tien: -99 });
+const pr = get("SELECT priority FROM funds WHERE name='Quỹ ưu tiên lạ'")?.priority;
+if (pr === 1) { pass += 1; console.log('  ok   ưu tiên âm được kẹp về 1'); }
+else { fail += 1; bad.push('kẹp ưu tiên'); console.log(`  FAIL ưu tiên âm -> ${pr}`); }
+
+const alloc = runTool('dat_phan_bo_quy', { phan_bo: [{ quy: 'Thiết yếu', phan_tram: 80 }, { quy: 'Tự do tài chính', phan_tram: 50 }] });
+if (alloc?.phan_tram_thuc_nhan?.length && alloc.canh_bao) {
+  const tt = alloc.phan_tram_thuc_nhan.find((x) => x.quy === 'Thiết yếu');
+  if (tt && tt.thuc_nhan < tt.khai_bao) { pass += 1; console.log(`  ok   tổng ≠ 100% báo rõ % thực nhận (${tt.khai_bao}% → ${tt.thuc_nhan}%)`); }
+  else { fail += 1; bad.push('% thực nhận'); console.log('  FAIL % thực nhận không nhỏ hơn % khai báo'); }
+} else { fail += 1; bad.push('% thực nhận'); console.log(`  FAIL thiếu phan_tram_thuc_nhan -> ${JSON.stringify(alloc).slice(0, 200)}`); }
+
+runTool('dat_phan_bo_quy', { phan_bo: [{ quy: 'Cho đi', phan_tram: -30 }] });
+const neg = get("SELECT percent FROM funds WHERE name='Cho đi'")?.percent;
+if (neg === 0) { pass += 1; console.log('  ok   % phân bổ âm được kẹp về 0'); }
+else { fail += 1; bad.push('kẹp % âm'); console.log(`  FAIL % âm -> ${neg}`); }
+
 console.log(`\nKết quả: ${pass} đạt / ${fail} lỗi`);
 if (bad.length) console.log('Cần sửa:', [...new Set(bad)].join(', '));
 process.exit(fail ? 1 : 0);

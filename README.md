@@ -60,6 +60,19 @@ Chat box trở thành một cố vấn tài chính có toàn quyền đọc và 
 - **Chủ động cảnh báo** khi thấy rủi ro thật: sắp âm tiền, nợ lãi cao, quỹ khẩn cấp mỏng.
 - Câu trả lời được tối ưu để **đọc trên điện thoại**: ngắn, ít bảng, in đậm con số quan trọng.
 
+**Lan can an toàn cho AI.** AI suy luận vẫn có lúc sai — gõ thừa số 0, gửi số âm, đặt hạn đã qua. Mọi công cụ ghi dữ liệu đều tự kiểm trước khi lưu:
+
+| Tình huống | App làm gì |
+|---|---|
+| Số tiền âm (chi tiêu, nguồn thu, góp mục tiêu, giá cổ phiếu) | **Chặn**, kèm gợi ý đúng (ví dụ "muốn ghi tiền vào thì đặt `loai=income`") |
+| Số tiền lớn bất thường (gấp >30 lần mức chi trung bình) | **Vẫn ghi** — mua nhà là có thật — nhưng báo để AI hỏi lại bạn cho chắc |
+| Ngày ở tương lai xa quá 60 ngày | Cảnh báo và nhắc dùng giao dịch định kỳ thay vì ghi sổ ngay |
+| Hạn mục tiêu/quỹ nằm ở quá khứ | Cảnh báo, vì không tính được số tiền cần góp mỗi tháng |
+| Lãi suất nợ ngoài khoảng 0-200%/năm | **Chặn**, tránh làm vỡ kế hoạch trả nợ |
+| Độ ưu tiên quỹ âm hoặc quá lớn | Kẹp về khoảng 1-99 để không vượt mặt quỹ thiết yếu |
+| Tổng phân bổ quỹ khác 100% | Báo rõ **% thực nhận** của từng quỹ, vì tiền được chia theo tỉ lệ chứ không theo con số tuyệt đối |
+| Xoá quỹ còn số dư | **Chặn**, hướng sang đóng quỹ để giữ lịch sử và dồn tiền sang quỹ khác |
+
 **B. Bộ luật tiếng Việt offline** (mặc định, không cần key, không cần internet)
 
 Onboarding theo từng bước, hiểu ~30 loại ý định và tự phát hiện số tiền kiểu Việt (`60k`, `1tr5`, `1,2 tỷ`, `3 củ`, `1 triệu rưỡi`). Đây cũng là lưới an toàn: nếu API AI lỗi hay hết hạn mức, app tự động rơi về chế độ này thay vì báo lỗi.
