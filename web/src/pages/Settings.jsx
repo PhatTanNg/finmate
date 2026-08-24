@@ -19,6 +19,7 @@ export default function Settings({ onRefresh }) {
   const [backups, setBackups] = useState([]);
   const [oldPin, setOldPin] = useState('');
   const [newPin, setNewPin] = useState('');
+  const [llm, setLlm] = useState(null);
 
   const loadRules = () => api.get('/rules').then((d) => setRules(d.rules));
   const loadAuth = () => api.get('/auth/status').then(setAuth).catch(() => setAuth({ pin_set: false }));
@@ -33,6 +34,7 @@ export default function Settings({ onRefresh }) {
     loadRules();
     loadAuth();
     loadBackups();
+    api.get('/health').then((d) => setLlm(d.llm)).catch(() => setLlm(null));
   }, []);
   if (!p) return <Loading />;
 
@@ -99,6 +101,31 @@ export default function Settings({ onRefresh }) {
         <div><h1>Cài đặt</h1><p>Hồ sơ cá nhân quyết định mọi con số cố vấn đưa ra</p></div>
         <button className="btn primary" onClick={save}>{saved ? '✅ Đã lưu' : 'Lưu thay đổi'}</button>
       </div>
+
+      {llm && (
+        <Card title="Cố vấn AI">
+          <div className="between" style={{ gap: 12, alignItems: 'flex-start' }}>
+            <div>
+              <b style={{ fontSize: 17 }}>{llm.enabled ? '🧠 Đang chạy AI thật' : '📐 Đang chạy bộ luật tiếng Việt'}</b>
+              <div className="mini" style={{ marginTop: 4 }}>
+                {llm.enabled
+                  ? <>Model <code>{llm.model}</code>. Cố vấn hiểu được câu hỏi tự do, tự gọi công cụ trong app và tự sửa khi gọi sai.</>
+                  : <>Mọi tính năng vẫn chạy đủ: ghi chi tiêu, hỏi số liệu, tạo mục tiêu, phân bổ quỹ. Chỉ khác ở chỗ câu hỏi đi lệch khỏi khuôn mẫu thì cố vấn sẽ nói "chưa hiểu ý bạn".</>}
+              </div>
+            </div>
+            <span className={`tag ${llm.enabled ? 'ok' : ''}`}>{llm.enabled ? 'Bật' : 'Tắt'}</span>
+          </div>
+          {!llm.enabled && (
+            <>
+              <div className="hr" />
+              <div className="mini">
+                Muốn bật: chép <code>server/.env.example</code> thành <code>server/.env</code>, điền <code>FINMATE_LLM_KEY</code> rồi khởi động lại.
+                Dùng được OpenAI, Groq, OpenRouter — hoặc Ollama chạy ngay trên máy bạn thì <b>miễn phí và số liệu tài chính không rời khỏi máy</b>.
+              </div>
+            </>
+          )}
+        </Card>
+      )}
 
       <div className="grid g2">
         <Card title="Hồ sơ">

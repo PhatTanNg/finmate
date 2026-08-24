@@ -27,6 +27,7 @@ import { listRemittances, remittanceSummary, timingAdvice, quote as fxQuote, cos
 import { CURRENCIES, CURRENCY_CODES, normalizeCurrency } from '../util/currency.js';
 import { recomputeBaseAmounts } from '../services/ledger.js';
 import { chat, history as chatHistory, ensureWelcome, resetChat } from '../services/chat/index.js';
+import { llmEnabled, llmModel } from '../services/chat/llm.js';
 
 export const router = express.Router();
 
@@ -42,7 +43,13 @@ const wrap = (fn) => async (req, res) => {
 
 // ---- hệ thống -------------------------------------------------------------
 
-router.get('/health', wrap(async (req, res) => ok(res, { time: new Date().toISOString(), db: 'sqlite' })));
+router.get('/health', wrap(async (req, res) => ok(res, {
+  time: new Date().toISOString(),
+  db: 'sqlite',
+  // Người dùng phải biết mình đang nói chuyện với bộ luật hay với AI thật —
+  // hai thứ này trả lời khác hẳn nhau khi câu hỏi đi lệch khỏi khuôn mẫu.
+  llm: { enabled: llmEnabled(), model: llmEnabled() ? llmModel() : null },
+})));
 
 // ---- khoá ứng dụng bằng PIN ----------------------------------------------
 

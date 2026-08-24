@@ -1,0 +1,28 @@
+> FinMate cho một người dùng: một tiến trình, một file SQLite, một volume.
+> Không cần database server riêng, không cần Redis, không cần load balancer.
+
+services:
+  finmate:
+    build: .
+    restart: unless-stopped
+    ports:
+      # Chỉ mở ra localhost của máy chủ. Đặt một reverse proxy có HTTPS
+      # (Caddy, nginx, Cloudflare Tunnel) ở trước rồi mới phơi ra Internet —
+      # webhook ngân hàng và mã PIN không nên đi qua HTTP trần.
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - finmate-data:/data
+    environment:
+      # Bắt buộc khi đưa lên Internet: không có token thì ai cũng đẩy được
+      # giao dịch giả vào sổ của bạn.
+      # node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+      FINMATE_INGEST_TOKEN: ${FINMATE_INGEST_TOKEN:?can dat FINMATE_INGEST_TOKEN truoc khi deploy}
+      # Domain thật của bạn, để trình duyệt khác không gọi được API.
+      FINMATE_ORIGINS: ${FINMATE_ORIGINS:-}
+      # Tuỳ chọn — bật cố vấn AI thật.
+      FINMATE_LLM_KEY: ${FINMATE_LLM_KEY:-}
+      FINMATE_LLM_MODEL: ${FINMATE_LLM_MODEL:-gpt-4o-mini}
+      FINMATE_LLM_URL: ${FINMATE_LLM_URL:-}
+
+volumes:
+  finmate-data:

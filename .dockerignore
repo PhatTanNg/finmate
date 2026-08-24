@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+web/dist
+server/data
+server/backups
+server/test
+.git
+.github
+*.log
+.env
+.env.*
+!.env.example
+.tmp-*
+.commitmsg.txt

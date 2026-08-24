@@ -193,12 +193,24 @@ Mọi giao dịch nạp vào đều được tự phân loại, tự trừ ngân
 
 App **chạy đầy đủ mà không cần LLM** — toàn bộ NLU là rule-based tiếng Việt và chạy offline. Nhưng bật LLM sẽ đổi hẳn trải nghiệm chat: từ "hỏi A đáp A" thành một **cố vấn tài chính thật sự** biết tra cứu và tự thao tác trong app.
 
+Chép `server/.env.example` thành `server/.env` rồi điền — app tự nạp file này lúc khởi động:
+
 ```bash
 FINMATE_LLM_KEY=sk-...
 FINMATE_LLM_URL=https://api.openai.com/v1/chat/completions   # hoặc Azure/Groq/OpenRouter/Ollama
 FINMATE_LLM_MODEL=gpt-4o-mini                                # cần hỗ trợ function calling
 FINMATE_AGENT=off                                            # tuỳ chọn: tắt agent dù đã có key
 ```
+
+Muốn số liệu tài chính **không rời khỏi máy**, chạy model ngay tại chỗ bằng [Ollama](https://ollama.com) — miễn phí, không cần key thật:
+
+```bash
+FINMATE_LLM_URL=http://127.0.0.1:11434/v1/chat/completions
+FINMATE_LLM_KEY=ollama
+FINMATE_LLM_MODEL=qwen2.5:14b
+```
+
+Vào tab **Cài đặt** để xem app đang chạy chế độ nào — thẻ "Cố vấn AI" ở đầu trang nói rõ đang dùng bộ luật hay AI thật, và model nào.
 
 Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **42 công cụ** (23 công cụ ghi/sửa dữ liệu, 19 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu — rồi mới trả lời.
 
@@ -290,7 +302,32 @@ Windows: dùng Task Scheduler chạy `npm start` lúc đăng nhập. macOS/Linux
 ### 6. Nếu muốn truy cập qua internet
 Đừng mở thẳng cổng 4000 ra ngoài. Dùng **Tailscale** (đơn giản nhất, không cần mở cổng) hoặc đặt sau reverse proxy có HTTPS (Caddy/Nginx + Let's Encrypt) và đặt `FINMATE_ORIGINS=https://ten-mien-cua-ban`.
 
+### 7. Chạy bằng Docker (khi muốn app sống độc lập với máy cá nhân)
+
+Ở chế độ production, **một tiến trình duy nhất** phục vụ cả API lẫn giao diện — không cần chạy Vite riêng:
+
+```bash
+npm run build --workspace web     # tạo web/dist
+npm start --workspace server      # server tự phục vụ web/dist ở cùng cổng
+```
+
+Docker đóng gói đúng hai bước đó:
+
+```bash
+export FINMATE_INGEST_TOKEN=$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")
+docker compose up -d
+```
+
+Vài điểm cần nhớ:
+
+- **Dữ liệu phải nằm trên volume** (`/data`). Container không có volume thì xoá container là mất toàn bộ sổ sách.
+- Compose chỉ bind vào `127.0.0.1:4000` — cố ý như vậy. Đặt reverse proxy có HTTPS ở trước rồi mới phơi ra Internet; mã PIN và token webhook không nên đi qua HTTP trần.
+- `FINMATE_INGEST_TOKEN` là **bắt buộc**, compose sẽ từ chối chạy nếu thiếu. Không có token thì bất kỳ ai gọi được `/api/ingest` cũng đẩy giao dịch giả vào sổ của bạn.
+- Image dùng `node:22-alpine` vì app cần `node:sqlite` (Node ≥ 22.5) — không cài driver SQLite ngoài nào.
+
 ### Biến môi trường
+
+Chép `server/.env.example` thành `server/.env`; app tự nạp file này lúc khởi động.
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
