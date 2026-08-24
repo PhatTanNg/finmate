@@ -287,11 +287,22 @@ const stepHandlers = {
 };
 
 function extractName(text) {
+  if (isSkip(text)) return null;
   const m = String(text).match(/(?:tên là|ten la|tôi là|toi la|mình là|minh la|gọi mình là|goi minh la|tên|ten)\s+([\p{L}\s]{2,30})/iu);
-  if (m) return m[1].trim().split(/\s+/).slice(0, 4).join(' ');
+  if (m) {
+    const picked = m[1].trim().split(/\s+/).slice(0, 4).join(' ');
+    return isNotAName(picked) ? null : picked;
+  }
   const single = String(text).trim();
-  if (/^[\p{L}\s]{2,25}$/u.test(single) && single.split(/\s+/).length <= 4 && !norm(single).includes('chao')) return single;
+  if (/^[\p{L}\s]{2,25}$/u.test(single) && single.split(/\s+/).length <= 4 && !isNotAName(single)) return single;
   return null;
+}
+
+/** Câu trả lời cho có ("bỏ qua bước này", "chưa biết") không được lưu thành tên người dùng. */
+function isNotAName(s) {
+  const n = norm(s);
+  if (!n || n.includes('chao')) return true;
+  return /^(bo qua|bo qua buoc nay|khong|chua|chua biet|khong biet|khong ro|tiep|tiep tuc|xong|xong roi|thoi|de sau|sau nhe|minh chua ro|giai thich giup|co|duoc|ok|okie|uh|u)\b/.test(n);
 }
 
 function guessExpenseCategory(name) {

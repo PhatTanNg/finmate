@@ -3,7 +3,7 @@ import { all, get } from '../db.js';
 import { today, addMonths, age } from '../util/date.js';
 import { futureValue, monthsToTarget } from '../util/money.js';
 import { netWorth, accountsBase } from './networth.js';
-import { averageMonthlyExpense, averageMonthlyIncome, essentialSplit, incomeSources } from './reports.js';
+import { averageMonthlyExpense, averageMonthlyIncome, essentialSplit, incomeSources, totals } from './reports.js';
 import { monthStart, monthEnd, monthKey, addMonths as addM, lastMonths } from '../util/date.js';
 import { projectedAnnualInterest } from './interest.js';
 import { portfolio, realEstate } from './investments.js';
@@ -165,7 +165,17 @@ export function fireStats(overrides = {}) {
     years_of_freedom: monthlyExpense ? Math.round((invested / monthlyExpense / 12) * 10) / 10 : 0,
     scenarios,
     projection,
+    data_months: monthsWithData(),
   };
+}
+
+/** Số tháng đã thực sự có chi tiêu được ghi nhận — dự báo dựa trên càng ít tháng thì càng kém tin cậy. */
+function monthsWithData() {
+  return lastMonths(12)
+    .filter((m) => {
+      const t = totals(monthStart(m), monthEnd(m));
+      return (t.expense || 0) > 0;
+    }).length;
 }
 
 /** Quỹ khẩn cấp: đủ mấy tháng? */

@@ -32,6 +32,13 @@ export default function Fire() {
         <Stat label="Dôi dư mỗi tháng" value={short(f.monthly_surplus)} sub={`Tiết kiệm ${pct(f.savings_rate)}`} tone={f.monthly_surplus > 0 ? 'up' : 'down'} />
       </div>
 
+      {f.data_months < 3 && (
+        <div className="note-warn" style={{ marginTop: 12 }}>
+          ⚠️ Dự báo này mới dựa trên <b>{f.data_months || 0} tháng</b> dữ liệu chi tiêu nên còn rất dễ lệch.
+          Dùng app thêm vài tháng (hoặc nhập sao kê cũ ở tab <b>Tự động hoá</b>) thì ngày tự do tài chính mới đáng tin.
+        </div>
+      )}
+
       <Card title="Tiến độ tới tự do tài chính">
         <Progress value={f.progress} tone="ok" />
         <div className="between mini" style={{ marginTop: 6 }}>
