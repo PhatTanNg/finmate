@@ -193,7 +193,7 @@ Mọi giao dịch nạp vào đều được tự phân loại, tự trừ ngân
 
 App **chạy đầy đủ mà không cần LLM** — toàn bộ NLU là rule-based tiếng Việt và chạy offline. Nhưng bật LLM sẽ đổi hẳn trải nghiệm chat: từ "hỏi A đáp A" thành một **cố vấn tài chính thật sự** biết tra cứu và tự thao tác trong app.
 
-Chép `server/.env.example` thành `server/.env` rồi điền — app tự nạp file này lúc khởi động:
+Chép `.env.example` thành `.env` rồi điền — app tự nạp file này lúc khởi động (đặt ở gốc repo hoặc trong `server/` đều được):
 
 ```bash
 FINMATE_LLM_KEY=sk-...
@@ -327,7 +327,7 @@ Vài điểm cần nhớ:
 
 ### Biến môi trường
 
-Chép `server/.env.example` thành `server/.env`; app tự nạp file này lúc khởi động.
+Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động. Sửa xong phải **khởi động lại** — biến môi trường chỉ đọc một lần lúc chạy.
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|

@@ -119,7 +119,7 @@ export default function Settings({ onRefresh }) {
             <>
               <div className="hr" />
               <div className="mini">
-                Muốn bật: chép <code>server/.env.example</code> thành <code>server/.env</code>, điền <code>FINMATE_LLM_KEY</code> rồi khởi động lại.
+                Muốn bật: chép <code>.env.example</code> thành <code>.env</code>, điền <code>FINMATE_LLM_KEY</code> rồi khởi động lại.
                 Dùng được OpenAI, Groq, OpenRouter — hoặc Ollama chạy ngay trên máy bạn thì <b>miễn phí và số liệu tài chính không rời khỏi máy</b>.
               </div>
             </>
