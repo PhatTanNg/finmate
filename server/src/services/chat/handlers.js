@@ -202,13 +202,17 @@ function queryFire() {
       `🔥 **Tự do tài chính**`,
       `Chi phí sống ${short(f.monthly_expense)}/tháng → cần **${fmt(f.fi_number)}** (quy tắc rút ${Math.round(f.swr * 100)}%/năm).`,
       `Đang có ${fmt(f.invested)} tài sản sinh lời → hoàn thành **${Math.round(f.progress * 100)}%**.`,
-      f.fi_date ? `\n🗓️ Dự kiến đạt: **${vnDate(f.fi_date)}**${f.fi_age ? ` (bạn ${Math.round(f.fi_age)} tuổi)` : ''}, còn ${Math.round(f.months_to_fi / 12 * 10) / 10} năm.` : `\n⚠️ Với dôi dư hiện tại (${short(f.monthly_surplus)}/tháng) chưa thể chạm mốc — cần tăng khoảng cách thu/chi.`,
+      f.fi_reached
+        ? (f.fi_reached_by === 'passive'
+          ? `\n🎉 **Bạn đã tự do tài chính**: thu nhập thụ động ${short(f.passive_income.total)}/tháng đã phủ đủ chi phí sống. Việc còn lại là giữ cho dòng tiền đó bền và không rút vốn quá tay.`
+          : `\n🎉 **Bạn đã tự do tài chính**: tài sản sinh lời đã vượt mốc cần có. Rút đúng ${Math.round(f.swr * 100)}%/năm là sống được không cần lương.`)
+        : f.fi_date ? `\n🗓️ Dự kiến đạt: **${vnDate(f.fi_date)}**${f.fi_age ? ` (bạn ${Math.round(f.fi_age)} tuổi)` : ''}, còn ${Math.round(f.months_to_fi / 12 * 10) / 10} năm.` : `\n⚠️ Với dôi dư hiện tại (${short(f.monthly_surplus)}/tháng) chưa thể chạm mốc — cần tăng khoảng cách thu/chi.`,
       `💵 Thu nhập thụ động hiện tại ${short(f.passive_income.total)}/tháng, phủ **${Math.round(f.passive_coverage * 100)}%** chi phí sống.`,
       `🪶 Lean FIRE (chỉ chi thiết yếu): ${short(f.lean_number)} · Fat FIRE: ${short(f.fat_number)}`,
       f.coast_reached ? `🌴 Bạn đã qua mốc Coast FIRE — kể cả ngừng tích luỹ, tài sản vẫn tự lớn đủ để nghỉ hưu đúng hạn.` : `🌱 Coast FIRE cần ${short(f.coast_number)} (đạt mốc này thì có thể ngừng tích luỹ mà vẫn nghỉ hưu đúng tuổi ${p.retire_age_target}).`,
       '',
-      '**Cách rút ngắn:**',
-      f.scenarios.filter((s) => s.key !== 'base' && s.date).map((s) => `• ${s.label} → ${vnDate(s.date)} (nhanh hơn ${Math.max(0, (f.months_to_fi ?? 0) - s.months)} tháng)`).join('\n'),
+      f.fi_reached ? null : '**Cách rút ngắn:**',
+      f.fi_reached ? null : f.scenarios.filter((s) => s.key !== 'base' && s.date).map((s) => `• ${s.label} → ${vnDate(s.date)} (nhanh hơn ${Math.max(0, (f.months_to_fi ?? 0) - s.months)} tháng)`).join('\n'),
     ]),
     data: f,
   };

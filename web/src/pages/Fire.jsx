@@ -28,7 +28,7 @@ export default function Fire() {
       </div>
 
       <div className="grid g4">
-        <Stat label="Ngày tự do tài chính" value={f.fi_date ? vnDate(f.fi_date) : '—'} sub={f.fi_age ? `Khi bạn ${f.fi_age} tuổi` : `${f.months_to_fi ?? '—'} tháng nữa`} tone="up" />
+        <Stat label="Ngày tự do tài chính" value={f.fi_reached ? 'Đã đạt 🎉' : f.fi_date ? vnDate(f.fi_date) : '—'} sub={f.fi_reached ? (f.fi_reached_by === 'passive' ? 'Thu nhập thụ động đã phủ đủ chi phí sống' : 'Tài sản sinh lời đã vượt mốc cần có') : f.fi_age ? `Khi bạn ${f.fi_age} tuổi` : `${f.months_to_fi ?? '—'} tháng nữa`} tone="up" />
         <Stat label="Cần tích luỹ" value={short(f.fi_number)} sub={`Rút ${pct(f.swr)}/năm`} />
         <Stat label="Đang có" value={short(f.invested)} sub={`Đã đi ${pct(f.progress)}`} />
         <Stat label="Dôi dư mỗi tháng" value={short(f.monthly_surplus)} sub={`Tiết kiệm ${pct(f.savings_rate)}`} tone={f.monthly_surplus > 0 ? 'up' : 'down'} />

@@ -5,8 +5,9 @@
  */
 import { createServer } from 'node:http';
 import { existsSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const DB = new URL('./.tmp-agent.db', import.meta.url).pathname.replace(/^\//, '');
+const DB = fileURLToPath(new URL('./.tmp-agent.db', import.meta.url));
 if (existsSync(DB)) rmSync(DB);
 
 // --- LLM giả: đọc lượt cuối rồi phát ra kịch bản tool-calling định sẵn ---

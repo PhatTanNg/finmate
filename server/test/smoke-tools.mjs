@@ -1,6 +1,7 @@
 /** Kiểm chứng toàn bộ công cụ của AI agent trên DB tạm. */
-process.env.FINMATE_DB = new URL('./.tmp-tools.db', import.meta.url).pathname.replace(/^\//, '');
+process.env.FINMATE_DB = fileURLToPath(new URL('./.tmp-tools.db', import.meta.url));
 import { existsSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 if (existsSync(process.env.FINMATE_DB)) rmSync(process.env.FINMATE_DB);
 
 const { bootstrap } = await import('../src/bootstrap.js');

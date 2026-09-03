@@ -161,6 +161,13 @@ export function averageMonthlyExpense(months = 6) {
   if (!valid.length) {
     const cur = totals(monthStart(monthKey()), today());
     const days = Math.max(1, diffDays(monthStart(monthKey()), today()) + 1);
+    // Ngoại suy tuyến tính từ vài ngày đầu tháng phóng đại kinh khủng: một
+    // người khai 17,5 triệu chi tiêu cả tháng vào ngày mùng 3 sẽ bị tính thành
+    // 175 triệu/tháng, và mọi thứ dựa trên nó — quỹ khẩn cấp, ngày tự do tài
+    // chính, tỉ lệ thu nhập thụ động — đều sai gấp mười lần. Chưa đủ 10 ngày dữ
+    // liệu thì lấy đúng số đã chi làm ước lượng; `data_months` ở tầng trên vẫn
+    // nói rõ dự báo còn mỏng.
+    if (days < 10) return Math.round(cur.living_expense);
     return Math.round((cur.living_expense / days) * 30);
   }
   return Math.round(valid.reduce((s, m) => s + (m.living_expense ?? m.expense), 0) / valid.length);

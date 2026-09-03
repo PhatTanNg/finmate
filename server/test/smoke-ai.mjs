@@ -9,8 +9,9 @@
  */
 import { createServer } from 'node:http';
 import { existsSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const DB = new URL('./.tmp-ai.db', import.meta.url).pathname.replace(/^\//, '');
+const DB = fileURLToPath(new URL('./.tmp-ai.db', import.meta.url));
 for (const s of ['', '-shm', '-wal']) if (existsSync(DB + s)) rmSync(DB + s);
 
 let scenario = [];

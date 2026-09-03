@@ -117,7 +117,10 @@ export function fireStats(overrides = {}) {
   const realReturn = (1 + nominalReturn) / (1 + inflation) - 1;
 
   const monthlyExpense = overrides.monthly_expense || averageMonthlyExpense(6) || 0;
-  const monthlyIncome = overrides.monthly_income || averageMonthlyIncome(6) || 0;
+  // Chưa có giao dịch thu nào (vừa thiết lập, hoặc người nghỉ hưu chỉ khai
+  // nguồn thu thụ động) thì lấy số đã khai trong "Nguồn thu" — để dôi dư và tỉ
+  // lệ tiết kiệm không thành 0 chỉ vì lương chưa kịp về.
+  const monthlyIncome = overrides.monthly_income || averageMonthlyIncome(6) || declaredIncomeMonthly().total || 0;
   const annualExpense = monthlyExpense * 12;
 
   const mk = monthKey();
@@ -134,10 +137,14 @@ export function fireStats(overrides = {}) {
   const fatNumber = Math.round(fatAnnual / swr);
 
   const monthlySurplus = overrides.monthly_surplus ?? Math.max(0, monthlyIncome - monthlyExpense);
-  const months = monthsToTarget(invested, monthlySurplus, realReturn, fiNumber);
-  const fiDate = months === null ? null : addMonths(today(), Math.ceil(months));
   const currentAge = age(p.birth_year);
   const passive = passiveIncomeMonthly();
+  // Tự do tài chính theo đúng nghĩa: tiền tự nuôi được mình. Người có thu nhập
+  // thụ động phủ đủ chi phí sống đã ở đích rồi, dù tổng tài sản tính theo quy
+  // tắc rút 4% chưa chạm mốc — báo "còn 50 năm nữa" với họ là sai thông điệp.
+  const passiveCovers = monthlyExpense > 0 && passive.total >= monthlyExpense;
+  const months = passiveCovers ? 0 : monthsToTarget(invested, monthlySurplus, realReturn, fiNumber);
+  const fiDate = months === null ? null : addMonths(today(), Math.ceil(months));
 
   const targetAge = p.retire_age_target || 50;
   const yearsToTargetAge = currentAge ? Math.max(0, targetAge - currentAge) : 20;
@@ -190,6 +197,8 @@ export function fireStats(overrides = {}) {
     coast_reached: invested >= coastNumber,
     progress: fiNumber ? Math.min(1, invested / fiNumber) : 0,
     months_to_fi: months === null ? null : Math.ceil(months),
+    fi_reached: passiveCovers || (fiNumber > 0 && invested >= fiNumber),
+    fi_reached_by: passiveCovers ? 'passive' : (fiNumber > 0 && invested >= fiNumber) ? 'assets' : null,
     fi_date: fiDate,
     fi_age: months === null || !currentAge ? null : Math.round((currentAge + months / 12) * 10) / 10,
     current_age: currentAge,
