@@ -1,19 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
-import { Card, Empty, Loading, Money, Modal, Form } from '../components/ui.jsx';
-import { vnDate, short, fmt, baseCurrency, toMinor, toMajor, CURRENCIES } from '../lib/format.js';
+import { Empty, Loading, Money, Modal, Form } from '../components/ui.jsx';
+import { vnDate, short, baseCurrency, toMinor, toMajor, CURRENCIES } from '../lib/format.js';
 
+const KINDS = [['', 'Tất cả'], ['expense', 'Chi'], ['income', 'Thu'], ['transfer', 'Chuyển']];
+
+function dayLabel(iso) {
+  const today = new Date().toISOString().slice(0, 10);
+  const y = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (iso === today) return 'Hôm nay';
+  if (iso === y) return 'Hôm qua';
+  return vnDate(iso);
+}
+
+/** Danh sách kiểu app ngân hàng: nhóm theo ngày, chạm vào hàng để sửa. */
 export default function Transactions({ onRefresh }) {
   const [data, setData] = useState(null);
   const [cats, setCats] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [q, setQ] = useState('');
   const [kind, setKind] = useState('');
+  const [review, setReview] = useState(false);
   const [edit, setEdit] = useState(null);
   const [adding, setAdding] = useState(false);
 
   const load = () => {
-    const p = new URLSearchParams({ limit: '200' });
+    const p = new URLSearchParams({ limit: '300' });
     if (q) p.set('search', q);
     if (kind) p.set('type', kind);
     api.get(`/transactions?${p}`).then((d) => setData(d.transactions));
@@ -23,6 +35,19 @@ export default function Transactions({ onRefresh }) {
     api.get('/categories').then((d) => setCats(d.categories));
     api.get('/accounts').then((d) => setAccounts(d.accounts));
   }, []);
+
+  const rows = useMemo(() => (data || []).filter((t) => !review || t.needs_review), [data, review]);
+  const groups = useMemo(() => {
+    const out = [];
+    let cur = null;
+    for (const t of rows) {
+      if (!cur || cur.date !== t.date) { cur = { date: t.date, items: [], sum: 0 }; out.push(cur); }
+      cur.items.push(t);
+      if (t.type === 'expense') cur.sum -= (t.base_amount ?? t.amount);
+      if (t.type === 'income') cur.sum += (t.base_amount ?? t.amount);
+    }
+    return out;
+  }, [rows]);
 
   if (!data) return <Loading />;
 
@@ -45,7 +70,7 @@ export default function Transactions({ onRefresh }) {
   }
   async function del(id) {
     if (!confirm('Xoá giao dịch này?')) return;
-    await api.del(`/transactions/${id}`); load(); onRefresh?.();
+    await api.del(`/transactions/${id}`); setEdit(null); load(); onRefresh?.();
   }
 
   const fields = [
@@ -67,43 +92,44 @@ export default function Transactions({ onRefresh }) {
       <div className="page-h">
         <div>
           <h1>Giao dịch</h1>
-          <p>{data.length} giao dịch{needReview ? ` · ${needReview} cần xem lại` : ''} — phần lớn được ghi tự động từ SMS/ứng dụng ngân hàng</p>
+          <p>{data.length} giao dịch{needReview ? ` · ${needReview} cần xem lại` : ''} — phần lớn ghi tự động từ ngân hàng hoặc qua chat</p>
         </div>
-        <button className="btn primary" onClick={() => setAdding(true)}>+ Thêm</button>
+        <button className="btn primary hide-m" onClick={() => setAdding(true)}>+ Thêm</button>
       </div>
 
       <div className="row wrap" style={{ marginBottom: 12, gap: 8 }}>
-        <input className="inp" style={{ maxWidth: 280 }} placeholder="Tìm theo nội dung, nơi chi..." value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="inp" style={{ maxWidth: 160 }} value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="">Tất cả</option><option value="expense">Chi</option><option value="income">Thu</option><option value="transfer">Chuyển khoản</option>
-        </select>
+        <input className="inp" style={{ flex: '1 1 200px', maxWidth: 360 }} placeholder="Tìm nơi chi, ghi chú…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="seg">
+          {KINDS.map(([v, l]) => <button key={v} className={kind === v ? 'on' : ''} onClick={() => setKind(v)}>{l}</button>)}
+        </div>
+        {needReview > 0 && <button className={`chip ${review ? 'on' : ''}`} onClick={() => setReview(!review)}>Cần xem lại · {needReview}</button>}
       </div>
 
-      <div className="card pad0 scrollx">
-        <table>
-          <thead><tr><th>Ngày</th><th>Nội dung</th><th>Danh mục</th><th>Tài khoản</th><th>Nguồn</th><th className="num">Số tiền</th><th></th></tr></thead>
-          <tbody>
-            {data.map((t) => (
-              <tr key={t.id}>
-                <td className="mini">{vnDate(t.date)}</td>
-                <td>
-                  {t.merchant || t.note || '—'}
-                  {t.needs_review ? <span className="tag warn" style={{ marginLeft: 6 }}>cần xem</span> : null}
-                </td>
-                <td className="mini">{t.category_icon || ''} {t.category_name || '—'}</td>
-                <td className="mini">{t.account_name || '—'}</td>
-                <td><span className="tag">{t.source}</span></td>
-                <td className="num"><Money v={t.type === 'income' ? t.amount : t.type === 'transfer' ? 0 : -t.amount} sign /></td>
-                <td className="acts">
-                  <button className="btn sm ghost" onClick={() => setEdit(t)} aria-label="Sửa giao dịch">✎</button>
-                  <button className="btn sm ghost" onClick={() => del(t.id)} aria-label="Xoá giao dịch">🗑</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!data.length && <Empty>Không có giao dịch nào khớp.</Empty>}
+      <div className="card pad0">
+        {groups.map((g) => (
+          <div key={g.date}>
+            <div className="day-h"><span>{dayLabel(g.date)}</span><span className={g.sum > 0 ? 'up' : g.sum < 0 ? '' : 'dim'}>{g.sum ? short(g.sum) : ''}</span></div>
+            <div className="list">
+              {g.items.map((t) => (
+                <div key={t.id} className="item tap" onClick={() => setEdit(t)} role="button" tabIndex={0}>
+                  <div className="ic">{t.category_icon || (t.type === 'income' ? '💰' : t.type === 'transfer' ? '🔁' : '💸')}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="t">{t.merchant || t.note || t.category_name || 'Giao dịch'}{t.needs_review ? <span className="tag warn" style={{ marginLeft: 6 }}>cần xem</span> : null}</div>
+                    <div className="s">{t.category_name || (t.type === 'transfer' ? 'Chuyển khoản' : 'Chưa phân loại')}{t.account_name ? ` · ${t.account_name}` : ''}{t.source && t.source !== 'manual' ? ` · ${t.source}` : ''}</div>
+                  </div>
+                  <div className="amt">
+                    <Money v={t.type === 'income' ? t.amount : t.type === 'transfer' ? 0 : -t.amount} sign />
+                    {t.currency && t.currency !== baseCurrency() && <div className="s">{t.currency}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {!rows.length && <Empty>Không có giao dịch nào khớp.</Empty>}
       </div>
+
+      <button className="fab" onClick={() => setAdding(true)} aria-label="Thêm giao dịch">＋</button>
 
       {(adding || edit) && (
         <Modal title={edit ? 'Sửa giao dịch' : 'Thêm giao dịch'} onClose={() => { setEdit(null); setAdding(false); }}>
@@ -113,7 +139,12 @@ export default function Transactions({ onRefresh }) {
             onSubmit={save}
             onCancel={() => { setEdit(null); setAdding(false); }}
           />
-          {edit && <p className="mini" style={{ marginTop: 12 }}>💡 Khi bạn sửa danh mục, FinMate sẽ tự học và áp dụng cho các giao dịch tương tự sau này.</p>}
+          {edit && (
+            <div className="between" style={{ marginTop: 12 }}>
+              <p className="mini" style={{ margin: 0 }}>💡 Sửa danh mục thì FinMate tự học cho lần sau.</p>
+              <button className="btn sm danger" onClick={() => del(edit.id)}>Xoá</button>
+            </div>
+          )}
         </Modal>
       )}
     </>

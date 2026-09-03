@@ -408,6 +408,25 @@ CREATE TABLE IF NOT EXISTS ai_memory (
   updated_at TEXT DEFAULT (datetime('now')),
   UNIQUE(kind, key)
 );
+
+-- Đề xuất của AI chờ người dùng gật đầu: mỗi đề xuất là một chuỗi lời gọi công
+-- cụ cụ thể (không phải lời khuyên chung chung), bấm "Đồng ý" là app tự làm.
+CREATE TABLE IF NOT EXISTS ai_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT,                         -- chống lặp: cùng key mà đang chờ thì không tạo bản mới
+  title TEXT NOT NULL,
+  body TEXT,
+  actions TEXT NOT NULL,            -- JSON [{tool, args}]
+  source TEXT DEFAULT 'autopilot',  -- autopilot | chat | review | ingest
+  severity TEXT DEFAULT 'info',     -- info | warn | danger
+  auto_ok INTEGER DEFAULT 0,        -- 1 = an toàn để tự làm khi bật chế độ tự lái
+  status TEXT DEFAULT 'pending',    -- pending | accepted | rejected | failed | expired
+  result TEXT,
+  message_id INTEGER,               -- tin nhắn chat mang đề xuất này
+  created_at TEXT DEFAULT (datetime('now')),
+  decided_at TEXT,
+  expires_at TEXT
+);
 `;
 
 db.exec(SCHEMA);
@@ -597,7 +616,7 @@ function warnDropped(table, data, kept) {
  * tác, tức vài giây cho một lượt chat sau ít năm dùng. Trigger chỉ tốn công
  * theo số hàng thật sự đổi, nên sổ có to đến đâu cũng không chậm đi.
  */
-const AUDIT_SKIP = new Set(['ai_actions', 'ai_changes', 'ai_audit_state', 'chat_messages',
+const AUDIT_SKIP = new Set(['ai_actions', 'ai_changes', 'ai_audit_state', 'ai_proposals', 'chat_messages',
   'insights', 'networth_snapshots', 'fx_rates', 'settings', 'ingest_log', 'sqlite_sequence']);
 
 function jsonOf(prefix, table) {

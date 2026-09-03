@@ -36,7 +36,7 @@ export default function Budgets({ onRefresh }) {
   return (
     <>
       <div className="page-h">
-        <div><h1>Ngân sách</h1><p>Tháng {monthLabel(d.month)} · đã qua {pct(items[0]?.pace || 0)} thời gian</p></div>
+        <div><h1>Ngân sách</h1><p>{monthLabel(d.month)} · đã qua {pct(items[0]?.pace || 0)} thời gian</p></div>
         <button className="btn primary" onClick={() => setAdding(true)}>+ Ngân sách</button>
       </div>
 

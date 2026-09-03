@@ -64,7 +64,7 @@ export function short(n, code) {
     if (a >= 1e9) return d(1e9, 'tỷ');
     if (a >= 1e6) return d(1e6, 'tr');
     if (a >= 1e3) return `${s}${Math.round(a / 1e3)}k`;
-    return `${v}`;
+    return `${v}đ`;
   }
   const p = (x, u) => `${s}${c.symbol}${Number((a / x).toFixed(a / x >= 100 ? 0 : 1))}${u}`;
   if (a >= 1e9) return p(1e9, 'B');

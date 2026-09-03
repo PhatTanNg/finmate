@@ -126,36 +126,43 @@ const MOVE = ['Leap Card top-up', 'FreeNow', 'Irish Rail', 'Dublin Bus', 'Circle
 const FUN = ['Odeon Point Square', 'Steam', 'The Bernard Shaw', 'Aviva Stadium', 'Eventbrite'];
 
 const months = lastMonths(6);
+// Dữ liệu mẫu không được ghi vào tương lai: "Gửi bố mẹ 27/09" khi hôm nay là
+// 03/09 làm dự báo dòng tiền và số tiền an toàn để tiêu sai ngay từ lúc mở app.
+const notFuture = (data) => (String(data.date || today()) <= today());
+const tx = (data) => (notFuture(data) ? createTransaction(data) : null);
+const trade = (data) => (notFuture(data) ? recordTrade(data) : null);
+const alloc = (data) => (notFuture(data) ? allocateIncome(data) : null);
+
 for (const mk of months) {
   const first = monthStart(mk);
   const isCurrent = mk === monthKey();
   const dayLimit = isCurrent ? Number(today().slice(8, 10)) : 28;
 
   // lương về AIB ngày 25
-  createTransaction({ type: 'income', amount: pay.monthly_net, currency: 'EUR', date: addDays(first, 24), account_id: acc.aib, merchant: 'STRIPE PAYROLL', note: `Lương tháng ${mk}`, source: 'sms', category_id: categoryByName('Lương', 'income')?.id });
+  tx({ type: 'income', amount: pay.monthly_net, currency: 'EUR', date: addDays(first, 24), account_id: acc.aib, merchant: 'STRIPE PAYROLL', note: `Lương tháng ${mk}`, source: 'sms', category_id: categoryByName('Lương', 'income')?.id });
   // thu nhập ở Việt Nam vẫn vào tài khoản VND
-  createTransaction({ type: 'income', amount: V(8_300_000), currency: 'VND', date: addDays(first, 9), account_id: acc.vcb, merchant: 'TIEN THUE NHA', note: 'Tiền thuê căn hộ Bình Thạnh', source: 'sms', category_id: categoryByName('Cho thuê BĐS', 'income')?.id });
-  if (rnd() > 0.55) createTransaction({ type: 'income', amount: near(450, 200), currency: 'EUR', date: addDays(first, 17), account_id: acc.revolut, merchant: 'FREELANCE PAYOUT', note: 'Dự án freelance', source: 'sms', category_id: categoryByName('Freelance', 'income')?.id });
+  tx({ type: 'income', amount: V(8_300_000), currency: 'VND', date: addDays(first, 9), account_id: acc.vcb, merchant: 'TIEN THUE NHA', note: 'Tiền thuê căn hộ Bình Thạnh', source: 'sms', category_id: categoryByName('Cho thuê BĐS', 'income')?.id });
+  if (rnd() > 0.55) tx({ type: 'income', amount: near(450, 200), currency: 'EUR', date: addDays(first, 17), account_id: acc.revolut, merchant: 'FREELANCE PAYOUT', note: 'Dự án freelance', source: 'sms', category_id: categoryByName('Freelance', 'income')?.id });
 
   for (let d = 1; d <= dayLimit; d++) {
     const date = addDays(first, d - 1);
-    if (d % 7 === 2 || d % 7 === 5) createTransaction({ type: 'expense', amount: near(48, 22), currency: 'EUR', date, account_id: pick([acc.revolut, acc.aib, acc.ccEur]), merchant: pick(FOOD.slice(0, 5)), note: 'Đi chợ tuần', source: 'sms' });
-    if (rnd() > 0.55) createTransaction({ type: 'expense', amount: near(11.5, 6), currency: 'EUR', date, account_id: pick([acc.revolut, acc.ccEur]), merchant: pick(FOOD.slice(5)), source: 'sms' });
-    if (rnd() > 0.6) createTransaction({ type: 'expense', amount: near(3.8, 1.4), currency: 'EUR', date, account_id: pick([acc.revolut, acc.cashEur]), merchant: pick(COFFEE), source: 'sms' });
-    if (rnd() > 0.82) createTransaction({ type: 'expense', amount: near(42, 30), currency: 'EUR', date, account_id: pick([acc.ccEur, acc.aib]), merchant: pick(SHOP), source: 'sms' });
-    if (rnd() > 0.88) createTransaction({ type: 'expense', amount: near(16, 10), currency: 'EUR', date, account_id: pick([acc.revolut, acc.cashEur]), merchant: pick(MOVE), source: 'sms' });
-    if (rnd() > 0.92) createTransaction({ type: 'expense', amount: near(24, 14), currency: 'EUR', date, account_id: pick([acc.ccEur, acc.revolut]), merchant: pick(FUN), source: 'sms' });
+    if (d % 7 === 2 || d % 7 === 5) tx({ type: 'expense', amount: near(48, 22), currency: 'EUR', date, account_id: pick([acc.revolut, acc.aib, acc.ccEur]), merchant: pick(FOOD.slice(0, 5)), note: 'Đi chợ tuần', source: 'sms' });
+    if (rnd() > 0.55) tx({ type: 'expense', amount: near(11.5, 6), currency: 'EUR', date, account_id: pick([acc.revolut, acc.ccEur]), merchant: pick(FOOD.slice(5)), source: 'sms' });
+    if (rnd() > 0.6) tx({ type: 'expense', amount: near(3.8, 1.4), currency: 'EUR', date, account_id: pick([acc.revolut, acc.cashEur]), merchant: pick(COFFEE), source: 'sms' });
+    if (rnd() > 0.82) tx({ type: 'expense', amount: near(42, 30), currency: 'EUR', date, account_id: pick([acc.ccEur, acc.aib]), merchant: pick(SHOP), source: 'sms' });
+    if (rnd() > 0.88) tx({ type: 'expense', amount: near(16, 10), currency: 'EUR', date, account_id: pick([acc.revolut, acc.cashEur]), merchant: pick(MOVE), source: 'sms' });
+    if (rnd() > 0.92) tx({ type: 'expense', amount: near(24, 14), currency: 'EUR', date, account_id: pick([acc.ccEur, acc.revolut]), merchant: pick(FUN), source: 'sms' });
   }
 
   // các khoản lớn
-  if (rnd() > 0.65) createTransaction({ type: 'expense', amount: near(230, 120), currency: 'EUR', date: addDays(first, 12), account_id: acc.ccEur, merchant: 'Ryanair', note: 'Vé đi chơi châu Âu', source: 'sms' });
-  if (rnd() > 0.8) createTransaction({ type: 'expense', amount: near(85, 40), currency: 'EUR', date: addDays(first, 21), account_id: acc.aib, merchant: 'Blackrock Clinic', note: 'Khám bệnh', source: 'sms' });
+  if (rnd() > 0.65) tx({ type: 'expense', amount: near(230, 120), currency: 'EUR', date: addDays(first, 12), account_id: acc.ccEur, merchant: 'Ryanair', note: 'Vé đi chơi châu Âu', source: 'sms' });
+  if (rnd() > 0.8) tx({ type: 'expense', amount: near(85, 40), currency: 'EUR', date: addDays(first, 21), account_id: acc.aib, merchant: 'Blackrock Clinic', note: 'Khám bệnh', source: 'sms' });
 
   // ---- gửi tiền về Việt Nam: chuyển khoản khác đồng tiền ------------------
   const sendDay = addDays(first, 26);
   const sent = near(1_000, 90);
   const fee = near(4.5, 1.5);
-  createTransaction({
+  tx({
     type: 'transfer', amount: sent, fee, currency: 'EUR', date: sendDay,
     account_id: acc.revolut, counter_account_id: acc.vcb,
     note: 'Gửi tiền về cho gia đình', source: 'manual',
@@ -163,18 +170,18 @@ for (const mk of months) {
 
   // luân chuyển nội bộ
   // Lương về AIB, mỗi tháng chuyển sang Revolut một khoản để tiêu và gửi về nhà.
-  createTransaction({ type: 'transfer', amount: E(1_050), currency: 'EUR', date: addDays(first, 25), account_id: acc.aib, counter_account_id: acc.revolut, note: 'Tiền sinh hoạt tháng', source: 'sms' });
-  createTransaction({ type: 'transfer', amount: E(520), currency: 'EUR', date: addDays(first, 25), account_id: acc.aib, counter_account_id: acc.n26, note: 'Bỏ quỹ khẩn cấp', source: 'sms' });
-  createTransaction({ type: 'transfer', amount: E(400), currency: 'EUR', date: addDays(first, 25), account_id: acc.aib, counter_account_id: acc.degiro, note: 'DCA vào ETF', source: 'sms' });
+  tx({ type: 'transfer', amount: E(1_050), currency: 'EUR', date: addDays(first, 25), account_id: acc.aib, counter_account_id: acc.revolut, note: 'Tiền sinh hoạt tháng', source: 'sms' });
+  tx({ type: 'transfer', amount: E(520), currency: 'EUR', date: addDays(first, 25), account_id: acc.aib, counter_account_id: acc.n26, note: 'Bỏ quỹ khẩn cấp', source: 'sms' });
+  tx({ type: 'transfer', amount: E(400), currency: 'EUR', date: addDays(first, 25), account_id: acc.aib, counter_account_id: acc.degiro, note: 'DCA vào ETF', source: 'sms' });
   const dcaPrice = near(124, 6);
-  recordTrade({ symbol: 'VWCE', side: 'buy', quantity: Math.max(1, Math.round(E(400) / dcaPrice)), price: dcaPrice, date: addDays(first, 26), account_id: acc.degiro, note: 'Mua định kỳ VWCE' });
-  createTransaction({ type: 'transfer', amount: E(430), currency: 'EUR', date: addDays(first, 11), account_id: acc.aib, counter_account_id: acc.ccEur, note: 'Thanh toán thẻ tín dụng', source: 'sms' });
-  createTransaction({ type: 'transfer', amount: E(60), currency: 'EUR', date: addDays(first, 3), account_id: acc.revolut, counter_account_id: acc.cashEur, note: 'Rút ATM', source: 'sms' });
+  trade({ symbol: 'VWCE', side: 'buy', quantity: Math.max(1, Math.round(E(400) / dcaPrice)), price: dcaPrice, date: addDays(first, 26), account_id: acc.degiro, note: 'Mua định kỳ VWCE' });
+  tx({ type: 'transfer', amount: E(430), currency: 'EUR', date: addDays(first, 11), account_id: acc.aib, counter_account_id: acc.ccEur, note: 'Thanh toán thẻ tín dụng', source: 'sms' });
+  tx({ type: 'transfer', amount: E(60), currency: 'EUR', date: addDays(first, 3), account_id: acc.revolut, counter_account_id: acc.cashEur, note: 'Rút ATM', source: 'sms' });
 
   runDueRecurring(isCurrent ? today() : monthEnd(mk));
 
   if (!isCurrent) {
-    allocateIncome({ amount: pay.monthly_net, date: addDays(first, 25), note: `Phân bổ thu nhập ${mk}` });
+    alloc({ amount: pay.monthly_net, date: addDays(first, 25), note: `Phân bổ thu nhập ${mk}` });
     snapshot(monthStart(mk));
   }
 }

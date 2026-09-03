@@ -10,13 +10,13 @@ export function readTheme() {
   }
 }
 
-function systemPrefersLight() {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches;
+function systemPrefersDark() {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-/** Chủ đề thực tế sau khi giải nghĩa 'auto' theo cài đặt hệ điều hành. */
+/** Chủ đề thực tế sau khi giải nghĩa 'auto' theo cài đặt hệ điều hành. Sáng là mặc định. */
 export function resolveTheme(mode = readTheme()) {
-  return mode === 'auto' ? (systemPrefersLight() ? 'light' : 'dark') : mode;
+  return mode === 'auto' ? (systemPrefersDark() ? 'dark' : 'light') : mode;
 }
 
 export function applyTheme(mode) {
@@ -24,7 +24,7 @@ export function applyTheme(mode) {
   const root = document.documentElement;
   root.setAttribute('data-theme', real);
   root.style.colorScheme = real;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', real === 'light' ? '#eef1f8' : '#0b1020');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', real === 'light' ? '#f4f5f7' : '#0a0a0c');
   try { localStorage.setItem(KEY, mode); } catch { /* chế độ riêng tư */ }
   return real;
 }
@@ -32,12 +32,12 @@ export function applyTheme(mode) {
 /** Gọi lại khi người dùng đổi chủ đề hệ điều hành, chỉ có tác dụng ở chế độ 'auto'. */
 export function watchSystemTheme(cb) {
   if (typeof matchMedia !== 'function') return () => {};
-  const mq = matchMedia('(prefers-color-scheme: light)');
+  const mq = matchMedia('(prefers-color-scheme: dark)');
   const h = () => { if (readTheme() === 'auto') cb(applyTheme('auto')); };
   mq.addEventListener?.('change', h);
   return () => mq.removeEventListener?.('change', h);
 }
 
-export const NEXT_THEME = { dark: 'light', light: 'auto', auto: 'dark' };
+export const NEXT_THEME = { light: 'dark', dark: 'auto', auto: 'light' };
 export const THEME_ICON = { dark: '🌙', light: '☀️', auto: '🌗' };
 export const THEME_LABEL = { dark: 'Chủ đề tối', light: 'Chủ đề sáng', auto: 'Theo hệ thống' };

@@ -20,6 +20,9 @@ export default function Settings({ onRefresh }) {
   const [oldPin, setOldPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [llm, setLlm] = useState(null);
+  const [auto, setAuto] = useState(null);
+  const loadAuto = () => api.get('/ai/autopilot').then(setAuto).catch(() => setAuto(null));
+  const setMode = async (che_do) => { setAuto(await api.put('/ai/autopilot', { che_do })); };
 
   const loadRules = () => api.get('/rules').then((d) => setRules(d.rules));
   const loadAuth = () => api.get('/auth/status').then(setAuth).catch(() => setAuth({ pin_set: false }));
@@ -35,6 +38,7 @@ export default function Settings({ onRefresh }) {
     loadAuth();
     loadBackups();
     api.get('/health').then((d) => setLlm(d.llm)).catch(() => setLlm(null));
+    loadAuto();
   }, []);
   if (!p) return <Loading />;
 
@@ -101,6 +105,28 @@ export default function Settings({ onRefresh }) {
         <div><h1>Cài đặt</h1><p>Hồ sơ cá nhân quyết định mọi con số cố vấn đưa ra</p></div>
         <button className="btn primary" onClick={save}>{saved ? '✅ Đã lưu' : 'Lưu thay đổi'}</button>
       </div>
+
+      {auto && (
+        <Card title="Cố vấn tự lái">
+          <p className="mini" style={{ marginTop: 0 }}>
+            Cố vấn tự nhìn sổ sách mỗi giờ và biến việc cần làm thành đề xuất cụ thể (cân bằng quỹ, đặt khoản định kỳ cho tiền nhà đã lặp ba tháng,
+            giãn hạn mục tiêu không kịp, xác nhận danh mục…). Bạn chỉ cần gật trong chat hoặc ở Trang chủ.
+          </p>
+          <div className="chips" style={{ marginTop: 10 }}>
+            {[
+              ['off', 'Tắt', 'Chỉ cảnh báo, không đề xuất'],
+              ['propose', 'Đề xuất rồi chờ gật', 'Mặc định: hỏi trước mọi việc'],
+              ['act', 'Tự làm việc an toàn', 'Việc hoàn tác được thì làm luôn rồi báo; việc còn lại vẫn hỏi'],
+            ].map(([k, t, hint]) => (
+              <button key={k} className={`chip ${auto.che_do === k ? 'on' : ''}`} title={hint} onClick={() => setMode(k)}>{t}</button>
+            ))}
+          </div>
+          <div className="mini" style={{ marginTop: 8 }}>
+            {auto.dang_cho ? `${auto.dang_cho} đề xuất đang chờ bạn.` : 'Không có đề xuất nào đang chờ.'}
+            {auto.ban_tin_cuoi ? ` Bản tin sáng gần nhất: ${auto.ban_tin_cuoi}.` : ''}
+          </div>
+        </Card>
+      )}
 
       {llm && (
         <Card title="Cố vấn AI">

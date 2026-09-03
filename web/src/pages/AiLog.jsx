@@ -85,17 +85,19 @@ export default function AiLog({ onRefresh }) {
   const [data, setData] = useState(null);
   const [mem, setMem] = useState([]);
   const [rev, setRev] = useState(null);
+  const [props, setProps] = useState(null);
   const [open, setOpen] = useState(null);
   const [onlyChanges, setOnlyChanges] = useState(false);
   const [busy, setBusy] = useState('');
 
   const load = async () => {
-    const [a, m, r] = await Promise.all([
+    const [a, m, r, p] = await Promise.all([
       api.get(`/ai/actions?limit=60${onlyChanges ? '&mutating=1' : ''}`),
       api.get('/ai/memory'),
       api.get('/ai/review'),
+      api.get('/ai/proposals?status=all&limit=30').catch(() => ({ proposals: [], stats: {} })),
     ]);
-    setData(a); setMem(m.memory || []); setRev(r);
+    setData(a); setMem(m.memory || []); setRev(r); setProps(p);
   };
   useEffect(() => { load().catch(() => setData(false)); }, [onlyChanges]);
 
@@ -129,6 +131,26 @@ export default function AiLog({ onRefresh }) {
         <Stat label="Bạn đã hoàn tác" value={s.da_hoan_tac || 0} tone={s.da_hoan_tac ? 'warn' : undefined} />
         <Stat label="Đang nhớ về bạn" value={mem.length} sub="điều quan trọng" />
       </div>
+
+      <Card title="📋 Đề xuất của cố vấn">
+        <p className="mini" style={{ marginTop: 0 }}>Việc cố vấn muốn làm và đang chờ bạn gật, cùng lịch sử những gì đã làm hay bạn đã bỏ qua.</p>
+        {!props?.proposals?.length && <Empty>Chưa có đề xuất nào. Cố vấn tự rà mỗi giờ; bật chế độ tự lái trong Cài đặt.</Empty>}
+        {(props?.proposals || []).slice(0, 15).map((p) => (
+          <div key={p.id} className="row" style={{ alignItems: 'flex-start', padding: '9px 0', borderBottom: '1px solid var(--line-soft)', opacity: p.trang_thai === 'pending' ? 1 : .65 }}>
+            <span style={{ fontSize: 17, marginRight: 6 }}>{p.trang_thai === 'accepted' ? '✅' : p.trang_thai === 'rejected' ? '⏭️' : p.trang_thai === 'failed' ? '⚠️' : p.trang_thai === 'expired' ? '⌛' : '💡'}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b>{p.tieu_de}</b>
+              <div className="mini">{p.hanh_dong?.map((a) => label(a.tool)).join(' → ')} · {p.nguon === 'chat' ? 'AI đề xuất trong chat' : p.nguon === 'review' ? 'tự rà soát' : p.nguon === 'ingest' ? 'từ tin ngân hàng' : 'tự lái'} · {when(p.luc)}</div>
+            </div>
+            {p.trang_thai === 'pending' && (
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn primary sm" onClick={async () => { const r = await api.post(`/ai/proposals/${p.id}/accept`); if (r.ok === false) alert(r.error); await load(); onRefresh?.(); }}>Đồng ý</button>
+                <button className="btn sm" onClick={async () => { await api.post(`/ai/proposals/${p.id}/reject`); await load(); }}>Bỏ qua</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </Card>
 
       <Card
         title="🔍 AI tự rà soát định kỳ"

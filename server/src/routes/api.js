@@ -31,6 +31,8 @@ import { llmEnabled, llmModel, llmStatus } from '../services/chat/llm.js';
 import { listActions, actionDetail, actionStats, undoAction, undoLast, undoBatch, pruneActions } from '../services/ai_audit.js';
 import { listMemory, remember, forget, pruneMemory } from '../services/ai_memory.js';
 import { runReview, reviewConfig, setReviewConfig, lastReview, reviewHistory } from '../services/ai_review.js';
+import { listProposals, getProposal, acceptProposal, rejectProposal, proposalStats } from '../services/ai_proposals.js';
+import { runAutopilot, autopilotConfig, setAutopilotConfig, noteIngest, dailyBrief } from '../services/autopilot.js';
 
 export const router = express.Router();
 
@@ -145,7 +147,13 @@ router.post('/settings', wrap(async (req, res) => {
 
 router.get('/chat/history', wrap(async (req, res) => {
   ensureWelcome();
-  ok(res, { messages: chatHistory(), profile: get('SELECT * FROM profile WHERE id = 1') });
+  ok(res, {
+    messages: chatHistory(),
+    profile: get('SELECT * FROM profile WHERE id = 1'),
+    // Đề xuất đang chờ, để giao diện vẽ nút Đồng ý/Bỏ qua đúng dưới tin nhắn mang nó.
+    proposals: listProposals({ status: 'pending', limit: 20 }),
+    autopilot: autopilotConfig(),
+  });
 }));
 router.post('/chat', wrap(async (req, res) => {
   const result = await chat(req.body?.message, { image: req.body?.image || null });
@@ -201,6 +209,7 @@ router.get('/dashboard', wrap(async (req, res) => {
   ok(res, {
     month: mk,
     base_currency: baseCurrency(),
+    profile: get('SELECT id, name, birth_year, city, currency, onboarded FROM profile WHERE id = 1'),
     fx: rateTable(baseCurrency()),
     totals: t,
     net_worth: nw,
@@ -488,7 +497,13 @@ router.patch('/insights/:id', wrap(async (req, res) => {
 
 router.post('/ingest', wrap(async (req, res) => {
   const body = req.body || {};
-  if (body.text) return ok(res, ingestMessage(body));
+  if (body.text) {
+    const r = ingestMessage(body);
+    // Cố vấn nhắn một dòng vào chat cho biết vừa ghi gì, và hỏi lại nếu chưa chắc danh mục.
+    let note = null;
+    try { note = noteIngest(r); } catch (e) { console.warn('[finmate] noteIngest lỗi:', e.message); }
+    return ok(res, { ...r, note });
+  }
   // payload có cấu trúc sẵn (webhook từ app khác)
   const result = createTransaction({
     type: body.type || 'expense', amount: body.amount, date: body.date || today(),
@@ -538,6 +553,30 @@ router.post('/ai/undo', wrap(async (req, res) => ok(res, req.body?.batch ? undoB
 router.get('/ai/memory', wrap(async (req, res) => ok(res, { memory: listMemory({ kind: req.query.kind || null }) })));
 router.post('/ai/memory', wrap(async (req, res) => ok(res, remember({ ...req.body, source: 'user' }))));
 router.delete('/ai/memory/:id', wrap(async (req, res) => ok(res, forget({ id: Number(req.params.id) }))));
+
+router.get('/ai/proposals', wrap(async (req, res) => ok(res, {
+  proposals: listProposals({ status: req.query.status === 'all' ? null : (req.query.status || 'pending'), limit: Number(req.query.limit) || 20 }),
+  stats: proposalStats(),
+  autopilot: autopilotConfig(),
+})));
+router.get('/ai/proposals/:id', wrap(async (req, res) => {
+  const p = getProposal(req.params.id);
+  return p ? ok(res, p) : res.status(404).json({ ok: false, error: 'Không có đề xuất này.' });
+}));
+router.post('/ai/proposals/:id/accept', wrap(async (req, res) => {
+  const r = acceptProposal(Number(req.params.id), { source: 'proposal' });
+  if (r.ok) {
+    if (r.mutates) generateInsights();
+    const p = getProposal(req.params.id);
+    insert('chat_messages', { role: 'assistant', content: `✅ Xong: **${p.tieu_de}**.${r.so_buoc > 1 ? ` (${r.so_buoc} bước)` : ''}\n_Không ưng thì bấm Hoàn tác — mọi thứ trả về như cũ._`, intent: 'proposal_done', data: JSON.stringify({ proposal: p.id, batch: r.batch, mutated: !!r.mutates, tools: (r.ket_qua || []).map((x) => x.tool) }) });
+  }
+  ok(res, r);
+}));
+router.post('/ai/proposals/:id/reject', wrap(async (req, res) => ok(res, rejectProposal(Number(req.params.id)))));
+router.get('/ai/autopilot', wrap(async (req, res) => ok(res, autopilotConfig())));
+router.put('/ai/autopilot', wrap(async (req, res) => ok(res, setAutopilotConfig(req.body || {}))));
+router.post('/ai/autopilot/run', wrap(async (req, res) => ok(res, runAutopilot({ force: true, brief: req.body?.brief !== false }))));
+router.post('/ai/brief', wrap(async (req, res) => ok(res, { brief: dailyBrief({ force: true }) })));
 
 router.get('/ai/review', wrap(async (req, res) => ok(res, { config: reviewConfig(), last: lastReview(), history: reviewHistory(10) })));
 router.put('/ai/review', wrap(async (req, res) => ok(res, setReviewConfig(req.body || {}))));
@@ -671,10 +710,13 @@ export function runAutomation() {
   const insights = generateInsights();
   const backup = autoBackup();
   pruneMemory();
+  // Tự lái: biến cảnh báo thành việc cụ thể chờ gật, và nhắn bản tin mỗi sáng.
+  let autopilot = null;
+  try { autopilot = runAutopilot(); } catch (e) { console.warn('[finmate] tự lái lỗi:', e.message); }
   setting('last_automation_run', new Date().toISOString());
   // Phiên rà soát của AI chạy nền, không chặn: nó gọi mạng nên có thể chậm, và
   // hỏng thì bộ luật sinh cảnh báo ở trên vẫn đủ dùng.
   runReview().then((r) => { if (r) console.log('[finmate] AI rà soát định kỳ xong:', r.cong_cu_da_dung.length, 'công cụ'); })
     .catch((e) => console.warn('[finmate] rà soát lỗi:', e.message));
-  return { posted, interest, insights: insights.length, backup, at: new Date().toISOString() };
+  return { posted, interest, insights: insights.length, backup, autopilot, at: new Date().toISOString() };
 }

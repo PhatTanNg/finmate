@@ -96,15 +96,22 @@ const MOVE = ['Grab Bike', 'Grab Car', 'Đổ xăng Petrolimex', 'Gửi xe', 'Be
 const FUN = ['CGV Cinema', 'Karaoke ICOOL', 'Steam', 'Sách Fahasa', 'Bida', 'Concert'];
 
 const months = lastMonths(6);
+// Dữ liệu mẫu không được ghi vào tương lai: "Gửi bố mẹ 27/09" khi hôm nay là
+// 03/09 làm dự báo dòng tiền và số tiền an toàn để tiêu sai ngay từ lúc mở app.
+const notFuture = (data) => (String(data.date || today()) <= today());
+const tx = (data) => (notFuture(data) ? createTransaction(data) : null);
+const trade = (data) => (notFuture(data) ? recordTrade(data) : null);
+const alloc = (data) => (notFuture(data) ? allocateIncome(data) : null);
+
 for (const mk of months) {
   const first = monthStart(mk);
   const isCurrent = mk === monthKey();
   const dayLimit = isCurrent ? Number(today().slice(8, 10)) : 30;
 
   // thu nhập
-  createTransaction({ type: 'income', amount: around(31_200_000, 400_000), date: addDays(first, 4), account_id: acc.tcb, merchant: 'ABC TECH LUONG', note: `Lương tháng ${mk}`, source: 'sms', category_id: categoryByName('Lương', 'income')?.id });
-  createTransaction({ type: 'income', amount: 8_300_000, date: addDays(first, 9), account_id: acc.vcb, merchant: 'TIEN THUE NHA', note: 'Tiền thuê căn hộ Bình Thạnh', source: 'sms', category_id: categoryByName('Cho thuê BĐS', 'income')?.id });
-  if (rnd() > 0.35) createTransaction({ type: 'income', amount: around(5_400_000, 2_500_000), date: addDays(first, 17 + Math.floor(rnd() * 6)), account_id: acc.vcb, merchant: 'CK FREELANCE', note: 'Dự án freelance', source: 'sms', category_id: categoryByName('Freelance', 'income')?.id });
+  tx({ type: 'income', amount: around(31_200_000, 400_000), date: addDays(first, 4), account_id: acc.tcb, merchant: 'ABC TECH LUONG', note: `Lương tháng ${mk}`, source: 'sms', category_id: categoryByName('Lương', 'income')?.id });
+  tx({ type: 'income', amount: 8_300_000, date: addDays(first, 9), account_id: acc.vcb, merchant: 'TIEN THUE NHA', note: 'Tiền thuê căn hộ Bình Thạnh', source: 'sms', category_id: categoryByName('Cho thuê BĐS', 'income')?.id });
+  if (rnd() > 0.35) tx({ type: 'income', amount: around(5_400_000, 2_500_000), date: addDays(first, 17 + Math.floor(rnd() * 6)), account_id: acc.vcb, merchant: 'CK FREELANCE', note: 'Dự án freelance', source: 'sms', category_id: categoryByName('Freelance', 'income')?.id });
 
   // chi tiêu hàng ngày
   for (let d = 1; d <= dayLimit; d++) {
@@ -112,38 +119,38 @@ for (const mk of months) {
     const meals = rnd() > 0.25 ? 2 : 1;
     for (let i = 0; i < meals; i++) {
       const m = pick(FOOD);
-      createTransaction({ type: 'expense', amount: around(m.includes('Coffee') || m.includes('Phúc Long') ? 55_000 : 78_000, 35_000), date, account_id: pick([acc.momo, acc.cc, acc.vcb, acc.cash]), merchant: m, source: 'sms' });
+      tx({ type: 'expense', amount: around(m.includes('Coffee') || m.includes('Phúc Long') ? 55_000 : 78_000, 35_000), date, account_id: pick([acc.momo, acc.cc, acc.vcb, acc.cash]), merchant: m, source: 'sms' });
     }
-    if (rnd() > 0.55) createTransaction({ type: 'expense', amount: around(45_000, 30_000), date, account_id: pick([acc.momo, acc.cash]), merchant: pick(MOVE), source: 'sms' });
-    if (rnd() > 0.78) createTransaction({ type: 'expense', amount: around(320_000, 250_000), date, account_id: pick([acc.cc, acc.vcb]), merchant: pick(SHOP), source: 'sms' });
-    if (rnd() > 0.9) createTransaction({ type: 'expense', amount: around(280_000, 180_000), date, account_id: pick([acc.cc, acc.momo]), merchant: pick(FUN), source: 'sms' });
+    if (rnd() > 0.55) tx({ type: 'expense', amount: around(45_000, 30_000), date, account_id: pick([acc.momo, acc.cash]), merchant: pick(MOVE), source: 'sms' });
+    if (rnd() > 0.78) tx({ type: 'expense', amount: around(320_000, 250_000), date, account_id: pick([acc.cc, acc.vcb]), merchant: pick(SHOP), source: 'sms' });
+    if (rnd() > 0.9) tx({ type: 'expense', amount: around(280_000, 180_000), date, account_id: pick([acc.cc, acc.momo]), merchant: pick(FUN), source: 'sms' });
     // rút tiền mặt để ví tiền mặt không bị âm
-    if (d === 3 || d === 17) createTransaction({ type: 'transfer', amount: 700_000, date, account_id: acc.vcb, counter_account_id: acc.cash, note: 'Rút ATM', source: 'sms' });
+    if (d === 3 || d === 17) tx({ type: 'transfer', amount: 700_000, date, account_id: acc.vcb, counter_account_id: acc.cash, note: 'Rút ATM', source: 'sms' });
   }
 
   // các khoản lớn/bất thường
-  if (rnd() > 0.6) createTransaction({ type: 'expense', amount: around(4_500_000, 2_000_000), date: addDays(first, 12), account_id: acc.cc, merchant: 'Vietjet Air', note: 'Vé máy bay du lịch', source: 'sms' });
-  if (rnd() > 0.75) createTransaction({ type: 'expense', amount: around(2_800_000, 1_200_000), date: addDays(first, 21), account_id: acc.vcb, merchant: 'Bệnh viện Hoàn Mỹ', note: 'Khám sức khỏe', source: 'sms' });
-  createTransaction({ type: 'expense', amount: around(1_500_000, 500_000), date: addDays(first, 26), account_id: acc.vcb, merchant: 'Gửi bố mẹ', note: 'Biếu gia đình', source: 'manual' });
+  if (rnd() > 0.6) tx({ type: 'expense', amount: around(4_500_000, 2_000_000), date: addDays(first, 12), account_id: acc.cc, merchant: 'Vietjet Air', note: 'Vé máy bay du lịch', source: 'sms' });
+  if (rnd() > 0.75) tx({ type: 'expense', amount: around(2_800_000, 1_200_000), date: addDays(first, 21), account_id: acc.vcb, merchant: 'Bệnh viện Hoàn Mỹ', note: 'Khám sức khỏe', source: 'sms' });
+  tx({ type: 'expense', amount: around(1_500_000, 500_000), date: addDays(first, 26), account_id: acc.vcb, merchant: 'Gửi bố mẹ', note: 'Biếu gia đình', source: 'manual' });
 
   // hoá đơn điện nước (khoản định kỳ dạng biến động -> ghi tay theo tháng)
-  createTransaction({ type: 'expense', amount: around(1_450_000, 400_000), date: addDays(first, 7), account_id: acc.vcb, merchant: 'EVN HCMC', note: 'Điện nước internet', category_id: categoryByName('Điện nước')?.id, source: 'sms' });
+  tx({ type: 'expense', amount: around(1_450_000, 400_000), date: addDays(first, 7), account_id: acc.vcb, merchant: 'EVN HCMC', note: 'Điện nước internet', category_id: categoryByName('Điện nước')?.id, source: 'sms' });
 
   // dòng tiền giữa các tài khoản: lương về TCB rồi toả đi
-  createTransaction({ type: 'transfer', amount: 14_000_000, date: addDays(first, 5), account_id: acc.tcb, counter_account_id: acc.vcb, note: 'Chuyển sang tài khoản chi tiêu', source: 'sms' });
-  createTransaction({ type: 'transfer', amount: 5_000_000, date: addDays(first, 5), account_id: acc.tcb, counter_account_id: acc.stock, note: 'Nạp tiền đầu tư định kỳ (DCA)', source: 'sms' });
+  tx({ type: 'transfer', amount: 14_000_000, date: addDays(first, 5), account_id: acc.tcb, counter_account_id: acc.vcb, note: 'Chuyển sang tài khoản chi tiêu', source: 'sms' });
+  tx({ type: 'transfer', amount: 5_000_000, date: addDays(first, 5), account_id: acc.tcb, counter_account_id: acc.stock, note: 'Nạp tiền đầu tư định kỳ (DCA)', source: 'sms' });
   // mua chứng chỉ quỹ đều đặn hàng tháng bằng đúng số tiền vừa nạp
   const dcaPrice = around(66_000, 4_000);
-  recordTrade({ symbol: 'DCDS', side: 'buy', quantity: Math.round(5_000_000 / dcaPrice), price: dcaPrice, date: addDays(first, 6), account_id: acc.stock, note: 'Mua định kỳ DCDS' });
-  createTransaction({ type: 'transfer', amount: 7_000_000, date: addDays(first, 11), account_id: acc.tcb, counter_account_id: acc.cc, note: 'Thanh toán thẻ tín dụng', source: 'sms' });
-  createTransaction({ type: 'transfer', amount: 2_000_000, date: addDays(first, 1), account_id: acc.vcb, counter_account_id: acc.momo, note: 'Nạp ví MoMo', source: 'sms' });
+  trade({ symbol: 'DCDS', side: 'buy', quantity: Math.round(5_000_000 / dcaPrice), price: dcaPrice, date: addDays(first, 6), account_id: acc.stock, note: 'Mua định kỳ DCDS' });
+  tx({ type: 'transfer', amount: 7_000_000, date: addDays(first, 11), account_id: acc.tcb, counter_account_id: acc.cc, note: 'Thanh toán thẻ tín dụng', source: 'sms' });
+  tx({ type: 'transfer', amount: 2_000_000, date: addDays(first, 1), account_id: acc.vcb, counter_account_id: acc.momo, note: 'Nạp ví MoMo', source: 'sms' });
 
   // ghi sổ tự động các khoản định kỳ cố định tới hết tháng này
   runDueRecurring(isCurrent ? today() : monthEnd(mk));
 
   if (!isCurrent) {
-    createTransaction({ type: 'transfer', amount: 5_000_000, date: addDays(first, 6), account_id: acc.tcb, counter_account_id: acc.sav2, note: 'Chuyển tiết kiệm định kỳ', source: 'manual' });
-    allocateIncome({ amount: 39_500_000, date: addDays(first, 5), note: `Phân bổ thu nhập ${mk}` });
+    tx({ type: 'transfer', amount: 5_000_000, date: addDays(first, 6), account_id: acc.tcb, counter_account_id: acc.sav2, note: 'Chuyển tiết kiệm định kỳ', source: 'manual' });
+    alloc({ amount: 39_500_000, date: addDays(first, 5), note: `Phân bổ thu nhập ${mk}` });
     snapshot(monthStart(mk));
   }
 }

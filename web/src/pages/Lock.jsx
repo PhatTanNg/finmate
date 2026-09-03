@@ -29,7 +29,7 @@ export default function Lock({ pinSet, onUnlock }) {
   return (
     <div className="lock">
       <form className="lock-box" onSubmit={submit}>
-        <div className="lock-logo">🔐</div>
+        <div className="lock-logo">F</div>
         <h1>FinMate</h1>
         <p className="muted">
           {pinSet ? 'Nhập mã PIN để mở khoá dữ liệu tài chính của bạn.' : 'Đặt mã PIN để bảo vệ dữ liệu tài chính. Chỉ lưu trên máy này.'}

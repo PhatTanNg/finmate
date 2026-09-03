@@ -30,6 +30,7 @@ import { taxCountry, grossToNetAuto, estimateAnnualTaxAuto, COUNTRIES } from '..
 import { categoryByName, fundByName } from '../../bootstrap.js';
 import { generateInsights, listInsights } from '../insights.js';
 import { MANAGE_IMPL, MANAGE_TOOLS } from './tools_manage.js';
+import { propose, listProposals, acceptProposal, rejectProposal } from '../ai_proposals.js';
 
 const ACCOUNT_TYPES = ['cash', 'bank', 'ewallet', 'savings', 'investment', 'credit', 'credit_card', 'brokerage', 'crypto', 'real_estate', 'loan', 'other_asset'];
 const INCOME_TYPES = ['salary', 'business', 'freelance', 'dividend', 'interest', 'rental', 'capital_gain', 'royalty', 'other'];
@@ -639,6 +640,36 @@ const xem_nhat_ky_thao_tac = ({ so_luong, chi_thay_doi } = {}) => ({
   thong_ke: actionStats(),
 });
 
+/* ------------------------------------------------------------------ *
+ *  ĐỀ XUẤT CHỜ NGƯỜI DÙNG GẬT                                         *
+ * ------------------------------------------------------------------ */
+
+function de_xuat({ tieu_de, noi_dung, hanh_dong, muc_do, ma }) {
+  const actions = (Array.isArray(hanh_dong) ? hanh_dong : [])
+    .map((h) => ({ tool: h.cong_cu || h.tool, args: h.tham_so || h.args || {} }));
+  for (const a of actions) {
+    if (!TOOL_IMPL[a.tool]) return { ok: false, error: `Không có công cụ "${a.tool}" để đưa vào đề xuất.`, cong_cu_hop_le: Object.keys(TOOL_IMPL).filter((k) => !/^(liet_ke_|xem_|tinh_|tu_van_|de_xuat|chap_nhan_de_xuat|tu_choi_de_xuat)/.test(k)) };
+    if (/^(xoa_het_du_lieu|de_xuat|chap_nhan_de_xuat|tu_choi_de_xuat)$/.test(a.tool)) return { ok: false, error: `Không được đưa "${a.tool}" vào đề xuất.` };
+  }
+  const p = propose({ key: ma ? String(ma) : null, title: tieu_de, body: noi_dung, actions, source: 'chat', severity: ['info', 'warn', 'danger'].includes(muc_do) ? muc_do : 'info' });
+  if (!p) return { ok: false, error: 'Đề xuất này người dùng vừa từ chối hoặc vừa được làm gần đây, không hỏi lại.' };
+  return { ok: true, mutates: false, de_xuat: { ma: p.id, tieu_de: p.tieu_de, so_buoc: p.hanh_dong.length }, huong_dan: 'Đã ghi vào danh sách chờ. Hãy nói ngắn gọn cho người dùng biết bạn đề xuất gì và họ chỉ cần trả lời "ừ" để bạn làm.' };
+}
+
+const xem_de_xuat = () => ({ ok: true, dang_cho: listProposals({ status: 'pending', limit: 10 }) });
+
+function chap_nhan_de_xuat({ ma } = {}) {
+  const target = ma ? Number(ma) : listProposals({ status: 'pending', limit: 1 })[0]?.id;
+  if (!target) return { ok: false, error: 'Không có đề xuất nào đang chờ.' };
+  return acceptProposal(target, { source: 'chat' });
+}
+
+function tu_choi_de_xuat({ ma } = {}) {
+  const target = ma ? Number(ma) : listProposals({ status: 'pending', limit: 1 })[0]?.id;
+  if (!target) return { ok: false, error: 'Không có đề xuất nào đang chờ.' };
+  return { ...rejectProposal(target), mutates: false };
+}
+
 function hoan_tac({ so_thao_tac, ma_thao_tac } = {}) {
   if (ma_thao_tac) return undoAction(ma_thao_tac);
   return undoLast(so_thao_tac || 1);
@@ -731,6 +762,7 @@ export const TOOL_IMPL = {
   xem_no, xem_dau_tu, xem_suc_khoe, xem_xu_huong, tu_van_tien_du, xem_ty_gia,
   tinh_chuyen_tien, tinh_thue,
   ghi_nho, quen_di, xem_ghi_nho, xem_nhat_ky_thao_tac, hoan_tac,
+  de_xuat, xem_de_xuat, chap_nhan_de_xuat, tu_choi_de_xuat,
   ...MANAGE_IMPL,
 };
 
@@ -918,6 +950,17 @@ export const TOOLS = [
     so_thao_tac: N('Số thao tác gần nhất cần hoàn tác, mặc định 1'),
     ma_thao_tac: N('Hoàn tác đúng một thao tác theo mã trong nhật ký'),
   }, []),
+
+  T('de_xuat', 'Đưa một việc cụ thể vào danh sách chờ người dùng gật đầu, thay vì làm ngay. Dùng khi việc lớn (đụng nhiều quỹ, đổi kế hoạch, xoá dữ liệu) hoặc khi đang rà soát lúc người dùng vắng mặt. Mỗi hành động là một công cụ có sẵn kèm tham số đầy đủ — người dùng bấm Đồng ý là app chạy đúng chuỗi đó.', {
+    tieu_de: S('Một câu ngắn nói việc sẽ làm, ví dụ "Giãn hạn mục tiêu mua xe tới 06/2028"'),
+    noi_dung: S('Vì sao nên làm và con số kèm theo, 1-3 câu'),
+    hanh_dong: { type: 'array', description: 'Chuỗi công cụ sẽ chạy khi người dùng đồng ý', items: { type: 'object', properties: { cong_cu: S('Tên công cụ'), tham_so: { type: 'object', description: 'Tham số đầy đủ cho công cụ đó' } }, required: ['cong_cu'] } },
+    muc_do: S('info | warn | danger', { enum: ['info', 'warn', 'danger'] }),
+    ma: S('Mã chống lặp tuỳ chọn, ví dụ "gian_han_mua_xe"'),
+  }, ['tieu_de', 'hanh_dong']),
+  T('xem_de_xuat', 'Xem các đề xuất đang chờ người dùng quyết định.'),
+  T('chap_nhan_de_xuat', 'Thực hiện một đề xuất đang chờ khi người dùng đồng ý ("ừ", "làm đi"). Bỏ trống ma = đề xuất mới nhất.', { ma: N('Mã đề xuất') }, []),
+  T('tu_choi_de_xuat', 'Bỏ qua một đề xuất khi người dùng từ chối. Bỏ trống ma = đề xuất mới nhất.', { ma: N('Mã đề xuất') }, []),
 
   // Nhóm quản trị: sửa, xoá, dọn trùng, làm lại từ đầu.
   ...MANAGE_TOOLS,

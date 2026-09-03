@@ -7,6 +7,32 @@ import { HANDLERS } from './handlers.js';
 import { handleOnboarding, startOnboarding, currentOnboardingQuestion } from './onboarding.js';
 import { llmEnabled, classify, answer, llmStatus } from './llm.js';
 import { baseCurrency } from '../fx.js';
+import { latestPending, acceptProposal, rejectProposal, getProposal } from '../ai_proposals.js';
+
+/**
+ * "ừ" / "thôi" ngay sau một đề xuất là câu trả lời cho đề xuất đó — xử lý
+ * chắc chắn ở đây, trước cả AI, để một chữ "ừ" không bao giờ bị hiểu thành
+ * câu chào hay câu hỏi mở. Chỉ áp dụng khi tin gần nhất của cố vấn ĐÚNG là
+ * một đề xuất; còn "ok" giữa chừng một cuộc trò chuyện khác thì để yên.
+ */
+const YES = new Set(['u', 'um', 'ok', 'oke', 'okay', 'okie', 'yes', 'dong y', 'lam di', 'lam luon', 'cu lam', 'cu lam di', 'duyet', 'chap nhan', 'dc', 'duoc', 'duoc roi', 'ok lam di', 'lam thoi', 'lam ngay', 'chot', 'chot luon', 'dong y lam', 'ok ban', 'ok nhe', 'u nhe', 'u lam di', 'u dong y', 'ok dong y', 'lam giup minh', 'lam giup toi', 'lam luon di', 'go', 'yep', 'yup', 'ua', 'uh', 'uhm', 'dung roi', 'dung', 'ok lam', 'lam']);
+const NO = new Set(['thoi', 'bo qua', 'khong', 'ko', 'k', 'khong can', 'thoi khoi', 'de sau', 'huy', 'tu choi', 'khong lam', 'dung lam', 'no', 'nope', 'thoi di', 'khoi', 'bo di', 'khong dong y', 'thoi khong can', 'de sau di', 'khong nhe', 'thoi nhe']);
+function answersProposal(message) {
+  const n = norm(message).replace(/[!.,?~]+$/g, '').trim();
+  if (!n || n.split(/\s+/).length > 5) return null;
+  const yes = YES.has(n);
+  const no = !yes && NO.has(n);
+  if (!yes && !no) return null;
+  const last = get("SELECT intent, data FROM chat_messages WHERE role = 'assistant' ORDER BY id DESC LIMIT 1");
+  const lastIsProposal = last?.intent === 'proposal' || last?.intent === 'brief';
+  const pending = latestPending();
+  if (!pending || !lastIsProposal) return null;
+  // Tin gần nhất là chính đề xuất đó (hoặc bản tin nhắc tới nó) -> trả lời cho nó.
+  const pid = safeParse(last?.data).proposal || pending.id;
+  const p = getProposal(pid) || pending;
+  if (p.trang_thai !== 'pending') return null;
+  return { yes, proposal: p };
+}
 import { runAgent, agentEnabled } from './agent.js';
 import { totals } from '../reports.js';
 import { netWorth } from '../networth.js';
@@ -192,6 +218,24 @@ export async function chat(text, { image = null, onEvent = null } = {}) {
 
   const p = get('SELECT * FROM profile WHERE id = 1') || {};
   const isOnboarding = !p.onboarded && !alreadySetUp();
+
+  // Gật/lắc cho đề xuất đang chờ: làm ngay, không cần model.
+  const ans = !img ? answersProposal(message) : null;
+  if (ans) {
+    if (ans.yes) {
+      const r = acceptProposal(ans.proposal.id, { source: 'proposal' });
+      const reply = r.ok
+        ? `✅ Xong: **${ans.proposal.tieu_de}**.${r.so_buoc > 1 ? ` (${r.so_buoc} bước)` : ''}\n_Không ưng thì bấm Hoàn tác hoặc nhắn "hoàn tác"._`
+        : `⚠️ Mình chưa làm được: ${r.error}`;
+      if (r.mutates) generateInsights();
+      saveMessage('assistant', reply, 'proposal_done', { proposal: ans.proposal.id, batch: r.batch, mutated: !!r.mutates, tools: (r.ket_qua || []).map((x) => x.tool) });
+      return { reply, intent: 'proposal_done', refresh: !!r.mutates, batch: r.batch, tools: (r.ket_qua || []).map((x) => x.tool), quick: quickFor(isOnboarding) };
+    }
+    rejectProposal(ans.proposal.id);
+    const reply = `Được, mình bỏ qua "${ans.proposal.tieu_de}". Có gì đổi ý cứ nói.`;
+    saveMessage('assistant', reply, 'proposal_skip', { proposal: ans.proposal.id });
+    return { reply, intent: 'proposal_skip', quick: quickFor(isOnboarding) };
+  }
 
   // Ưu tiên AI cố vấn: hiểu ngữ cảnh cả cuộc trò chuyện và tự thao tác trong app.
   // Không cấu hình LLM (hoặc gọi lỗi) thì lùi về bộ luật tiếng Việt bên dưới.

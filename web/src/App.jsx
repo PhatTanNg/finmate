@@ -3,6 +3,7 @@ import { api, getKey, setKey, setLockHandler } from './lib/api.js';
 import { short, setBaseCurrency } from './lib/format.js';
 import { applyTheme, readTheme, watchSystemTheme, NEXT_THEME, THEME_ICON, THEME_LABEL } from './lib/theme.js';
 import CommandPalette from './components/CommandPalette.jsx';
+import { IconHome, IconChat, IconList, IconBell, IconGrid, IconSearch } from './components/icons.jsx';
 import Lock from './pages/Lock.jsx';
 import Chat from './pages/Chat.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -21,16 +22,17 @@ import Insights from './pages/Insights.jsx';
 import Automation from './pages/Automation.jsx';
 import Currency from './pages/Currency.jsx';
 import Settings from './pages/Settings.jsx';
+import More from './pages/More.jsx';
 
 const NAV = [
   { g: 'Hằng ngày' },
+  { k: 'dashboard', ico: '🏠', label: 'Trang chủ' },
   { k: 'chat', ico: '💬', label: 'Trò chuyện' },
-  { k: 'dashboard', ico: '📊', label: 'Tổng quan' },
   { k: 'transactions', ico: '🧾', label: 'Giao dịch' },
   { k: 'insights', ico: '🔔', label: 'Cảnh báo', badge: true },
   { g: 'Tiền của tôi' },
   { k: 'accounts', ico: '🏦', label: 'Tài khoản' },
-  { k: 'funds', ico: '🧺', label: 'Quỹ & ví' },
+  { k: 'funds', ico: '🧺', label: 'Quỹ & phân bổ' },
   { k: 'budgets', ico: '🎛', label: 'Ngân sách' },
   { k: 'goals', ico: '🎯', label: 'Mục tiêu' },
   { g: 'Tăng trưởng' },
@@ -47,15 +49,21 @@ const NAV = [
 ];
 
 const PAGES = NAV.filter((n) => n.k);
-const TITLE = Object.fromEntries(PAGES.map((n) => [n.k, n.label]));
-// Năm mục hay dùng nhất cho thanh dưới trên điện thoại.
-const BOTTOM = ['chat', 'dashboard', 'transactions', 'accounts'];
+const TITLE = { ...Object.fromEntries(PAGES.map((n) => [n.k, n.label])), more: 'Thêm' };
+// Thanh dưới trên điện thoại: 5 mục, Trò chuyện ở giữa.
+const BOTTOM = [
+  { k: 'dashboard', label: 'Trang chủ', Icon: IconHome },
+  { k: 'transactions', label: 'Giao dịch', Icon: IconList },
+  { k: 'chat', label: 'Trò chuyện', Icon: IconChat },
+  { k: 'insights', label: 'Cảnh báo', Icon: IconBell, badge: true },
+  { k: 'more', label: 'Thêm', Icon: IconGrid },
+];
+const MORE_PAGES = new Set(['accounts', 'funds', 'budgets', 'goals', 'income', 'investments', 'debts', 'currency', 'fire', 'advisor', 'ailog', 'automation', 'settings', 'more']);
 
 export default function App() {
-  const [tab, setTab] = useState(() => location.hash.slice(1) || 'chat');
+  const [tab, setTab] = useState(() => location.hash.slice(1) || 'dashboard');
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
-  const [drawer, setDrawer] = useState(false);
   const [cmd, setCmd] = useState(false);
   const [auth, setAuth] = useState(null); // null = đang kiểm tra
   const [curKey, setCurKey] = useState(0); // buộc vẽ lại khi đổi đồng tiền gốc
@@ -89,22 +97,18 @@ export default function App() {
 
   useEffect(() => {
     location.hash = tab;
-    setDrawer(false);
     document.querySelector('.main')?.scrollTo(0, 0);
   }, [tab]);
 
-  // Nút back của trình duyệt phải quay lại trang trước, không thoát app.
   useEffect(() => {
-    const onHash = () => setTab(location.hash.slice(1) || 'chat');
+    const onHash = () => setTab(location.hash.slice(1) || 'dashboard');
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
   }, []);
 
-  // Phím tắt toàn cục: Ctrl/⌘+K mở bảng lệnh, Esc đóng ngăn kéo.
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmd((v) => !v); return; }
-      if (e.key === 'Escape') setDrawer(false);
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmd((v) => !v); }
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
@@ -118,7 +122,8 @@ export default function App() {
 
   const go = (t) => setTab(t);
   const alerts = d?.insights?.filter((i) => !i.read && (i.severity === 'danger' || i.severity === 'warn')).length || 0;
-  const cycleTheme = () => setTheme((t) => NEXT_THEME[t] || 'dark');
+  const cycleTheme = () => setTheme((t) => NEXT_THEME[t] || 'light');
+  const initial = (d?.profile?.name || 'B').trim().slice(0, 1).toUpperCase();
 
   const commands = useMemo(() => {
     let group = '';
@@ -132,10 +137,16 @@ export default function App() {
     return out;
   }, [theme, refresh]);
 
+  const lock = () => {
+    api.post('/auth/logout').catch(() => {});
+    setKey('');
+    setAuth((a) => ({ ...a, unlocked: false }));
+  };
+
   const page = () => {
     switch (tab) {
       case 'chat': return <Chat onRefresh={refresh} />;
-      case 'dashboard': return d ? <Dashboard d={d} go={go} /> : null;
+      case 'dashboard': return d ? <Dashboard d={d} go={go} onRefresh={refresh} /> : null;
       case 'transactions': return <Transactions onRefresh={refresh} />;
       case 'currency': return <Currency onRefresh={refresh} />;
       case 'insights': return <Insights onRefresh={refresh} />;
@@ -151,57 +162,45 @@ export default function App() {
       case 'ailog': return <AiLog onRefresh={refresh} />;
       case 'automation': return <Automation onRefresh={refresh} />;
       case 'settings': return <Settings onRefresh={refresh} />;
-      default: return <Chat onRefresh={refresh} />;
+      case 'more': return <More go={go} d={d} theme={theme} cycleTheme={cycleTheme} themeLabel={THEME_LABEL[theme]} themeIcon={THEME_ICON[theme]} canLock={auth?.pinSet} onLock={lock} alerts={alerts} />;
+      default: return d ? <Dashboard d={d} go={go} onRefresh={refresh} /> : null;
     }
   };
 
   if (!auth) {
     return (
       <div className="lock">
-        <div className="lock-box"><div className="lock-logo">🪙</div><p className="muted">Đang mở FinMate…</p></div>
+        <div className="lock-box"><div className="lock-logo">F</div><p className="muted">Đang mở FinMate…</p></div>
       </div>
     );
   }
   if (!auth.unlocked) return <Lock pinSet={auth.pinSet} onUnlock={() => setAuth({ ...auth, unlocked: true })} />;
 
-  const lock = () => {
-    api.post('/auth/logout').catch(() => {});
-    setKey('');
-    setAuth({ ...auth, unlocked: false });
-  };
-
   return (
     <div className="app">
       <header className="topbar">
-        <button className="btn ghost icon" onClick={() => setDrawer(true)} aria-label="Mở menu">☰</button>
+        <button className="avatar" onClick={() => setTab('more')} aria-label="Hồ sơ và cài đặt" style={{ border: 0, cursor: 'pointer' }}>{initial}</button>
         <div className="tb-title">{TITLE[tab] || 'FinMate'}</div>
-        <button className="btn ghost icon" onClick={() => setCmd(true)} aria-label="Tìm nhanh">🔍</button>
+        <button className="btn ghost icon" onClick={() => setCmd(true)} aria-label="Tìm nhanh"><IconSearch /></button>
         <button className="btn ghost icon" onClick={cycleTheme} aria-label={THEME_LABEL[theme]} title={THEME_LABEL[theme]}>{THEME_ICON[theme]}</button>
       </header>
 
-      {drawer && <button className="scrim" onClick={() => setDrawer(false)} aria-label="Đóng menu" />}
-
-      <aside className={`sidebar ${drawer ? 'open' : ''}`}>
+      <aside className="sidebar">
         <div className="brand">
-          <span style={{ fontSize: 22 }}>🪙</span>
+          <span className="logo">F</span>
           <div>FinMate<small>Cố vấn tài chính của bạn</small></div>
         </div>
 
         <button className="navbtn" onClick={() => setCmd(true)} style={{ marginBottom: 4 }}>
-          <span className="ico">🔍</span>
+          <span className="ico"><IconSearch width={18} height={18} /></span>
           <span>Tìm nhanh</span>
-          <span className="grp" style={{ marginLeft: 'auto', fontSize: 11, opacity: .8 }}><kbd>Ctrl</kbd> <kbd>K</kbd></span>
+          <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .8 }}><kbd>Ctrl</kbd> <kbd>K</kbd></span>
         </button>
 
         {NAV.map((n, i) => (n.g
           ? <div key={`g${i}`} className="sb-sep">{n.g}</div>
           : (
-            <button
-              key={n.k}
-              className={`navbtn ${tab === n.k ? 'active' : ''}`}
-              onClick={() => setTab(n.k)}
-              aria-current={tab === n.k ? 'page' : undefined}
-            >
+            <button key={n.k} className={`navbtn ${tab === n.k ? 'active' : ''}`} onClick={() => setTab(n.k)} aria-current={tab === n.k ? 'page' : undefined}>
               <span className="ico">{n.ico}</span>
               <span>{n.label}</span>
               {n.badge && alerts > 0 && <span className="badge">{alerts}</span>}
@@ -209,39 +208,33 @@ export default function App() {
           )))}
 
         <div className="sb-foot">
-          <div className="mini">Tài sản ròng</div>
-          <div style={{ fontWeight: 700, fontSize: 17, fontVariantNumeric: 'tabular-nums' }}>{d ? short(d.net_worth?.net) : '—'}</div>
-          <div className="row" style={{ marginTop: 8, gap: 6 }}>
-            <button className="btn ghost sm" style={{ flex: 1 }} onClick={cycleTheme} title={THEME_LABEL[theme]}>
-              {THEME_ICON[theme]} {THEME_LABEL[theme]}
-            </button>
+          <div className="card" style={{ padding: 14 }}>
+            <div className="mini">Tài sản ròng</div>
+            <div style={{ fontWeight: 750, fontSize: 18, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em' }}>{d ? short(d.net_worth?.net) : '—'}</div>
+            <div className="row" style={{ marginTop: 10, gap: 6 }}>
+              <button className="btn ghost sm" style={{ flex: 1 }} onClick={cycleTheme} title={THEME_LABEL[theme]}>{THEME_ICON[theme]} {THEME_LABEL[theme]}</button>
+            </div>
+            {auth.pinSet && <button className="btn ghost sm" style={{ marginTop: 4, width: '100%' }} onClick={lock}>🔒 Khoá app</button>}
           </div>
-          {auth.pinSet && (
-            <button className="btn ghost sm" style={{ marginTop: 6, width: '100%' }} onClick={lock}>🔒 Khoá app</button>
-          )}
         </div>
       </aside>
 
       <main className="main">
-        {err && <div className="toast err" onClick={() => setErr(null)} role="alert">⚠️ {err}</div>}
+        {err && <div className="toast" onClick={() => setErr(null)} role="alert">⚠️ {err}</div>}
         <Fragment key={`${curKey}-${tab}`}><div className="page-fade">{page()}</div></Fragment>
       </main>
 
       <nav className="botnav">
-        {BOTTOM.map((k) => {
-          const n = PAGES.find((p) => p.k === k);
+        {BOTTOM.map(({ k, label, Icon, badge }) => {
+          const active = tab === k || (k === 'more' && MORE_PAGES.has(tab));
           return (
-            <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)} aria-label={n.label}>
-              <span className="ico">{n.ico}</span>
-              <span>{n.label}</span>
+            <button key={k} className={active ? 'active' : ''} onClick={() => setTab(k)} aria-label={label} aria-current={active ? 'page' : undefined}>
+              <span className="ico"><Icon /></span>
+              <span>{label}</span>
+              {badge && alerts > 0 && <span className="dot">{alerts}</span>}
             </button>
           );
         })}
-        <button className={BOTTOM.includes(tab) ? '' : 'active'} onClick={() => setDrawer(true)} aria-label="Tất cả mục">
-          <span className="ico">☰</span>
-          <span>Thêm</span>
-          {alerts > 0 && <span className="dot">{alerts}</span>}
-        </button>
       </nav>
 
       {cmd && <CommandPalette items={commands} onClose={() => setCmd(false)} />}

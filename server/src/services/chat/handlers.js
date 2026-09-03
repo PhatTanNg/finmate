@@ -9,6 +9,7 @@ import { listFunds, fundsOverview, moveBetweenFunds } from '../funds.js';
 import { totals, categoryBreakdown, monthlyTrend, incomeSources, averageMonthlyExpense, averageMonthlyIncome, essentialSplit } from '../reports.js';
 import { netWorth } from '../networth.js';
 import { fireStats, emergencyStatus, passiveIncomeMonthly, declaredIncomeMonthly, streamMonthly, isPassiveStream } from '../fire.js';
+import { listProposals } from '../ai_proposals.js';
 import { debtSummary, payoffPlan } from '../debts.js';
 import { budgetStatus, upsertBudget, suggestBudgets } from '../budgets.js';
 import { dailyForecast, monthlyForecast, safeToSpend } from '../forecast.js';
@@ -772,11 +773,13 @@ function greeting() {
   const t = totals(monthStart(mk), monthEnd(mk));
   const sts = safeToSpend();
   const ins = listInsights({ limit: 2 });
+  const pending = listProposals({ status: 'pending', limit: 3 });
   return {
     reply: bullet([
       `Chào ${p.name || 'bạn'} 👋`,
       `Tháng này: thu ${short(t.income)} · chi ${short(t.expense)} · còn an toàn tiêu ${short(sts.available)} (${short(sts.per_day)}/ngày).`,
       ins.length ? `\n${ins.map((i) => `${i.severity === 'danger' ? '🔴' : i.severity === 'warn' ? '🟠' : '💡'} ${i.title}`).join('\n')}` : null,
+      pending.length ? `\n📋 Mình đang chờ bạn gật ${pending.length} việc: ${pending.map((x) => `"${x.tieu_de}"`).join(', ')}. Nhắn "ừ" là mình làm việc mới nhất.` : null,
       '\nCần gì cứ nói — ghi chi tiêu, hỏi kế hoạch, hay xin lời khuyên.',
     ]),
   };

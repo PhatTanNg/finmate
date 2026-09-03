@@ -19,7 +19,7 @@ const MODE_KEY = 'ai_review_mode';
 const EVERY_KEY = 'ai_review_every_hours';
 
 /** Công cụ cho phép ở chế độ chỉ gợi ý: đọc dữ liệu và ghi nhớ, không đụng tiền. */
-const READ_ONLY = /^(liet_ke_|xem_|tinh_|tu_van_|ghi_nho$)/;
+const READ_ONLY = /^(liet_ke_|xem_|tinh_|tu_van_|ghi_nho$|de_xuat$)/;
 
 export function reviewConfig() {
   return {
@@ -53,6 +53,8 @@ Hãy tự mở hồ sơ tài chính ra xem như một cố vấn rà soát hồ 
 - Nợ lãi cao còn tồn trong khi tiền nằm chết ở ví không sinh lời.
 - Khoản định kỳ sắp tới có khiến số dư âm không.
 - Có điều gì đáng ghi nhớ lâu dài mà bạn chưa ghi.
+
+Thấy việc nên làm thì đừng chỉ khuyên: gọi **de_xuat** với chuỗi công cụ + tham số đầy đủ, để người dùng chỉ cần bấm Đồng ý (hoặc nhắn "ừ") là app làm. Tối đa 3 đề xuất, việc quan trọng nhất trước.
 
 Sau khi xem xong, viết MỘT tin nhắn ngắn gửi người dùng:
 - Chỉ nêu điều thật sự đáng chú ý. Nếu mọi thứ ổn, nói ngắn gọn là ổn và nêu một con số chứng minh.

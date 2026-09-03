@@ -49,7 +49,7 @@ Có hai chế độ, tự chọn theo cấu hình:
 
 **A. Cố vấn AI thật sự** (khi có `FINMATE_LLM_KEY` — [xem cách bật](#kết-nối-llm-tuỳ-chọn))
 
-Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **68 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **72 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
 
 **App là công cụ làm việc của AI.** Nó không chỉ tra cứu và khuyên — nó tự dựng và vận hành cấu trúc tài chính cho bạn: tạo tài khoản, mở quỹ mới, đặt mục tiêu và hạn hoàn thành, đổi tỷ lệ phân bổ, sắp xếp lại độ ưu tiên, đóng quỹ không còn phù hợp và dồn số dư sang quỹ khác. Việc nào hoàn tác được thì nó làm luôn rồi báo lại; chỉ những việc xoá vĩnh viễn mới hỏi bạn trước.
 
@@ -97,6 +97,21 @@ Chat box trở thành một cố vấn tài chính có toàn quyền đọc và 
 | **Tự rà soát định kỳ** | Theo chu kỳ bạn đặt, AI tự mở hồ sơ ra xem và nhắn lại nếu thấy điều đáng chú ý. Ba chế độ: **Tắt** · **Chỉ gợi ý** (mặc định — được xem, **không được đụng vào tiền** lúc bạn vắng mặt) · **Được phép chỉnh** (tự sửa, nhưng mọi thứ vẫn nằm trong nhật ký và hoàn tác được) |
 
 Nhật ký bắt thay đổi ở tầng cơ sở dữ liệu bằng trigger SQLite, nên chi phí **không tăng theo độ dày sổ sách**: khoảng 6ms dù bạn đã ghi 6.000 giao dịch.
+
+**AI điều phối app thay bạn — chế độ tự lái.** Bạn không phải mở tab nào để "vận hành" sổ sách. Mỗi giờ (và ngay khi có tin nhắn ngân hàng mới), cố vấn tự nhìn toàn bộ dữ liệu và biến việc cần làm thành **đề xuất cụ thể có sẵn tham số** — không phải lời khuyên chung chung. Mỗi đề xuất là một chuỗi công cụ (đúng bộ 72 công cụ AI dùng trong chat); bấm **Đồng ý** ở Trang chủ/Chat, hoặc nhắn "ừ", là app làm, có nhật ký và **hoàn tác được cả cụm**.
+
+| Cố vấn tự nhận ra | Nó đề xuất (và làm khi bạn gật) |
+|---|---|
+| Tổng % các quỹ lệch 100 | `can_bang_phan_bo` — việc an toàn, ở chế độ *Tự làm* nó làm luôn rồi báo |
+| Tiền nhà / gói cước lặp 3 tháng liền mà chưa có trong định kỳ | `tao_giao_dich_dinh_ky` đúng số tiền, ngày, tài khoản, danh mục |
+| Danh mục chi lớn chưa có ngân sách | `dat_ngan_sach` theo mức trung bình 3 tháng |
+| Mục tiêu không kịp hạn với dôi dư hiện tại | `sua_muc_tieu` giãn hạn tới mốc thực tế, kèm con số vì sao |
+| Quỹ âm vì tỉ lệ đặt sai | nâng % quỹ đó rồi cân bằng phần còn lại — hai bước, một lần gật |
+| Giao dịch app phân loại chưa chắc | một đề xuất xác nhận cả cụm; chốt xong app **học luật** để lần sau tự xếp đúng |
+| Tin nhắn ngân hàng vừa vào sổ | nhắn một dòng "Vừa thấy −€45,20 tại Tesco → Đi chợ, ngân sách còn €120"; mơ hồ thì hỏi lại |
+| Mỗi sáng | bản tin ngắn: hôm qua chi gì, còn tiêu an toàn bao nhiêu, hoá đơn sắp tới, việc đang chờ gật |
+
+Ba mức trong **Cài đặt → Cố vấn tự lái**: *Tắt* · *Đề xuất rồi chờ gật* (mặc định) · *Tự làm việc an toàn* (việc hoàn tác được thì làm luôn rồi báo, việc còn lại vẫn hỏi). Có model AI thì agent dùng thêm công cụ `de_xuat` để đưa đề xuất của chính nó vào cùng hàng đợi — kể cả trong phiên tự rà soát lúc bạn vắng mặt; "ừ"/"thôi" ngay sau một đề xuất được xử lý chắc chắn ở tầng bộ luật, không cần model.
 
 **B. Bộ luật tiếng Việt offline** (mặc định, không cần key, không cần internet)
 
@@ -282,8 +297,13 @@ Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình 
 
 ## Giao diện
 
-- **Thiết kế cho điện thoại trước**: thanh điều hướng dưới cùng 5 mục, ngăn kéo trượt cho 17 trang, ô nhập chat dính đáy màn hình, gợi ý trả lời nhanh cuộn ngang, tôn trọng `safe-area` của iPhone.
-- **Chủ đề sáng / tối / theo hệ thống** — bấm nút 🌗 ở góc trên, không chớp nền khi tải lại.
+Tối giản, hiện đại, dễ chạm — theo tinh thần các app ngân hàng số: nền phẳng, thẻ bo tròn không viền, một màu nhấn, con số to, nút pill.
+
+- **Trang chủ** như màn hình chính app ngân hàng: tài sản ròng thật to kèm chênh lệch so tháng trước, "còn tiêu an toàn" ngay trong thẻ, hàng hành động nhanh (nhắn cố vấn, chụp hoá đơn, ghi giao dịch…), thẻ tài khoản cuộn ngang, **đề xuất của cố vấn với nút Đồng ý ngay tại chỗ**, giao dịch gần đây, mục tiêu, khoản sắp tới hạn.
+- **Giao dịch** là danh sách theo ngày (Hôm nay / Hôm qua / …) với icon tròn, chạm vào hàng để sửa, nút tròn nổi để thêm; bộ lọc dạng segment.
+- **Thanh dưới 5 mục** trên điện thoại: Trang chủ · Giao dịch · Trò chuyện · Cảnh báo · Thêm — trang *Thêm* gom mọi mục còn lại thành nhóm thay cho ngăn kéo trượt. Máy tính giữ sidebar.
+- **Chat**: bong bóng của bạn màu mực, của cố vấn màu thẻ; thẻ đề xuất có nút Đồng ý/Bỏ qua; chip cho biết tin nhắn đến từ đâu (tự động từ ngân hàng, bản tin sáng, tự lái).
+- **Chủ đề sáng (mặc định) / tối / theo hệ thống** — bấm nút ở góc trên, không chớp nền khi tải lại. Ô nhập chat dính đáy màn hình, gợi ý trả lời nhanh cuộn ngang, tôn trọng `safe-area` của iPhone.
 - **Tìm nhanh `Ctrl/⌘ + K`** — nhảy tới bất kỳ trang nào, gõ không dấu vẫn ra.
 - Biểu đồ tự vẽ bằng SVG (không thư viện), skeleton khi tải, tôn trọng `prefers-reduced-motion`, có style riêng cho in ấn.
 
@@ -424,7 +444,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 
 ```bash
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
-npm run test:smoke                # chạy liền 13 bộ smoke bên dưới
+npm run test:smoke                # chạy liền 14 bộ smoke bên dưới
 npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
 npm run test:all                  # tất cả: unit + smoke + mô phỏng
 
@@ -439,16 +459,17 @@ cd server && node test/smoke-llm.mjs         # lớp dịch sang Claude, chạy 
 cd server && node test/smoke-retry.mjs       # nhà cung cấp trả 503/529 thì tự thử lại, key sai thì bỏ cuộc ngay
 cd server && node test/smoke-manage.mjs      # sửa/xoá mọi tài nguyên; model tự gõ mật khẩu xoá thì bị chặn
 cd server && node test/smoke-stream.mjs      # chat dạng luồng SSE, ảnh hoá đơn tới model đúng hình dạng, cờ "bộ luật trả lời" khi AI hỏng
+cd server && node test/smoke-autopilot.mjs   # đề xuất chờ gật, chế độ tự lái, bản tin sáng, phản hồi tin ngân hàng, "ừ"/"thôi" trong chat
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
 cd server && node test/personas.mjs          # 8 hành trình người dùng đầu-cuối, 160 bước
 cd server && node test/journey5y.mjs         # 5 năm liên tục của một người Việt ở Ireland, 34 bước
 cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
-cd web    && node test/render.mjs            # render thật 17 trang trong jsdom với API thật
+cd web    && node test/render.mjs            # render thật 18 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `smoke-autopilot`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 

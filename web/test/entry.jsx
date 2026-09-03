@@ -16,10 +16,11 @@ import Currency from '../src/pages/Currency.jsx';
 import Automation from '../src/pages/Automation.jsx';
 import Settings from '../src/pages/Settings.jsx';
 import AiLog from '../src/pages/AiLog.jsx';
+import More from '../src/pages/More.jsx';
 
 export const PAGES = {
   Chat, Dashboard, Transactions, Accounts, Funds, Goals, Budgets,
-  Income, Investments, Debts, Fire, Advisor, Insights, Currency, Automation, Settings, AiLog,
+  Income, Investments, Debts, Fire, Advisor, Insights, Currency, Automation, Settings, AiLog, More,
 };
 export { setBaseCurrency } from '../src/lib/format.js';
 export { React };

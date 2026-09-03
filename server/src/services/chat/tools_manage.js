@@ -20,6 +20,7 @@ import { baseCurrency } from '../fx.js';
 import { toMinor } from '../../util/currency.js';
 import { bootstrap } from '../../bootstrap.js';
 import { startOnboarding } from './onboarding.js';
+import { learnRule } from '../categorize.js';
 import fs from 'node:fs';
 import nodePath from 'node:path';
 
@@ -301,6 +302,11 @@ function sua_giao_dich({ id, so_tien, mo_ta, ngay, danh_muc }) {
     const c = pick(all('SELECT * FROM categories'), danh_muc);
     if (!c) return { ok: false, error: `Không có danh mục "${danh_muc}".` };
     patch.category_id = c.id;
+    // Người dùng (hoặc AI thay mặt họ) đã chốt danh mục -> không còn "cần xem lại",
+    // và app học luôn để lần sau tự xếp đúng.
+    patch.needs_review = 0;
+    patch.confidence = 1;
+    try { learnRule({ pattern: t.merchant || t.note, category_id: c.id, name: `Học từ giao dịch #${t.id}` }); } catch { /* mẫu trống thì thôi */ }
   }
   if (!Object.keys(patch).length) return { ok: false, error: 'Không có gì để sửa.' };
   update('transactions', t.id, patch);

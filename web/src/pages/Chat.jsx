@@ -152,6 +152,8 @@ export default function Chat({ onRefresh }) {
   const [loaded, setLoaded] = useState(false);
   const [shot, setShot] = useState(null);   // ảnh chờ gửi (data URL)
   const [undone, setUndone] = useState({}); // batch -> true khi đã hoàn tác
+  const [props, setProps] = useState({});   // id đề xuất -> đề xuất đang chờ
+  const [decided, setDecided] = useState({}); // id đề xuất -> 'done' | 'skip' | 'busy'
   const endRef = useRef(null);
   const taRef = useRef(null);
   const fileRef = useRef(null);
@@ -160,6 +162,7 @@ export default function Chat({ onRefresh }) {
     api.get('/chat/history').then((d) => {
       setMessages(d.messages || []);
       setOnboarding(!d.profile?.onboarded);
+      setProps(Object.fromEntries((d.proposals || []).map((p) => [p.id, p])));
       const last = [...(d.messages || [])].reverse().find((m) => m.role === 'assistant');
       if (last?.data?.quick?.length) setQuick(last.data.quick);
     }).catch(() => {}).finally(() => setLoaded(true));
@@ -241,6 +244,27 @@ export default function Chat({ onRefresh }) {
     }
   }
 
+  /** Bấm Đồng ý/Bỏ qua ngay dưới tin nhắn đề xuất — không cần gõ "ừ". */
+  async function decide(pid, yes) {
+    if (!pid || decided[pid]) return;
+    setDecided((x) => ({ ...x, [pid]: 'busy' }));
+    try {
+      const r = await api.post(`/ai/proposals/${pid}/${yes ? 'accept' : 'reject'}`);
+      if (r.ok === false) throw new Error(r.error || 'Không làm được');
+      setDecided((x) => ({ ...x, [pid]: yes ? 'done' : 'skip' }));
+      const p = props[pid];
+      if (yes) {
+        setMessages((m) => [...m, { role: 'assistant', content: `✅ Xong: **${p?.tieu_de || 'đề xuất'}**.${r.so_buoc > 1 ? ` (${r.so_buoc} bước)` : ''}\n_Không ưng thì bấm Hoàn tác — mọi thứ trả về như cũ._`, id: `a${Date.now()}`, data: { batch: r.batch, mutated: r.mutates, tools: (r.ket_qua || []).map((x) => x.tool) } }]);
+        if (r.mutates) onRefresh?.();
+      } else {
+        setMessages((m) => [...m, { role: 'assistant', content: `Được, mình bỏ qua "${p?.tieu_de || 'đề xuất'}".`, id: `a${Date.now()}` }]);
+      }
+    } catch (e) {
+      setDecided((x) => ({ ...x, [pid]: undefined }));
+      setMessages((m) => [...m, { role: 'assistant', content: `⚠️ ${e.message}`, id: `e${Date.now()}` }]);
+    }
+  }
+
   async function undoBatch(batch) {
     if (!batch || undone[batch]) return;
     if (!window.confirm('Trả lại toàn bộ dữ liệu về trước lượt này? (số dư, quỹ, mục tiêu đều được khôi phục)')) return;
@@ -297,16 +321,40 @@ export default function Chat({ onRefresh }) {
           const batch = m.data?.batch;
           const canUndo = m.role === 'assistant' && m.data?.mutated && batch;
           const fb = m.data?.fallback;
+          const pid = m.data?.proposal;
+          const prop = pid && m.intent === 'proposal' ? props[pid] : null;
+          const showButtons = prop && prop.trang_thai === 'pending' && !decided[pid];
+          const origin = m.intent === 'ingest' ? '💳 Tự động từ ngân hàng' : m.intent === 'brief' ? '☀️ Bản tin sáng' : m.intent === 'autopilot' ? '🤖 Tự lái đã làm' : m.intent === 'ai_review' ? '🔍 Tự rà soát' : null;
           return (
             <div key={m.id ?? `${m.role}${m.created_at}${m.content?.slice(0, 8)}`} className={`msg ${m.role}`}>
-              <div className="av">{m.role === 'user' ? '🙋' : '🤖'}</div>
+              <div className="av">{m.role === 'user' ? '' : 'F'}</div>
               <div className="bub-wrap">
                 <div className="bub">
                   {m.image && <img className="shot" src={m.image} alt="ảnh đã gửi" />}
                   <Md text={m.content} />
                 </div>
-                {(acts.length > 0 || canUndo || fb) && (
+                {(showButtons || decided[pid]) && (
+                  <div className="prop-card">
+                    {showButtons
+                      ? (
+                        <div className="prop">
+                          <div className="ic">💡</div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div className="t">{prop.tieu_de}</div>
+                            {prop.hanh_dong?.length > 1 && <div className="s">{prop.hanh_dong.length} bước, làm một lượt — hoàn tác được cả cụm.</div>}
+                            <div className="btns">
+                              <button className="btn primary sm" onClick={() => decide(pid, true)}>Đồng ý, làm đi</button>
+                              <button className="btn sm" onClick={() => decide(pid, false)}>Bỏ qua</button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                      : <span className="act-chip dim">{decided[pid] === 'busy' ? '⏳ Đang làm…' : decided[pid] === 'done' ? '✅ Đã làm' : 'Đã bỏ qua'}</span>}
+                  </div>
+                )}
+                {(acts.length > 0 || canUndo || fb || origin) && (
                   <div className="acts-done">
+                    {origin && <span className="act-chip">{origin}</span>}
                     {[...new Set(acts)].map((a) => <span key={a} className="act-chip">{a}</span>)}
                     {canUndo && (undone[batch] === true
                       ? <span className="act-chip dim">↩️ Đã hoàn tác lượt này</span>
@@ -321,7 +369,7 @@ export default function Chat({ onRefresh }) {
 
         {busy && (
           <div className="msg assistant">
-            <div className="av">🤖</div>
+            <div className="av">F</div>
             <div className="bub-wrap">
               <div className="bub typing"><span /><span /><span /></div>
               {steps.length > 0

@@ -20,6 +20,7 @@ import { budgetStatus } from '../budgets.js';
 import { portfolio } from '../investments.js';
 import { upcoming } from '../recurring.js';
 import { memoryBrief } from '../ai_memory.js';
+import { pendingBrief } from '../ai_proposals.js';
 import { llmEnabled, complete } from './llm.js';
 import { TOOLS, runTool } from './tools.js';
 import { setUserUtterance } from './tools_manage.js';
@@ -113,6 +114,7 @@ function brief() {
     dau_tu: dauTu,
     khoan_dinh_ky_30_ngay_toi: dinhKy,
     ghi_nho_lau_dai: memoryBrief() || undefined,
+    de_xuat_dang_cho: (() => { try { const l = pendingBrief(); return l.length ? l : undefined; } catch { return undefined; } })(),
   };
 }
 
@@ -160,6 +162,11 @@ QUẢN LÝ QUỸ THEO MỤC TIÊU VÀ THỜI HẠN- Mỗi quỹ tích luỹ nên
 - Nếu tổng monthly_needed vượt quá tiền dư mỗi tháng, đừng im lặng: báo thẳng "kế hoạch này đang quá tải X€/tháng" và đề xuất giãn hạn, hạ mục tiêu, hoặc hoãn quỹ ưu tiên thấp.
 - Quỹ không còn dùng thì **dong_quy** (giữ lịch sử, dồn số dư sang quỹ khác) chứ đừng xoá. Sau khi đóng, nhớ chia lại % cho đủ 100%.
 - Khi người dùng đạt mục tiêu, chủ động chúc mừng rồi đề xuất đóng quỹ hoặc đặt mục tiêu mới.
+
+ĐỀ XUẤT VÀ GẬT ĐẦU MỘT CHẠM
+- Việc nhỏ, hoàn tác được: cứ làm ngay. Việc lớn (đổi kế hoạch, đụng nhiều quỹ, giãn hạn mục tiêu, xoá) hoặc việc bạn phát hiện khi người dùng không hỏi: gọi **de_xuat** với chuỗi công cụ + tham số đầy đủ, rồi nói một câu "mình định làm X, ừ là mình làm". Đừng chỉ khuyên suông — hãy đề xuất thành việc bấm được.
+- **de_xuat_dang_cho** trong TÌNH HÌNH là các đề xuất đang chờ. Người dùng nhắn "ừ", "ok", "làm đi" mà không nói rõ việc gì thì đó là gật cho đề xuất mới nhất: gọi **chap_nhan_de_xuat**. "Thôi", "bỏ qua", "không" thì **tu_choi_de_xuat**.
+- App cũng tự đưa đề xuất (cân bằng quỹ, khoản định kỳ lặp, ngân sách, giãn hạn mục tiêu, xác nhận danh mục). Chúng là của cùng một cố vấn — bạn — nên khi được hỏi hãy giải thích như việc của mình.
 
 ẢNH HOÁ ĐƠN, BIÊN LAI, MÀN HÌNH NGÂN HÀNG
 - Người dùng có thể gửi kèm ảnh. Hãy đọc kỹ: tổng tiền, đồng tiền, ngày, nơi chi/nhận, các dòng món. Rồi **ghi_giao_dich ngay** — mặc định một giao dịch cho tổng hoá đơn, chỉ tách từng món khi họ yêu cầu. Ảnh sao kê nhiều dòng thì ghi từng dòng theo đúng ngày.
