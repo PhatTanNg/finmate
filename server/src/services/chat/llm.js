@@ -7,6 +7,14 @@
  *  - Anthropic Claude — key `sk-ant-...` — nói chuyện qua Messages API, được
  *    dịch qua lại ở anthropic.js nên phần còn lại của app không cần biết.
  * Muốn ép cứng thì đặt FINMATE_LLM_PROVIDER = openai | anthropic.
+ *
+ * Riêng với Claude còn ba nút chỉnh, đều tuỳ chọn:
+ *  - FINMATE_LLM_EFFORT   low | medium | high | xhigh | max — độ sâu suy nghĩ.
+ *                         Bỏ trống = mặc định của model (high). Chat ngắn hằng
+ *                         ngày chạy `low`/`medium` nhanh và rẻ hơn hẳn.
+ *  - FINMATE_LLM_THINKING adaptive | off — bật/tắt suy nghĩ trước khi trả lời.
+ *                         Bỏ trống = để model tự quyết (Opus 5 mặc định có).
+ *  - FINMATE_LLM_MAX_TOKENS  trần độ dài câu trả lời (tính cả phần suy nghĩ).
  */
 import { detectProvider, anthropicUrl, anthropicHeaders, toAnthropicRequest, fromAnthropicResponse } from './anthropic.js';
 
@@ -14,8 +22,23 @@ const RAW_URL = process.env.FINMATE_LLM_URL || '';
 const KEY = process.env.FINMATE_LLM_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || '';
 const PROVIDER = process.env.FINMATE_LLM_PROVIDER || detectProvider(KEY, RAW_URL);
 const URL_ = RAW_URL || 'https://api.openai.com/v1/chat/completions';
-const MODEL = process.env.FINMATE_LLM_MODEL || (PROVIDER === 'anthropic' ? 'claude-sonnet-4-5' : 'gpt-4o-mini');
-const MAX_TOKENS = Number(process.env.FINMATE_LLM_MAX_TOKENS) || 4096;
+const MODEL = process.env.FINMATE_LLM_MODEL || (PROVIDER === 'anthropic' ? 'claude-opus-5' : 'gpt-4o-mini');
+// Với Claude, max_tokens là trần cho CẢ phần suy nghĩ lẫn câu trả lời, nên phải
+// rộng tay hơn hẳn con số 2-4k của thời chưa có thinking; kẻo câu trả lời bị
+// cắt ngang giữa chừng mà không ai hiểu vì sao.
+const MAX_TOKENS = Number(process.env.FINMATE_LLM_MAX_TOKENS) || (PROVIDER === 'anthropic' ? 16000 : 4096);
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const EFFORT = EFFORTS.has(String(process.env.FINMATE_LLM_EFFORT || '').toLowerCase())
+  ? String(process.env.FINMATE_LLM_EFFORT).toLowerCase() : null;
+const THINKING = (() => {
+  const v = String(process.env.FINMATE_LLM_THINKING || '').toLowerCase();
+  if (v === 'adaptive' || v === 'on') return { type: 'adaptive' };
+  if (v === 'off' || v === 'disabled') return { type: 'disabled' };
+  return null;
+})();
+// Model suy nghĩ lâu hơn model đời cũ; 25 giây là quá chật cho một lượt có
+// nhiều công cụ. Vẫn cho chỉnh vì Ollama trên máy yếu có thể cần lâu hơn nữa.
+const TIMEOUT_MS = Number(process.env.FINMATE_LLM_TIMEOUT_MS) || 90000;
 
 export const llmEnabled = () => Boolean(KEY);
 export const llmModel = () => MODEL;
@@ -27,17 +50,30 @@ export const llmProvider = () => PROVIDER;
  * không hề biết mình đã cấu hình sai key, hết hạn mức hay gõ nhầm tên model —
  * chỉ thấy AI "bỗng dưng kém thông minh". Ghi lại lần gọi gần nhất để
  * /api/health nói thẳng ra chuyện đó.
+ *
+ * Kèm theo là đồng hồ token: người dùng trả tiền theo token, nên phải thấy được
+ * mỗi lượt chat tốn bao nhiêu và bộ đệm prompt có thực sự trúng hay không.
  */
 const health = { ok: null, at: null, error: null, errorAt: null, calls: 0, fails: 0, retries: 0 };
+const tokens = { vao: 0, ra: 0, cache_doc: 0, cache_ghi: 0, luot: 0, gan_nhat: null };
 export function llmStatus() {
   return {
     bat: Boolean(KEY), nha_cung_cap: PROVIDER, model: MODEL,
+    do_sau_suy_nghi: EFFORT, suy_nghi: THINKING?.type || 'mac_dinh',
     lan_goi: health.calls, lan_loi: health.fails, lan_thu_lai: health.retries,
     gan_nhat_ok: health.ok, gan_nhat_luc: health.at,
     loi_gan_nhat: health.error, loi_luc: health.errorAt,
+    token: { ...tokens },
   };
 }
-function noteOk() { health.ok = true; health.at = new Date().toISOString(); health.calls += 1; }
+function noteOk(usage) {
+  health.ok = true; health.at = new Date().toISOString(); health.calls += 1;
+  if (usage) {
+    tokens.vao += usage.vao; tokens.ra += usage.ra;
+    tokens.cache_doc += usage.cache_doc; tokens.cache_ghi += usage.cache_ghi;
+    tokens.luot += 1; tokens.gan_nhat = usage;
+  }
+}
 function noteFail(e) {
   health.ok = false; health.at = new Date().toISOString(); health.calls += 1; health.fails += 1;
   // Cắt ngắn và bỏ mọi thứ trông giống key: thông điệp này đi ra tới API health.
@@ -68,17 +104,46 @@ function isTransient(e) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Thống kê token theo kiểu OpenAI -> hình dạng chung. */
+function openaiUsage(data) {
+  const u = data?.usage;
+  if (!u) return null;
+  const cached = Number(u.prompt_tokens_details?.cached_tokens) || 0;
+  return { vao: Math.max(0, (Number(u.prompt_tokens) || 0) - cached), ra: Number(u.completion_tokens) || 0, cache_doc: cached, cache_ghi: 0 };
+}
+
 /**
- * Gọi API chat. Trả về nguyên message của model (có thể chứa tool_calls)
- * khi `raw: true`, ngược lại chỉ trả chuỗi nội dung.
+ * OpenAI và các dịch vụ tương thích không hiểu cờ `cache`, và một số (Ollama,
+ * vài proxy) chỉ chấp nhận đúng MỘT message system ở đầu. Gom lại cho chắc.
  */
-async function callApi(messages, { json = false, timeout = 25000, temperature = 0.4, tools = null, raw = false } = {}) {
+function openaiMessages(messages) {
+  const out = [];
+  for (const m of messages) {
+    const { cache, blocks, stop, refusal, truncated, usage, ...rest } = m;
+    void cache; void blocks; void stop; void refusal; void truncated; void usage;
+    const prev = out[out.length - 1];
+    if (rest.role === 'system' && prev?.role === 'system') {
+      prev.content = `${prev.content}\n\n${rest.content}`;
+      continue;
+    }
+    out.push(rest);
+  }
+  return out;
+}
+
+/**
+ * Gọi API chat. Trả về { msg, usage }: `msg` là nguyên message của model
+ * (có thể chứa tool_calls) theo hình dạng OpenAI.
+ */
+async function callApi(messages, { json = false, schema = null, timeout = TIMEOUT_MS, temperature = 0.4, tools = null } = {}) {
   if (!KEY) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
     if (PROVIDER === 'anthropic') {
-      const body = toAnthropicRequest(messages, tools, { model: MODEL, json, temperature, maxTokens: MAX_TOKENS });
+      const body = toAnthropicRequest(messages, tools, {
+        model: MODEL, json, schema, maxTokens: MAX_TOKENS, effort: EFFORT, thinking: THINKING,
+      });
       const res = await fetch(anthropicUrl(RAW_URL), {
         method: 'POST',
         headers: anthropicHeaders(KEY),
@@ -89,15 +154,19 @@ async function callApi(messages, { json = false, timeout = 25000, temperature = 
         const t = await res.text().catch(() => '');
         throw new Error(`LLM ${res.status}: ${t.slice(0, 200)}`);
       }
-      const msg = fromAnthropicResponse(await res.json(), { json, prefilled: json && !tools?.length });
-      return raw ? msg : msg?.content || null;
+      const msg = fromAnthropicResponse(await res.json(), { json });
+      // Bộ lọc an toàn của model từ chối trả lời: không phải lỗi mạng, gọi lại
+      // cũng vậy. Báo lên để tầng trên lùi về bộ luật thay vì im lặng trả rỗng.
+      if (msg?.refusal) throw Object.assign(new Error(`LLM từ chối trả lời (${msg.refusal === true ? 'refusal' : msg.refusal})`), { permanent: true });
+      if (msg?.truncated) console.warn(`[finmate] câu trả lời của ${MODEL} bị cắt ở ${MAX_TOKENS} token — tăng FINMATE_LLM_MAX_TOKENS nếu hay gặp`);
+      return { msg, usage: msg?.usage || null };
     }
     const res = await fetch(URL_, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
       body: JSON.stringify({
         model: MODEL,
-        messages,
+        messages: openaiMessages(messages),
         temperature,
         ...(tools ? { tools, tool_choice: 'auto' } : {}),
         ...(json ? { response_format: { type: 'json_object' } } : {}),
@@ -109,8 +178,8 @@ async function callApi(messages, { json = false, timeout = 25000, temperature = 
       throw new Error(`LLM ${res.status}: ${body.slice(0, 200)}`);
     }
     const data = await res.json();
-    const msg = data?.choices?.[0]?.message;
-    return raw ? msg || null : msg?.content || null;
+    const msg = data?.choices?.[0]?.message || null;
+    return { msg, usage: openaiUsage(data) };
   } finally {
     clearTimeout(timer);
   }
@@ -119,16 +188,18 @@ async function callApi(messages, { json = false, timeout = 25000, temperature = 
 /** Bọc quanh lời gọi thật: ghi nhận thành/bại, thử lại khi lỗi tạm thời, rồi ném tiếp như cũ. */
 async function call(messages, opts = {}) {
   if (!KEY) return null;
+  const { raw = false, ...rest } = opts;
   let last;
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt += 1) {
     try {
-      const r = await callApi(messages, opts);
-      noteOk();
-      return r;
+      const r = await callApi(messages, rest);
+      noteOk(r?.usage);
+      const msg = r?.msg || null;
+      return raw ? msg : msg?.content || null;
     } catch (e) {
       noteFail(e);
       last = e;
-      if (attempt === RETRY_DELAYS.length || !isTransient(e)) break;
+      if (attempt === RETRY_DELAYS.length || e?.permanent || !isTransient(e)) break;
       health.retries += 1;
       console.warn(`[finmate] thử lại lần ${attempt + 1} sau ${RETRY_DELAYS[attempt]}ms`);
       await sleep(RETRY_DELAYS[attempt]);
@@ -149,16 +220,35 @@ const INTENT_LIST = [
   'add_debt', 'add_holding', 'add_recurring', 'undo', 'help', 'greeting', 'update_profile', 'unknown',
 ];
 
-/** Nhờ LLM phân loại lại khi bộ luật không chắc chắn. */
-export async function classify(text) {
+/** Schema cho câu trả lời phân loại — Claude ép đúng hình dạng này qua output_config. */
+const CLASSIFY_SCHEMA = {
+  type: 'object',
+  properties: {
+    intent: { type: 'string', enum: INTENT_LIST },
+    amount: { type: ['number', 'null'], description: 'Số tiền theo đơn vị thường ngày của đồng tiền gốc, null nếu không có' },
+    confidence: { type: 'number', description: 'Độ chắc chắn 0..1' },
+  },
+  required: ['intent', 'amount', 'confidence'],
+  additionalProperties: false,
+};
+
+/**
+ * Nhờ LLM phân loại lại khi bộ luật không chắc chắn.
+ * @param {string} text
+ * @param {{currency?: string}} ctx  đồng tiền gốc để hiểu "50k" là 50.000đ hay €50.000
+ */
+export async function classify(text, { currency = 'VND' } = {}) {
   let content = null;
+  const viDu = currency === 'VND'
+    ? '("50k" = 50000, "2 triệu" = 2000000, "1tr5" = 1500000)'
+    : `("50" = 50, "1.5k" = 1500; riêng "2 tỷ"/"5 triệu" luôn là VND, để nguyên số VND)`;
   try {
     content = await call(
       [
-        { role: 'system', content: `Bạn phân loại ý định người dùng cho app tài chính cá nhân tiếng Việt. Chỉ trả JSON: {"intent": one of ${INTENT_LIST.join('|')}, "amount": number|null, "confidence": 0..1}. amount là số tiền VND nếu có (quy đổi "50k"=50000, "2 triệu"=2000000).` },
+        { role: 'system', content: `Bạn phân loại ý định người dùng cho app tài chính cá nhân tiếng Việt. Chỉ trả JSON: {"intent": one of ${INTENT_LIST.join('|')}, "amount": number|null, "confidence": 0..1}. amount là số tiền theo đơn vị thường ngày của ${currency} nếu có ${viDu}.` },
         { role: 'user', content: String(text).slice(0, 500) },
       ],
-      { json: true, temperature: 0 }
+      { json: true, schema: CLASSIFY_SCHEMA, temperature: 0 }
     );
   } catch {
     return null;
@@ -174,7 +264,8 @@ export async function classify(text) {
 }
 
 /** Nhờ LLM trả lời câu hỏi mở, dựa hoàn toàn trên số liệu thật của người dùng. */
-export async function answer(question, context) {
+export async function answer(question, context, { currency = 'VND' } = {}) {
+  const donVi = currency === 'VND' ? 'đơn vị VND rút gọn (triệu/tỷ)' : `đồng tiền gốc là ${currency}, viết gọn kiểu "€1.250" / "${currency} 45k"`;
   try {
     return await call(
       [
@@ -182,7 +273,7 @@ export async function answer(question, context) {
           role: 'system',
           content:
             'Bạn là cố vấn tài chính cá nhân người Việt, thực tế và thẳng thắn. Chỉ dùng số liệu trong CONTEXT, không bịa. ' +
-            'Trả lời ngắn gọn (dưới 200 từ), dùng markdown, đơn vị VND rút gọn (triệu/tỷ). Không khuyên mua bán mã cổ phiếu cụ thể. ' +
+            `Trả lời ngắn gọn (dưới 200 từ), dùng markdown, ${donVi}. Không khuyên mua bán mã cổ phiếu cụ thể. ` +
             'Nếu thiếu dữ liệu, nói rõ cần bổ sung gì.',
         },
         { role: 'user', content: `CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}\n\nCÂU HỎI: ${question}` },

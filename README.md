@@ -61,6 +61,10 @@ Chat box trở thành một cố vấn tài chính có toàn quyền đọc và 
 - **Lời khuyên gắn với số của bạn**: nó tra tài sản ròng, tỷ lệ tiết kiệm, quỹ khẩn cấp, ngày FIRE… trước khi khuyên, nên không nói chung chung.
 - **Chủ động cảnh báo** khi thấy rủi ro thật: sắp âm tiền, nợ lãi cao, quỹ khẩn cấp mỏng.
 - Câu trả lời được tối ưu để **đọc trên điện thoại**: ngắn, ít bảng, in đậm con số quan trọng.
+- **Thấy AI đang làm gì theo thời gian thực**: câu trả lời đi qua luồng SSE (`POST /api/chat/stream`), nên thay vì ba chấm chờ 10-20 giây, màn hình hiện từng bước "⏳ Đang ghi giao dịch: 65000 · ăn trưa" → "✅" → "💬 Đang soạn câu trả lời…". Server cũ hay proxy không hỗ trợ luồng thì giao diện tự lùi về `POST /api/chat`.
+- **Chụp hoá đơn là xong** 📷: bấm nút máy ảnh trong chat, chụp hoá đơn, biên lai hay màn hình thông báo ngân hàng — AI đọc số tiền, nơi chi, ngày rồi ghi sổ, nói rõ nó đã đọc được gì để bạn kiểm. Ảnh được thu nhỏ ngay trên điện thoại (≤1600px) trước khi gửi và **không lưu vào cơ sở dữ liệu**, lịch sử chỉ ghi dấu "đã gửi kèm ảnh". Cần cố vấn AI đang bật; chưa bật thì app nói thẳng thay vì im lặng.
+- **Hoàn tác cả lượt bằng một chạm**: dưới mỗi câu trả lời có thay đổi dữ liệu là nút "↩️ Hoàn tác lượt này" — trả lại mọi thứ lượt đó đã đụng vào (số dư, quỹ, mục tiêu), không chỉ giao dịch.
+- **Không giả vờ là AI**: nếu AI bật mà không phản hồi được (key sai, hết hạn mức, quá tải), câu trả lời của bộ luật mang chip "📐 Bộ luật trả lời — AI không phản hồi được: …" kèm lý do, thay vì để bạn tưởng đó là lời cố vấn.
 
 **AI nhìn thấy toàn bộ tài nguyên nó đang quản.** Mỗi lượt chat, app gửi kèm cho AI một bức tranh đầy đủ chứ không bắt nó mò từng công cụ: số dư từng ví, từng quỹ kèm % + độ ưu tiên + hạn hoàn thành + số tiền cần bỏ mỗi tháng, tổng % phân bổ có cân bằng chưa, ngân sách từng danh mục còn bao nhiêu, danh mục đầu tư lãi lỗ ra sao, các khoản định kỳ 30 ngày tới. Nhờ vậy nó điều phối được tổng thể như một cố vấn thật:
 
@@ -241,10 +245,19 @@ Dùng **Claude của Anthropic** thì chỉ cần dán key — app nhận ra qua
 
 ```bash
 FINMATE_LLM_KEY=sk-ant-...
-FINMATE_LLM_MODEL=claude-sonnet-4-5
+FINMATE_LLM_MODEL=claude-opus-5        # mặc định; rẻ hơn: claude-sonnet-5, claude-haiku-4-5
+FINMATE_LLM_EFFORT=medium              # tuỳ chọn: low | medium | high | xhigh | max — chat hằng ngày chạy medium là đủ
 ```
 
 > Nếu tự nhận diện sai (ví dụ đi qua proxy nội bộ), ép cứng bằng `FINMATE_LLM_PROVIDER=anthropic` hoặc `=openai`.
+
+Lớp nói chuyện với Claude (`services/chat/anthropic.js`) viết theo API hiện hành của thế hệ Claude 4.6+ / 5, nên có mấy điều đáng biết:
+
+- **Bộ đệm prompt (prompt caching)**: bộ 68 công cụ và phần hướng dẫn cố định của system prompt giống hệt nhau qua mọi lượt, được đánh dấu `cache_control`; phần "tình hình hiện tại" (đổi từng lượt) đặt sau cùng để không phá bộ đệm. Từ lượt thứ hai, phần lớn token đầu vào chỉ tính ~10% giá. Thẻ "Cố vấn AI" trong **Cài đặt** hiện tỉ lệ bộ đệm trúng, tổng token vào/ra và lỗi gần nhất — nếu tỉ lệ trúng là 0% suốt thì có gì đó đang làm prompt đổi mỗi lượt.
+- **Model tự suy nghĩ** trước khi trả lời (Opus 5 mặc định bật). Các khối suy nghĩ có chữ ký được gửi lại nguyên vẹn trong vòng lặp gọi công cụ — API đòi vậy. `FINMATE_LLM_EFFORT` chỉnh độ sâu; `FINMATE_LLM_THINKING=off` tắt hẳn khi cần nhanh.
+- **Không gửi `temperature`, không mớm lời trợ lý**: hai thứ thế hệ Claude mới từ chối thẳng (400). Phân loại ý định ép JSON bằng `output_config.format` + JSON schema thay vì mớm "{" như trước.
+- **Model từ chối trả lời** (bộ lọc an toàn, `stop_reason: refusal`) được coi như lỗi vĩnh viễn: không thử lại, lùi về bộ luật và ghi lý do vào `/api/health`.
+- **`max_tokens` mặc định 16.000** vì nó là trần cho cả phần suy nghĩ lẫn câu trả lời; đặt thấp như thời chưa có thinking thì câu trả lời bị cắt ngang.
 
 Muốn số liệu tài chính **không rời khỏi máy**, chạy model ngay tại chỗ bằng [Ollama](https://ollama.com) — miễn phí, không cần key thật:
 
@@ -262,7 +275,7 @@ Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình 
 - **Không được nói suông là đã làm.** Nếu model trả lời "đã ghi 45.000đ" mà chưa hề gọi công cụ nào, app chặn lại và nhắc nó làm thật; vẫn nói suông lần nữa thì câu trả lời đó **bị bỏ** và bộ luật xử lý thay — thà mất một câu văn hay còn hơn để người dùng tin là đã ghi trong khi sổ trống. (Model nhỏ hay bắt chước định dạng câu trả lời cũ trong lịch sử chat, nên các lượt do bộ luật sinh cũng được đánh dấu rõ trước khi đưa cho model.)
 - **Việc phá dữ liệu đòi chính bạn gõ, không nhận lời model tự khai.** Bài học phải trả giá bằng sổ thật: người dùng nói "đồng ý, dọn thật đi" (ý là dọn mục tiêu trùng), model hiểu nhầm, **tự điền mật khẩu xác nhận `XOA HET`** và xoá sạch 723 giao dịch — phải khôi phục từ bản sao lưu tự động. Giờ các thao tác phá dữ liệu kiểm thẳng **câu bạn vừa gõ**, thứ model không giả mạo được: xoá sạch đòi bạn tự gõ `XOA HET`; xoá tài khoản kèm lịch sử đòi bạn nói rõ "xoá cả giao dịch". Trước khi phá, app luôn **chụp lại một bản sao DB**, và **kiểm lại sau khi xoá** để không báo cáo dối.
 - **Gửi đi cái gì:** nội dung hội thoại + số liệu tóm tắt (không gửi toàn bộ lịch sử giao dịch). Nếu không muốn gửi gì ra ngoài, cứ để trống key — app vẫn đủ tính năng.
-- **Hỏng thì sao:** hết hạn mức, mất mạng, model trả sai — app tự động rơi về bộ luật offline. Riêng lỗi tạm thời (429/503/529 "overloaded", đứt mạng) được **thử lại 2 lần với giãn cách 0,4s và 1,2s** trước khi bỏ cuộc: khi chạy thật với Claude haiku có lúc gần một phần ba lượt gọi trả 503 dù key vẫn tốt, nếu bỏ cuộc ngay thì mất oan phần AI mà vẫn tốn tiền. Lỗi vĩnh viễn (key sai, sai tên model, request hỏng) thì dừng ngay, không gọi lại cho phí. Mọi lỗi được ghi ra log server và hiện ở `GET /api/health` (`llm.trang_thai`: số lượt gọi, số lượt lỗi, số lần thử lại, thông điệp lỗi gần nhất đã che key — **không bị xoá** khi có lượt thành công sau đó, vì lỗi lác đác mới là thứ cần thấy nhất), nên bạn biết ngay khi key sai hay hết hạn mức thay vì chỉ thấy "AI bỗng kém thông minh".
+- **Hỏng thì sao:** hết hạn mức, mất mạng, model trả sai — app tự động rơi về bộ luật offline, và câu trả lời đó mang chip "📐 Bộ luật trả lời" kèm lý do để bạn biết. Riêng lỗi tạm thời (429/503/529 "overloaded", đứt mạng) được **thử lại 2 lần với giãn cách 0,4s và 1,2s** trước khi bỏ cuộc: khi chạy thật với Claude haiku có lúc gần một phần ba lượt gọi trả 503 dù key vẫn tốt, nếu bỏ cuộc ngay thì mất oan phần AI mà vẫn tốn tiền. Lỗi vĩnh viễn (key sai, sai tên model, request hỏng) thì dừng ngay, không gọi lại cho phí. Mọi lỗi được ghi ra log server và hiện ở `GET /api/health` (`llm.trang_thai`: số lượt gọi, số lượt lỗi, số lần thử lại, thông điệp lỗi gần nhất đã che key — **không bị xoá** khi có lượt thành công sau đó, vì lỗi lác đác mới là thứ cần thấy nhất), nên bạn biết ngay khi key sai hay hết hạn mức thay vì chỉ thấy "AI bỗng kém thông minh".
 - **Model gọi sai tên tham số** (rất hay xảy ra) được ánh xạ lại tự động; công cụ báo lỗi kèm danh sách giá trị hợp lệ để agent tự sửa ở vòng sau.
 
 ---
@@ -392,9 +405,12 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_FX_OFFLINE` | – | Đặt `1` để tắt hẳn việc gọi mạng lấy tỷ giá |
 | `FINMATE_LLM_KEY` | – | Bật cố vấn AI (function calling). Trống = dùng bộ luật offline |
 | `FINMATE_LLM_URL` | OpenAI | Endpoint tương thích OpenAI. Bỏ trống khi dùng Claude |
-| `FINMATE_LLM_MODEL` | `gpt-4o-mini` / `claude-sonnet-4-5` | Model, cần hỗ trợ tool calling |
+| `FINMATE_LLM_MODEL` | `gpt-4o-mini` / `claude-opus-5` | Model, cần hỗ trợ tool calling (đọc ảnh hoá đơn cần model có vision) |
 | `FINMATE_LLM_PROVIDER` | tự nhận diện | `openai` hoặc `anthropic`, chỉ đặt khi nhận diện sai |
-| `FINMATE_LLM_MAX_TOKENS` | `2048` | Giới hạn độ dài câu trả lời (chỉ Claude) |
+| `FINMATE_LLM_EFFORT` | mặc định của model (`high`) | `low` · `medium` · `high` · `xhigh` · `max` — độ sâu suy nghĩ (chỉ Claude) |
+| `FINMATE_LLM_THINKING` | model tự quyết | `adaptive` bật, `off` tắt suy nghĩ trước khi trả lời (chỉ Claude) |
+| `FINMATE_LLM_MAX_TOKENS` | `16000` (Claude) / `4096` | Trần độ dài câu trả lời, tính cả phần suy nghĩ |
+| `FINMATE_LLM_TIMEOUT_MS` | `90000` | Chờ tối đa cho một lượt gọi model |
 | `FINMATE_AGENT` | – | Đặt `off` để tắt agent dù đã có key |
 
 ### Những việc chỉ bạn làm được
@@ -408,7 +424,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 
 ```bash
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
-npm run test:smoke                # chạy liền 10 bộ smoke bên dưới
+npm run test:smoke                # chạy liền 13 bộ smoke bên dưới
 npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
 npm run test:all                  # tất cả: unit + smoke + mô phỏng
 
@@ -422,6 +438,7 @@ cd server && node test/smoke-ai.mjs          # nhật ký + hoàn tác, trí nh�
 cd server && node test/smoke-llm.mjs         # lớp dịch sang Claude, chạy qua máy chủ giả (không cần key)
 cd server && node test/smoke-retry.mjs       # nhà cung cấp trả 503/529 thì tự thử lại, key sai thì bỏ cuộc ngay
 cd server && node test/smoke-manage.mjs      # sửa/xoá mọi tài nguyên; model tự gõ mật khẩu xoá thì bị chặn
+cd server && node test/smoke-stream.mjs      # chat dạng luồng SSE, ảnh hoá đơn tới model đúng hình dạng, cờ "bộ luật trả lời" khi AI hỏng
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
@@ -431,7 +448,7 @@ cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học �
 cd web    && node test/render.mjs            # render thật 17 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 

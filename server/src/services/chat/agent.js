@@ -161,24 +161,28 @@ QUẢN LÝ QUỸ THEO MỤC TIÊU VÀ THỜI HẠN- Mỗi quỹ tích luỹ nên
 - Quỹ không còn dùng thì **dong_quy** (giữ lịch sử, dồn số dư sang quỹ khác) chứ đừng xoá. Sau khi đóng, nhớ chia lại % cho đủ 100%.
 - Khi người dùng đạt mục tiêu, chủ động chúc mừng rồi đề xuất đóng quỹ hoặc đặt mục tiêu mới.
 
+ẢNH HOÁ ĐƠN, BIÊN LAI, MÀN HÌNH NGÂN HÀNG
+- Người dùng có thể gửi kèm ảnh. Hãy đọc kỹ: tổng tiền, đồng tiền, ngày, nơi chi/nhận, các dòng món. Rồi **ghi_giao_dich ngay** — mặc định một giao dịch cho tổng hoá đơn, chỉ tách từng món khi họ yêu cầu. Ảnh sao kê nhiều dòng thì ghi từng dòng theo đúng ngày.
+- Nói rõ bạn đã đọc được gì (số tiền, nơi chi, ngày) để họ kiểm tra; số mờ hay thiếu thì hỏi lại đúng một câu thay vì đoán bừa.
+- Không có ảnh nào chứa số tiền hợp lệ thì nói thẳng là chưa đọc được, đừng bịa.
+
 CÁCH VIẾT SỐ TIỀN
 - Đồng tiền gốc và các đơn vị đã ghi trong TÌNH HÌNH. Khi gọi công cụ, truyền số theo **đơn vị thường ngày** (65000 đồng, 12.5 euro), công cụ tự quy đổi.
 - Khi trả lời, viết gọn theo thói quen người Việt: "1,2 tr", "45 tr", "2,3 tỷ" cho VND; "€1.250", "€45k" cho EUR.
 - Người dùng có thể sống ở nước ngoài và giữ tài sản ở Việt Nam. Đừng cộng gộp hai đồng tiền bằng miệng — công cụ đã trả sẵn số quy đổi.
 `;
 
-function systemNormal() {
-  return `Bạn là FinMate — cố vấn tài chính cá nhân, nói tiếng Việt.
+/**
+ * System prompt chia làm HAI message: phần hướng dẫn cố định (giống hệt nhau
+ * qua mọi lượt, được nhà cung cấp ghi vào bộ đệm prompt nên từ lượt thứ hai
+ * chỉ tốn ~10% giá) và phần tình hình (đổi theo từng lượt, để sau cùng để
+ * không phá bộ đệm). Đường OpenAI gộp hai message lại thành một, không ảnh hưởng.
+ */
+const STATIC_NORMAL = `Bạn là FinMate — cố vấn tài chính cá nhân, nói tiếng Việt.
 ${COMMON}
-TÌNH HÌNH HIỆN TẠI (số liệu thật, cập nhật lúc gọi):
-${JSON.stringify(brief(), null, 0)}
-
 Nếu người dùng chào hỏi chung chung, hãy tóm tắt tình hình trong 2-3 dòng rồi gợi ý một việc đáng làm nhất lúc này.`;
-}
 
-function systemOnboarding() {
-  const b = brief();
-  return `Bạn là FinMate — cố vấn tài chính cá nhân, nói tiếng Việt. Người dùng **vừa mở app lần đầu**.
+const STATIC_ONBOARDING = `Bạn là FinMate — cố vấn tài chính cá nhân, nói tiếng Việt. Người dùng **vừa mở app lần đầu**.
 ${COMMON}
 NHIỆM VỤ LÚC NÀY: dẫn dắt họ thiết lập hồ sơ qua trò chuyện tự nhiên, KHÔNG phải bảng câu hỏi.
 - Mỗi lượt chỉ hỏi **một** điều, hỏi như người thật đang tìm hiểu, kèm ví dụ ngắn để họ dễ trả lời.
@@ -186,11 +190,21 @@ NHIỆM VỤ LÚC NÀY: dẫn dắt họ thiết lập hồ sơ qua trò chuyệ
 - Thứ tự gợi ý (linh hoạt theo mạch chuyện): tên & tuổi → đang sống ở đâu, dùng tiền gì → thu nhập chính (bao nhiêu, ngày nào nhận) → các tài khoản/ví và số dư hiện có → nợ nếu có → mục tiêu lớn nhất trong 1-3 năm tới → phong cách sống và mức chi tiêu.
 - Người dùng có thể kể một lúc nhiều thứ: hãy ghi hết bằng nhiều công cụ trong cùng một lượt.
 - Nếu họ nói "bỏ qua"/"để sau", tôn trọng và đi tiếp.
-- Khi đã có **thông tin cá nhân cơ bản + ít nhất 1 tài khoản có số dư + ít nhất 1 nguồn thu**, hãy gọi hoan_tat_thiet_lap, rồi tóm tắt lại bức tranh tài chính của họ và đề xuất 2-3 việc nên làm ngay.
+- Khi đã có **thông tin cá nhân cơ bản + ít nhất 1 tài khoản có số dư + ít nhất 1 nguồn thu**, hãy gọi hoan_tat_thiet_lap, rồi tóm tắt lại bức tranh tài chính của họ và đề xuất 2-3 việc nên làm ngay.`;
 
-ĐÃ BIẾT ĐẾN GIỜ:
-${JSON.stringify(b, null, 0)}`;
+function systemMessages(onboarding) {
+  return [
+    { role: 'system', content: onboarding ? STATIC_ONBOARDING : STATIC_NORMAL, cache: true },
+    {
+      role: 'system',
+      content: `${onboarding ? 'ĐÃ BIẾT ĐẾN GIỜ' : 'TÌNH HÌNH HIỆN TẠI (số liệu thật, cập nhật lúc gọi)'}:\n${JSON.stringify(brief(), null, 0)}`,
+    },
+  ];
 }
+
+/** Giữ lại cho nơi khác cần xem trọn system prompt (test, gỡ lỗi). */
+export const systemNormal = () => systemMessages(false).map((m) => m.content).join('\n\n');
+export const systemOnboarding = () => systemMessages(true).map((m) => m.content).join('\n\n');
 
 /**
  * Câu trả lời có đang tuyên bố là đã thay đổi dữ liệu không?
@@ -236,13 +250,25 @@ function toMessages(history) {
     });
 }
 
+/** Vài tham số đáng nói của một lời gọi công cụ — để giao diện hiện "Đang ghi 65.000đ ăn trưa…". */
+function summarizeArgs(args = {}) {
+  const out = {};
+  for (const k of ['ten', 'quy', 'tai_khoan', 'so_tien', 'dong_tien', 'mo_ta', 'danh_muc', 'muc_tieu', 'khoan_no', 'ma']) {
+    if (args[k] != null && typeof args[k] !== 'object') out[k] = String(args[k]).slice(0, 60);
+  }
+  return out;
+}
+
 /**
  * Chạy một lượt hội thoại.
  * @returns {{reply: string, calls: string[], mutated: boolean, onboarded: boolean}|null}
  *          null nghĩa là agent không dùng được -> tầng trên lùi về bộ luật.
  */
-export async function runAgent(message, history, { onboarding = false, source = 'chat', allow = null } = {}) {
+export async function runAgent(message, history, {
+  onboarding = false, source = 'chat', allow = null, image = null, onEvent = null,
+} = {}) {
   if (!agentEnabled()) return null;
+  const emit = (ev) => { try { onEvent?.(ev); } catch { /* người nghe lỗi không được làm hỏng lượt chat */ } };
 
   // Các công cụ nguy hiểm cần biết CHÍNH XÁC người dùng vừa gõ gì, vì tham số
   // do model tự điền không đáng tin: đã có lần model tự gõ mật khẩu xác nhận
@@ -255,10 +281,16 @@ export async function runAgent(message, history, { onboarding = false, source = 
   const toolset = allow ? TOOLS.filter((t) => allow.test(t.function.name)) : TOOLS;
 
   const batch = `${source}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  // Lượt hiện tại có thể kèm ảnh (hoá đơn, màn hình ngân hàng): gửi theo hình
+  // dạng nhiều phần của OpenAI; lớp Anthropic dịch sang khối image của Claude.
+  const text = String(message).slice(0, 4000) || (image ? 'Ghi giúp mình giao dịch trong ảnh này.' : '');
+  const userContent = image
+    ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: image } }]
+    : text;
   const messages = [
-    { role: 'system', content: onboarding ? systemOnboarding() : systemNormal() },
+    ...systemMessages(onboarding),
     ...toMessages(history),
-    { role: 'user', content: String(message).slice(0, 4000) },
+    { role: 'user', content: userContent },
   ];
 
   const calls = [];
@@ -268,6 +300,7 @@ export async function runAgent(message, history, { onboarding = false, source = 
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
     let msg;
+    emit({ type: 'thinking', step });
     try {
       msg = await complete(messages, toolset, { temperature: 0.55 });
     } catch (e) {
@@ -311,7 +344,9 @@ export async function runAgent(message, history, { onboarding = false, source = 
       return { reply, calls, mutated, onboarded, batch };
     }
 
-    messages.push({ role: 'assistant', content: msg.content || null, tool_calls: toolCalls });
+    // Giữ `blocks` (content thô của Claude, gồm cả khối suy nghĩ có chữ ký) để
+    // lượt sau gửi lại nguyên vẹn — API đòi vậy khi tiếp tục vòng công cụ.
+    messages.push({ role: 'assistant', content: msg.content || null, tool_calls: toolCalls, ...(msg.blocks ? { blocks: msg.blocks } : {}) });
 
     for (const tc of toolCalls) {
       const name = tc.function?.name;
@@ -333,12 +368,14 @@ export async function runAgent(message, history, { onboarding = false, source = 
         continue;
       }
 
+      emit({ type: 'tool', name, args: summarizeArgs(args) });
       beginAudit({ tool: name, args, batch, source, reason: ly_do });
       try {
         out = runTool(name, args);
       } finally {
         try { endAudit(out, out?.ok !== false); } catch { abortAudit(); }
       }
+      emit({ type: 'tool_done', name, ok: out?.ok !== false, error: out?.ok === false ? String(out?.error || '').slice(0, 160) : undefined });
 
       if (out?.mutates) mutated = true;
       if (name === 'hoan_tat_thiet_lap' && out?.ok) onboarded = true;

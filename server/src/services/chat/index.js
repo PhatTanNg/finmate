@@ -5,7 +5,8 @@ import { norm } from '../../util/vi.js';
 import { detectIntent, looksLikeQuestion } from './nlu.js';
 import { HANDLERS } from './handlers.js';
 import { handleOnboarding, startOnboarding, currentOnboardingQuestion } from './onboarding.js';
-import { llmEnabled, classify, answer } from './llm.js';
+import { llmEnabled, classify, answer, llmStatus } from './llm.js';
+import { baseCurrency } from '../fx.js';
 import { runAgent, agentEnabled } from './agent.js';
 import { totals } from '../reports.js';
 import { netWorth } from '../networth.js';
@@ -126,7 +127,7 @@ async function answerNormally(message) {
 
   // bộ luật không chắc -> nhờ LLM phân loại (nếu có cấu hình)
   if ((intent === 'unknown' || score < 3) && llmEnabled()) {
-    const guess = await classify(message);
+    const guess = await classify(message, { currency: baseCurrency() });
     if (guess && guess.confidence >= 0.5 && HANDLERS[guess.intent]) {
       intent = guess.intent;
       if (guess.amount && !entities.amount) entities.amount = guess.amount;
@@ -143,7 +144,7 @@ async function answerNormally(message) {
 
   // câu hỏi mở: để LLM diễn giải dựa trên số liệu thật
   if (OPEN_QUESTION_INTENTS.has(intent) && is_question && llmEnabled()) {
-    const llmReply = await answer(message, snapshotContext());
+    const llmReply = await answer(message, snapshotContext(), { currency: baseCurrency() });
     if (llmReply) result = { reply: llmReply, data: result.data, quick: result.quick };
   }
 
@@ -165,32 +166,62 @@ function alreadySetUp() {
   return done;
 }
 
-export async function chat(text) {
+/** Ảnh gửi kèm phải là data URL ảnh, không quá lớn — chặn ngay ở cửa. */
+const IMAGE_RE = /^data:image\/(jpeg|png|gif|webp);base64,[A-Za-z0-9+/=\s]+$/;
+export function validImage(image) {
+  if (!image) return null;
+  const s = String(image);
+  if (s.length > 6_000_000) throw new Error('Ảnh quá lớn (tối đa ~4MB). Hãy chụp lại hoặc thu nhỏ ảnh.');
+  if (!IMAGE_RE.test(s)) throw new Error('Ảnh không hợp lệ: chỉ nhận JPEG, PNG, GIF, WebP.');
+  return s;
+}
+
+/**
+ * @param {string} text
+ * @param {{image?: string|null, onEvent?: (ev: object) => void}} [opts]
+ *   image   ảnh kèm theo (data URL) — hoá đơn, biên lai, màn hình ngân hàng.
+ *   onEvent nhận tiến trình từng bước (đang suy nghĩ, đang gọi công cụ nào) để
+ *           giao diện hiện theo thời gian thực thay vì ba chấm chờ đợi.
+ */
+export async function chat(text, { image = null, onEvent = null } = {}) {
   const message = String(text || '').trim();
-  if (!message) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
-  saveMessage('user', message);
+  const img = validImage(image);
+  if (!message && !img) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
+  // Không lưu ảnh vào lịch sử (nặng và không cần thiết), chỉ ghi dấu là có ảnh.
+  saveMessage('user', img ? `${message || 'Ghi giúp mình giao dịch trong ảnh này.'}\n📷 [đã gửi kèm ảnh]` : message, null, img ? { image: true } : {});
 
   const p = get('SELECT * FROM profile WHERE id = 1') || {};
   const isOnboarding = !p.onboarded && !alreadySetUp();
 
   // Ưu tiên AI cố vấn: hiểu ngữ cảnh cả cuộc trò chuyện và tự thao tác trong app.
   // Không cấu hình LLM (hoặc gọi lỗi) thì lùi về bộ luật tiếng Việt bên dưới.
+  let fallback = null;
   if (agentEnabled()) {
     const prior = recent(30).slice(0, -1); // bỏ chính câu vừa lưu
-    const res = await runAgent(message, prior, { onboarding: isOnboarding });
+    const res = await runAgent(message, prior, { onboarding: isOnboarding, image: img, onEvent });
     if (res) {
       if (res.mutated) generateInsights();
-      saveMessage('assistant', res.reply, isOnboarding ? 'onboarding' : 'agent', { tools: res.calls });
+      saveMessage('assistant', res.reply, isOnboarding ? 'onboarding' : 'agent', { tools: res.calls, batch: res.batch, mutated: res.mutated });
       return {
         reply: res.reply,
         intent: isOnboarding && !res.onboarded ? 'onboarding' : 'agent',
         tools: res.calls,
+        batch: res.batch,
         refresh: res.mutated,
         onboarding: isOnboarding && !res.onboarded,
         onboarded: res.onboarded || undefined,
         quick: quickFor(isOnboarding && !res.onboarded),
       };
     }
+    // AI có bật mà không trả lời được: nói cho giao diện biết để người dùng
+    // không tưởng câu trả lời theo mẫu bên dưới là của AI.
+    fallback = { nguon: 'rules', ly_do: llmStatus().loi_gan_nhat || 'model không trả lời được' };
+  }
+
+  if (img && !agentEnabled()) {
+    const reply = 'Mình nhận được ảnh rồi, nhưng đọc hoá đơn cần bật cố vấn AI (điền FINMATE_LLM_KEY trong Cài đặt). Hiện tại bạn nhắn cho mình số tiền và nơi chi, mình ghi ngay.';
+    saveMessage('assistant', reply, 'no_vision');
+    return { reply, intent: 'no_vision', quick: quickFor(isOnboarding) };
   }
 
   if (isOnboarding) {
@@ -216,13 +247,13 @@ export async function chat(text) {
 
     const res = handleOnboarding(message);
     saveMessage('assistant', res.reply, 'onboarding', { step: res.step });
-    return { ...res, onboarding: !res.onboarded, intent: 'onboarding' };
+    return { ...res, onboarding: !res.onboarded, intent: 'onboarding', ...(fallback ? { fallback } : {}) };
   }
 
   const result = await answerNormally(message);
   if (result.refresh) generateInsights();
   saveMessage('assistant', result.reply, result.intent, result.data ? { intent: result.intent } : {});
-  return result;
+  return fallback ? { ...result, fallback } : result;
 }
 
 export function ensureWelcome() {

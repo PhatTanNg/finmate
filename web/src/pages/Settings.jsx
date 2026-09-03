@@ -120,10 +120,38 @@ export default function Settings({ onRefresh }) {
               <div className="hr" />
               <div className="mini">
                 Muốn bật: chép <code>.env.example</code> thành <code>.env</code>, điền <code>FINMATE_LLM_KEY</code> rồi khởi động lại.
-                Dùng được OpenAI, Groq, OpenRouter — hoặc Ollama chạy ngay trên máy bạn thì <b>miễn phí và số liệu tài chính không rời khỏi máy</b>.
+                Dán key Claude (<code>sk-ant-…</code>) là app tự nhận; dùng được cả OpenAI, Groq, OpenRouter — hoặc Ollama chạy ngay trên máy bạn thì <b>miễn phí và số liệu tài chính không rời khỏi máy</b>.
               </div>
             </>
           )}
+          {llm.enabled && llm.trang_thai && (() => {
+            const t = llm.trang_thai;
+            const tk = t.token || {};
+            const tongVao = (tk.vao || 0) + (tk.cache_doc || 0) + (tk.cache_ghi || 0);
+            const cacheRate = tongVao ? Math.round(((tk.cache_doc || 0) / tongVao) * 100) : 0;
+            const fmtK = (n) => (n >= 1_000_000 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n || 0));
+            return (
+              <>
+                <div className="hr" />
+                <div className="grid g4">
+                  <div><div className="mini">Nhà cung cấp</div><b>{t.nha_cung_cap === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI-compatible'}</b>
+                    {t.nha_cung_cap === 'anthropic' && <div className="mini">suy nghĩ: {t.do_sau_suy_nghi || 'mặc định'}</div>}</div>
+                  <div><div className="mini">Lượt gọi từ lúc khởi động</div><b>{t.lan_goi}</b>
+                    <div className="mini">{t.lan_loi ? `${t.lan_loi} lỗi · ${t.lan_thu_lai} lần thử lại` : 'không lỗi'}</div></div>
+                  <div><div className="mini">Token vào / ra</div><b>{fmtK(tongVao)} / {fmtK(tk.ra)}</b>
+                    <div className="mini">{tk.luot || 0} lượt có thống kê</div></div>
+                  <div><div className="mini">Bộ đệm prompt trúng</div><b>{cacheRate}%</b>
+                    <div className="mini">{tk.cache_doc ? `${fmtK(tk.cache_doc)} token đọc từ đệm` : 'chưa có lượt nào trúng'}</div></div>
+                </div>
+                {t.loi_gan_nhat && (
+                  <div className="note-warn" style={{ marginTop: 10 }}>
+                    ⚠️ Lỗi gần nhất{t.loi_luc ? ` (${t.loi_luc.slice(0, 16).replace('T', ' ')})` : ''}: <code>{t.loi_gan_nhat}</code>
+                    {t.gan_nhat_ok ? <div className="mini">Lượt mới nhất đã chạy tốt trở lại.</div> : <div className="mini">Lượt mới nhất vẫn lỗi — app đang trả lời bằng bộ luật. Kiểm tra key, tên model hoặc hạn mức.</div>}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </Card>
       )}
 

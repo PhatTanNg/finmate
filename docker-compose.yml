@@ -20,9 +20,11 @@ services:
       # Domain thật của bạn, để trình duyệt khác không gọi được API.
       FINMATE_ORIGINS: ${FINMATE_ORIGINS:-}
       # Tuỳ chọn — bật cố vấn AI thật.
+      # Bỏ trống MODEL thì app tự chọn: claude-opus-5 với key Claude, gpt-4o-mini với key OpenAI.
       FINMATE_LLM_KEY: ${FINMATE_LLM_KEY:-}
-      FINMATE_LLM_MODEL: ${FINMATE_LLM_MODEL:-gpt-4o-mini}
+      FINMATE_LLM_MODEL: ${FINMATE_LLM_MODEL:-}
       FINMATE_LLM_URL: ${FINMATE_LLM_URL:-}
+      FINMATE_LLM_EFFORT: ${FINMATE_LLM_EFFORT:-}
 
 volumes:
   finmate-data:

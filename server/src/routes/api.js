@@ -148,9 +148,45 @@ router.get('/chat/history', wrap(async (req, res) => {
   ok(res, { messages: chatHistory(), profile: get('SELECT * FROM profile WHERE id = 1') });
 }));
 router.post('/chat', wrap(async (req, res) => {
-  const result = await chat(req.body?.message);
+  const result = await chat(req.body?.message, { image: req.body?.image || null });
   ok(res, result);
 }));
+
+/**
+ * Cùng một lượt chat nhưng trả về dạng Server-Sent Events: giao diện thấy
+ * ngay AI đang suy nghĩ hay đang gọi công cụ nào ("Đang ghi 65.000đ ăn trưa…")
+ * thay vì nhìn ba chấm chờ 10-20 giây. Sự kiện cuối `done` mang đúng payload
+ * của POST /chat, nên giao diện xử lý y hệt.
+ */
+router.post('/chat/stream', async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+  const send = (event, data) => {
+    if (res.writableEnded) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  // Giữ kết nối sống qua proxy khi model suy nghĩ lâu.
+  const ping = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 15000);
+  try {
+    send('start', { at: new Date().toISOString() });
+    const result = await chat(req.body?.message, {
+      image: req.body?.image || null,
+      onEvent: (ev) => send(ev.type, ev),
+    });
+    send('done', { ok: true, ...result });
+  } catch (e) {
+    console.warn('[api] chat/stream:', e.message || e);
+    send('error', { ok: false, error: e.message || String(e) });
+  } finally {
+    clearInterval(ping);
+    res.end();
+  }
+});
 router.post('/chat/reset', wrap(async (req, res) => {
   const r = resetChat({ keepData: req.body?.keep_data !== false });
   ok(res, { started: r });

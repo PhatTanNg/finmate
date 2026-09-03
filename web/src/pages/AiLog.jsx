@@ -11,7 +11,18 @@ const TOOL_VI = {
   gop_tien_muc_tieu: 'Góp tiền mục tiêu', dat_ngan_sach: 'Đặt ngân sách', them_nguon_thu: 'Thêm nguồn thu',
   them_no: 'Thêm khoản nợ', tra_no: 'Trả nợ', them_dau_tu: 'Thêm khoản đầu tư', cap_nhat_gia: 'Cập nhật giá',
   tao_giao_dich_dinh_ky: 'Tạo khoản định kỳ', cap_nhat_ho_so: 'Cập nhật hồ sơ', ghi_nho: 'Ghi nhớ',
-  quen_di: 'Quên đi', hoan_tac: 'Hoàn tác',
+  quen_di: 'Quên đi', hoan_tac: 'Hoàn tác', hoan_tac_gan_nhat: 'Hoàn tác giao dịch vừa ghi', hoan_tat_thiet_lap: 'Hoàn tất thiết lập',
+  sua_muc_tieu: 'Sửa mục tiêu', xoa_muc_tieu: 'Xoá mục tiêu', sua_nguon_thu: 'Sửa nguồn thu', xoa_nguon_thu: 'Xoá nguồn thu',
+  sua_no: 'Sửa khoản nợ', xoa_no: 'Xoá khoản nợ', xoa_dau_tu: 'Xoá khoản đầu tư', xoa_ngan_sach: 'Xoá ngân sách',
+  sua_dinh_ky: 'Sửa khoản định kỳ', xoa_dinh_ky: 'Xoá khoản định kỳ', sua_tai_khoan: 'Sửa tài khoản', xoa_tai_khoan: 'Xoá tài khoản',
+  sua_giao_dich: 'Sửa giao dịch', don_trung_lap: 'Dọn bản trùng', xoa_het_du_lieu: 'Xoá sạch dữ liệu',
+  liet_ke_tai_khoan: 'Xem tài khoản', liet_ke_quy: 'Xem quỹ', liet_ke_danh_muc: 'Xem danh mục', liet_ke_muc_tieu: 'Xem mục tiêu',
+  liet_ke_nguon_thu: 'Xem nguồn thu', liet_ke_no: 'Xem nợ', liet_ke_dau_tu: 'Xem đầu tư', liet_ke_ngan_sach: 'Xem ngân sách',
+  liet_ke_dinh_ky: 'Xem khoản định kỳ', liet_ke_bat_dong_san: 'Xem bất động sản',
+  xem_chi_tieu: 'Xem chi tiêu', xem_giao_dich: 'Xem giao dịch', xem_tai_san: 'Xem tài sản', xem_tu_do_tai_chinh: 'Xem FIRE',
+  xem_du_bao: 'Xem dự báo', xem_ngan_sach: 'Xem ngân sách', xem_no: 'Xem nợ', xem_dau_tu: 'Xem đầu tư', xem_suc_khoe: 'Xem sức khoẻ tài chính',
+  xem_xu_huong: 'Xem xu hướng', tu_van_tien_du: 'Tư vấn tiền dư', xem_ty_gia: 'Xem tỷ giá', tinh_chuyen_tien: 'Tính chuyển tiền',
+  tinh_thue: 'Tính thuế', xem_ghi_nho: 'Xem ghi nhớ', xem_nhat_ky_thao_tac: 'Xem nhật ký',
 };
 const KIND_ICO = { fact: '📌', preference: '💚', constraint: '🚧', decision: '✅', plan: '🗺️' };
 const label = (t) => TOOL_VI[t] || t;
