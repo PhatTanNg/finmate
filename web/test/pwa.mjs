@@ -56,5 +56,33 @@ ok('manifest có icon', Array.isArray(manifest.icons) && manifest.icons.length >
 ok('start_url dùng đường dẫn tương đối (chạy được cả khi bọc Capacitor)',
   !manifest.start_url || !manifest.start_url.startsWith('/'), manifest.start_url);
 
+// ── iPhone ────────────────────────────────────────────────────────────────
+// iOS bỏ qua manifest khi lấy icon màn hình chính: nó chỉ đọc apple-touch-icon,
+// và KHÔNG đọc được SVG. Để SVG ở đó thì cài vào iPhone ra icon trống.
+console.log('\nRiêng cho iPhone');
+const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+const apple = html.match(/<link[^>]+rel="apple-touch-icon"[^>]*>/i)?.[0] || '';
+ok('có khai báo apple-touch-icon', !!apple);
+ok('apple-touch-icon là PNG, không phải SVG (iOS không đọc được SVG)',
+  /\.png/i.test(apple) && !/\.svg/i.test(apple), apple);
+const appleSrc = apple.match(/href="\.?\/?([^"]+)"/)?.[1];
+ok('tệp icon cho iOS thật sự tồn tại trong bản build',
+  !!appleSrc && fs.existsSync(path.join(out, appleSrc)), String(appleSrc));
+ok('icon cho iOS được đệm sẵn để cài xong mở offline vẫn có',
+  !!appleSrc && listed?.includes('./' + appleSrc), String(appleSrc));
+ok('manifest có ít nhất một icon PNG (Android thích PNG hơn)',
+  (manifest.icons || []).some((i) => i.type === 'image/png'));
+ok('có icon maskable cho Android', (manifest.icons || []).some((i) => /maskable/.test(i.purpose || '')));
+ok('khai báo chạy toàn màn hình trên iOS', /apple-mobile-web-app-capable"\s+content="yes"/.test(html));
+ok('viewport phủ hết tai thỏ (viewport-fit=cover)', /viewport-fit=cover/.test(html));
+
+// iOS Safari tự phóng to cả trang khi chạm vào ô nhập có cỡ chữ dưới 16px.
+const css = walk(out).find((f) => f.endsWith('.css'));
+const cssText = css ? fs.readFileSync(path.join(out, css), 'utf8') : '';
+ok('ô nhập trên thiết bị cảm ứng tối thiểu 16px (iPhone không tự phóng to)',
+  /@media\s*\(pointer:\s*coarse\)[^}]*\{[^@]*?(input|textarea)[^{]*\{[^}]*font-size:\s*16px/s.test(cssText));
+ok('không chặn phóng to bằng user-scalable=no (người mắt kém vẫn zoom được)',
+  !/user-scalable\s*=\s*no|maximum-scale\s*=\s*1/.test(html));
+
 console.log(`\n${fail ? '✗' : '✓'} pwa: ${pass} đạt, ${fail} hỏng`);
 process.exitCode = fail ? 1 : 0;

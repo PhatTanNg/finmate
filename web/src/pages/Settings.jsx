@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, setKey, EMBEDDED, saveBlob } from '../lib/api.js';
 import { Card, Empty, Loading, Modal, Form } from '../components/ui.jsx';
+import { InstallCard } from '../components/Install.jsx';
 import { fmt, pct, toMinor, baseCurrency } from '../lib/format.js';
 
 const RISK = { conservative: 'Thận trọng', balanced: 'Cân bằng', aggressive: 'Mạo hiểm' };
@@ -139,6 +140,8 @@ export default function Settings({ onRefresh }) {
         <div><h1>Cài đặt</h1><p>Hồ sơ cá nhân quyết định mọi con số cố vấn đưa ra</p></div>
         <button className="btn primary" onClick={save}>{saved ? '✅ Đã lưu' : 'Lưu thay đổi'}</button>
       </div>
+
+      <div id="cai-app"><InstallCard /></div>
 
       {EMBEDDED && env && (
         <Card title="Cố vấn AI (bản trên điện thoại)">

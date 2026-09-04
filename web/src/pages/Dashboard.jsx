@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Progress, BarChart, Donut, Empty, Money } from '../components/ui.jsx';
+import { InstallNudge } from '../components/Install.jsx';
 import { short, pct, vnDate, monthLabel } from '../lib/format.js';
 
 const ACC_ICON = { bank: '🏦', savings: '🔒', ewallet: '📱', cash: '💵', credit: '💳', credit_card: '💳', investment: '📈', brokerage: '📈', crypto: '🪙', real_estate: '🏠', loan: '🧾' };
@@ -69,6 +70,8 @@ export default function Dashboard({ d, go, onRefresh }) {
           <div className="cell"><div className="lab">Tháng này</div><b>{t.net >= 0 ? '+' : ''}{short(t.net)}</b><div className="lab">thu {short(t.income)} · chi {short(t.expense)}</div></div>
         </div>
       </div>
+
+      <InstallNudge onOpen={() => go('settings', 'cai-app')} />
 
       <div className="actions">
         <button className="action primary" onClick={() => go('chat')}><span className="ic">💬</span>Nhắn cố vấn</button>

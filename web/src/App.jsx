@@ -150,7 +150,11 @@ export default function App() {
     return () => clearTimeout(t);
   }, [err]);
 
-  const go = (t) => setTab(t);
+  /** Chuyển trang; kèm `anchor` thì cuộn tới đúng thẻ đó sau khi trang vẽ xong. */
+  const go = (t, anchor) => {
+    setTab(t);
+    if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+  };
   const alerts = d?.insights?.filter((i) => !i.read && (i.severity === 'danger' || i.severity === 'warn')).length || 0;
   const cycleTheme = () => setTheme((t) => NEXT_THEME[t] || 'light');
   const initial = (d?.profile?.name || 'B').trim().slice(0, 1).toUpperCase();

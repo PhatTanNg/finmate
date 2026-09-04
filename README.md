@@ -482,6 +482,24 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 
 ---
 
+## Cài lên điện thoại
+
+**iPhone.** iOS không có nút "Cài ứng dụng" tự động như Android — phải tự thêm:
+
+1. Mở FinMate bằng **Safari** (Chrome/Firefox trên iOS không thêm được).
+2. Bấm nút **Chia sẻ** ở thanh dưới (hình vuông có mũi tên đi lên).
+3. Vuốt xuống, chọn **Thêm vào MH chính**.
+
+App cũng tự nhắc việc này ngay ở Trang chủ và có hướng dẫn đầy đủ trong **Cài đặt**.
+
+> **Nên cài thật, đừng chỉ để trong tab Safari.** Safari dọn dữ liệu website sau khoảng 7 ngày không mở. Sổ sách nằm trong bộ nhớ trình duyệt nên có thể mất theo; app đã thêm vào màn hình chính thì không bị luật này. Dù sao vẫn nên thỉnh thoảng bấm **Sao lưu** và cất file ra ngoài.
+
+Vài chỗ iOS hay làm khó đã được xử lý sẵn: `apple-touch-icon` phải là **PNG** (iOS không đọc SVG — để SVG là ra icon trống), ô nhập tối thiểu **16px** (dưới ngưỡng đó Safari tự phóng to trang mỗi lần chạm vào ô nhập), `viewport-fit=cover` + `env(safe-area-inset-*)` cho tai thỏ và thanh home, `100dvh` thay `100vh` vì Safari tính cả thanh công cụ đang ẩn. Bộ `test/pwa.mjs` giữ những thứ này không trôi.
+
+**Android.** Trình duyệt tự mời cài; app hiện nút **Cài ngay** khi bắt được lời mời đó.
+
+**Bản đóng gói native (.ipa / .apk).** Có sẵn cấu hình Capacitor (`npm run cap:init`, `cap:sync`, `cap:ios`, `cap:android`). Dựng `.ipa` **bắt buộc máy Mac có Xcode** và tài khoản Apple Developer để cài lên máy thật; `.apk` cần Android SDK. Bản PWA ở trên không cần gì cả và chạy cùng một mã.
+
 ## Kiểm thử
 
 ```bash
@@ -513,7 +531,8 @@ cd server && node test/journey5y.mjs         # 5 năm liên tục của một ng
 cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
 cd web    && node test/render.mjs            # render thật 18 trang trong jsdom với API thật
 cd web    && node test/embedded.mjs          # bản chạy trên điện thoại: engine WebAssembly + router trong tiến trình, không node:sqlite
-cd web    && node test/pwa.mjs               # service worker đệm sẵn đủ tài nguyên -> mất mạng mở lại app không ra trang trắng
+cd web    && node test/pwa.mjs               # đệm đủ tài nguyên (mất mạng không ra trang trắng) + các bẫy riêng của iPhone
+cd web    && node scripts/make-icons.mjs     # sinh lại icon PNG từ icon.svg (cần playwright-core + Chromium)
 cd web    && npm run test:e2e                # hành trình thật trên Chromium: thêm tài khoản, ghi/sửa giao dịch, mục tiêu,
                                              # ngân sách, chat, quỹ, rút wifi, mở lại app, sao lưu, cỡ vùng chạm 44px
 ```

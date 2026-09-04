@@ -8,7 +8,10 @@
     <meta name="color-scheme" content="light dark" />
     <title>FinMate — Cố vấn tài chính cá nhân</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./icon.svg" />
+    <!-- iOS KHÔNG đọc được SVG cho apple-touch-icon: để SVG ở đây thì cài vào
+         màn hình chính iPhone sẽ ra icon trống. Phải là PNG, và nên vuông tràn
+         viền vì iOS tự bo góc — đưa ảnh bo sẵn vào sẽ bị bo hai lần. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="./icon-sq-180.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <!-- Cài lên màn hình chính iPhone/Android như một app: chạy toàn màn hình, không thanh địa chỉ. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
