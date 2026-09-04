@@ -102,7 +102,8 @@ export default function Income({ onRefresh }) {
                   {s.currency && s.currency !== baseCurrency() ? `≈ ${short(s.base_net_amount)}` : (s.gross_amount ? `gross ${short(s.gross_amount, s.currency)}` : '')}
                 </div>
               </div>
-              <button className="btn sm ghost" onClick={() => setEdit(s)}>✎</button>
+              <button className="btn sm ghost" onClick={() => setEdit(s)} aria-label="Sửa nguồn thu">✎</button>
+              <button className="btn sm ghost" aria-label="Xoá nguồn thu" onClick={async () => { if (!confirm(`Xoá nguồn thu "${s.name}"?`)) return; await api.del(`/income-streams/${s.id}`); load(); onRefresh?.(); }}>🗑</button>
             </div>
           ))}
           {!streams.length && <Empty>Chưa khai báo nguồn thu nào.</Empty>}

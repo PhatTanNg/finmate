@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
-import { Card, Stat, Empty, Loading, Modal } from '../components/ui.jsx';
+import { Card, Stat, Empty, Loading, Modal, Form } from '../components/ui.jsx';
 import { vnDate } from '../lib/format.js';
 
 const TOOL_VI = {
@@ -86,6 +86,7 @@ export default function AiLog({ onRefresh }) {
   const [mem, setMem] = useState([]);
   const [rev, setRev] = useState(null);
   const [props, setProps] = useState(null);
+  const [addMem, setAddMem] = useState(false);
   const [open, setOpen] = useState(null);
   const [onlyChanges, setOnlyChanges] = useState(false);
   const [busy, setBusy] = useState('');
@@ -175,8 +176,8 @@ export default function AiLog({ onRefresh }) {
         )}
       </Card>
 
-      <Card title="🧠 AI đang nhớ gì về bạn">
-        {!mem.length && <Empty>Chưa nhớ gì. Cứ kể trong chat, những điều quan trọng sẽ được ghi lại.</Empty>}
+      <Card title="🧠 AI đang nhớ gì về bạn" right={<button className="btn sm" onClick={() => setAddMem(true)}>+ Ghi nhớ</button>}>
+        {!mem.length && <Empty>Chưa nhớ gì. Kể trong chat hoặc bấm "+ Ghi nhớ" để tự ghi.</Empty>}
         {mem.map((m) => (
           <div key={m.id} className="row" style={{ alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
             <span style={{ fontSize: 18, marginRight: 8 }}>{KIND_ICO[m.loai] || '📌'}</span>
@@ -219,6 +220,21 @@ export default function AiLog({ onRefresh }) {
       </Card>
 
       {open && <Detail id={open} onClose={() => setOpen(null)} onUndone={() => { load(); onRefresh?.(); }} />}
+      {addMem && (
+        <Modal title="Ghi nhớ lâu dài" onClose={() => setAddMem(false)}>
+          <p className="mini">Điều quan trọng về bạn mà cố vấn phải nhớ trong mọi lượt chat: hoàn cảnh, ràng buộc, quyết định đã chốt.</p>
+          <Form
+            fields={[
+              { k: 'key', label: 'Tên ngắn', ph: 'Phụ cấp cho mẹ', full: true },
+              { k: 'value', label: 'Nội dung', ph: 'Gửi mẹ 5 triệu mỗi tháng, không được cắt', type: 'textarea', full: true },
+              { k: 'kind', label: 'Loại', type: 'select', options: [{ value: 'fact', label: 'Hoàn cảnh' }, { value: 'preference', label: 'Sở thích' }, { value: 'constraint', label: 'Ràng buộc' }, { value: 'decision', label: 'Quyết định đã chốt' }, { value: 'plan', label: 'Kế hoạch' }], def: 'fact' },
+              { k: 'importance', label: 'Mức quan trọng (1-5)', type: 'number', def: 3 },
+            ]}
+            onSubmit={async (v) => { await api.post('/ai/memory', { ...v, importance: Number(v.importance) || 3 }); setAddMem(false); load(); }}
+            onCancel={() => setAddMem(false)}
+          />
+        </Modal>
+      )}
     </>
   );
 }

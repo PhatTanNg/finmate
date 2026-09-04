@@ -52,7 +52,10 @@ export default function Budgets({ onRefresh }) {
           <div className="card" key={b.id}>
             <div className="between">
               <div><b>{b.icon} {b.name}</b><div className="mini">Dự phóng cuối tháng: {short(b.projected)}</div></div>
-              <span className={`tag ${TONE[b.status] || ''}`}>{LABEL[b.status] || b.status}</span>
+              <div className="row" style={{ gap: 6 }}>
+                <span className={`tag ${TONE[b.status] || ''}`}>{LABEL[b.status] || b.status}</span>
+                <button className="btn sm ghost" aria-label="Bỏ ngân sách" onClick={async () => { if (!confirm(`Bỏ ngân sách ${b.name}?`)) return; await api.del(`/budgets/${b.id}`); load(); onRefresh?.(); }}>🗑</button>
+              </div>
             </div>
             <div style={{ margin: '10px 0 5px' }}><Progress value={b.pct} tone={TONE[b.status]} /></div>
             <div className="between mini">

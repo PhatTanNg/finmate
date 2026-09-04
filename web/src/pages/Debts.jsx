@@ -8,6 +8,8 @@ export default function Debts({ onRefresh }) {
   const [extra, setExtra] = useState(0);
   const [strategy, setStrategy] = useState('avalanche');
   const [adding, setAdding] = useState(false);
+  const [edit, setEdit] = useState(null);
+  const [pay, setPay] = useState(null);
 
   const load = (ex = extra) => api.get(`/debts?extra=${ex || 0}`).then(setD);
   useEffect(() => { load(); }, []);
@@ -58,7 +60,14 @@ export default function Debts({ onRefresh }) {
                   <div style={{ textAlign: 'right' }}><b className="down">{fmt(x.balance)}</b><div className="mini">gốc {short(x.principal)}</div></div>
                 </div>
                 <div style={{ marginTop: 6 }}><Progress value={1 - x.balance / (x.principal || x.balance || 1)} tone="ok" /></div>
-                <div className="mini" style={{ marginTop: 3 }}>Đã trả {pct(1 - x.balance / (x.principal || x.balance || 1))}{x.months_left ? ` · còn ${x.months_left} kỳ` : ''}</div>
+                <div className="between" style={{ marginTop: 3 }}>
+                  <div className="mini">Đã trả {pct(1 - x.balance / (x.principal || x.balance || 1))}{x.months_left ? ` · còn ${x.months_left} kỳ` : ''}</div>
+                  <div className="row" style={{ gap: 4 }}>
+                    <button className="btn sm" onClick={() => setPay(x)}>Trả nợ</button>
+                    <button className="btn sm ghost" onClick={() => setEdit(x)} aria-label="Sửa khoản nợ">✎</button>
+                    <button className="btn sm ghost" aria-label="Xoá khoản nợ" onClick={async () => { if (!confirm(`Xoá khoản nợ "${x.name}"? Lịch sử trả nợ vẫn giữ trong giao dịch.`)) return; await api.del(`/debts/${x.id}`); load(); onRefresh?.(); }}>🗑</button>
+                  </div>
+                </div>
               </div>
             ))}
             {!s.debts?.length && <Empty>🎉 Bạn không có khoản nợ nào!</Empty>}
@@ -99,6 +108,40 @@ export default function Debts({ onRefresh }) {
           )}
         </Card>
       </div>
+
+      {pay && (
+        <Modal title={`Trả nợ ${pay.name}`} onClose={() => setPay(null)}>
+          <p className="mini">Dư nợ hiện tại <b>{fmt(pay.balance)}</b>. Ghi số tiền bạn vừa trả — app trừ dư nợ và ghi một khoản chi.</p>
+          <Form
+            fields={[{ k: 'amount', label: `Số tiền trả (${baseCurrency()})`, type: 'number', def: (pay.monthly_payment || pay.min_payment || 0) / (baseCurrency() === 'VND' ? 1 : 100) }]}
+            submit="Ghi trả nợ"
+            onSubmit={async (v) => { await api.post(`/debts/${pay.id}/pay`, { amount: toMinor(v.amount) }); setPay(null); load(); onRefresh?.(); }}
+            onCancel={() => setPay(null)}
+          />
+        </Modal>
+      )}
+
+      {edit && (
+        <Modal title={`Sửa ${edit.name}`} onClose={() => setEdit(null)}>
+          <Form
+            fields={[
+              { k: 'name', label: 'Tên khoản nợ', full: true },
+              { k: 'lender', label: 'Bên cho vay' },
+              { k: 'balance', label: `Dư nợ hiện tại (${baseCurrency()})`, type: 'number' },
+              { k: 'interest_rate', label: 'Lãi suất %/năm', type: 'number' },
+              { k: 'monthly_payment', label: `Trả mỗi tháng (${baseCurrency()})`, type: 'number' },
+              { k: 'due_day', label: 'Ngày đến hạn', type: 'number' },
+              { k: 'status', label: 'Trạng thái', type: 'select', options: [{ value: 'active', label: 'Đang trả' }, { value: 'paid', label: 'Đã trả xong' }] },
+            ]}
+            initial={{ ...edit, balance: edit.balance / (baseCurrency() === 'VND' ? 1 : 100), monthly_payment: (edit.monthly_payment || edit.min_payment || 0) / (baseCurrency() === 'VND' ? 1 : 100) }}
+            onSubmit={async (v) => {
+              await api.patch(`/debts/${edit.id}`, { name: v.name, lender: v.lender, balance: toMinor(v.balance), interest_rate: Number(v.interest_rate) || 0, monthly_payment: toMinor(v.monthly_payment), min_payment: toMinor(v.monthly_payment), due_day: Number(v.due_day) || 10, status: v.status });
+              setEdit(null); load(); onRefresh?.();
+            }}
+            onCancel={() => setEdit(null)}
+          />
+        </Modal>
+      )}
 
       {adding && (
         <Modal title="Thêm khoản nợ" onClose={() => setAdding(false)}>

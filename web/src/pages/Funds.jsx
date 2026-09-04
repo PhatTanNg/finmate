@@ -53,6 +53,12 @@ export default function Funds({ onRefresh }) {
       <div className="grid g3">
         <Stat label="Tổng trong các quỹ" value={short(total)} sub={`${funds.length} quỹ đang mở`} />
         <Stat label="Tổng tỷ lệ phân bổ" value={`${totalPct}%`} tone={totalPct === 100 ? 'up' : 'warn'} sub={totalPct === 100 ? 'Cân bằng' : 'Nên chỉnh về 100%'} />
+        {totalPct !== 100 && (
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8 }}>
+            <div className="mini">Tổng đang {totalPct}%, tiền chia theo tỉ lệ chứ không đúng con số hiển thị.</div>
+            <button className="btn primary sm" onClick={async () => { await api.post('/funds/rebalance', {}); load(); onRefresh?.(); }}>Cân bằng về 100%</button>
+          </div>
+        )}
         <Stat label="Cần bỏ vào quỹ mỗi tháng" value={short(monthly)} sub={monthly ? `${d.monthly_load.items.length} quỹ có hạn hoàn thành` : 'Chưa quỹ nào đặt hạn'} />
       </div>
 
@@ -136,7 +142,10 @@ export default function Funds({ onRefresh }) {
               <div className="row" style={{ marginTop: 10, gap: 8 }}>
                 <button className="btn sm ghost" onClick={() => setEdit(f)}>Chỉnh</button>
                 {f.archived ? (
-                  <button className="btn sm" onClick={async () => { await api.post(`/funds/${f.id}/reopen`, {}); load(); onRefresh?.(); }}>Mở lại</button>
+                  <>
+                    <button className="btn sm" onClick={async () => { await api.post(`/funds/${f.id}/reopen`, {}); load(); onRefresh?.(); }}>Mở lại</button>
+                    {f.balance === 0 && <button className="btn sm ghost" onClick={async () => { if (!confirm(`Xoá hẳn quỹ "${f.name}"?`)) return; await api.del(`/funds/${f.id}`); load(); onRefresh?.(); }}>Xoá hẳn</button>}
+                  </>
                 ) : (
                   <button className="btn sm ghost" onClick={() => setClosing(f)}>Đóng quỹ</button>
                 )}

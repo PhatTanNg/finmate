@@ -113,6 +113,13 @@ Nhật ký bắt thay đổi ở tầng cơ sở dữ liệu bằng trigger SQLi
 
 Ba mức trong **Cài đặt → Cố vấn tự lái**: *Tắt* · *Đề xuất rồi chờ gật* (mặc định) · *Tự làm việc an toàn* (việc hoàn tác được thì làm luôn rồi báo, việc còn lại vẫn hỏi). Có model AI thì agent dùng thêm công cụ `de_xuat` để đưa đề xuất của chính nó vào cùng hàng đợi — kể cả trong phiên tự rà soát lúc bạn vắng mặt; "ừ"/"thôi" ngay sau một đề xuất được xử lý chắc chắn ở tầng bộ luật, không cần model.
 
+**AI là lớp tiện lợi, không phải điều kiện để dùng app.** Mọi việc AI làm được qua công cụ đều có nút làm tay tương ứng trên giao diện: thêm/sửa/xoá tài khoản, quỹ (kể cả nút *Cân bằng về 100%*), mục tiêu, ngân sách, nguồn thu, nợ (*Trả nợ* ghi một lần trả và trừ dư nợ), đầu tư, bất động sản, khoản định kỳ (sửa, tạm dừng), trí nhớ của cố vấn (*+ Ghi nhớ*), danh mục thu chi, gộp bản trùng, và xoá sạch dữ liệu với cùng chốt chặn "XOA HET". Không có key AI hay không có internet thì:
+
+- **Chat vẫn trả lời** bằng bộ luật tiếng Việt bên dưới, ghi sổ và tra số liệu như thường; chỉ đọc ảnh hoá đơn là cần model.
+- **Cầu dao mất mạng**: sau một lần không tới được máy chủ AI, app tạm không gọi model trong 60 giây và bộ luật trả lời tức thì, thay vì bắt bạn chờ thử lại ở mỗi câu. Giao diện gửi kèm cờ `offline` khi trình duyệt báo mất mạng nên còn không cần chờ lần lỗi đầu tiên. Thanh trên hiện "📴 Ngoại tuyến", câu trả lời mang chip "📴 Bộ luật trả lời".
+- **Tỷ giá** dùng bản đã lưu; sao lưu, xuất dữ liệu, webhook tin nhắn ngân hàng trong mạng nội bộ đều không cần internet.
+- **Cài lên màn hình chính** iPhone/Android như một app (manifest + chế độ toàn màn hình), không thanh địa chỉ.
+
 **B. Bộ luật tiếng Việt offline** (mặc định, không cần key, không cần internet)
 
 Onboarding theo từng bước, hiểu ~30 loại ý định và tự phát hiện số tiền kiểu Việt (`60k`, `1tr5`, `1,2 tỷ`, `3 củ`, `1 triệu rưỡi`). Đây cũng là lưới an toàn: nếu API AI lỗi hay hết hạn mức, app tự động rơi về chế độ này thay vì báo lỗi.
@@ -444,7 +451,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 
 ```bash
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
-npm run test:smoke                # chạy liền 14 bộ smoke bên dưới
+npm run test:smoke                # chạy liền 15 bộ smoke bên dưới
 npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
 npm run test:all                  # tất cả: unit + smoke + mô phỏng
 
@@ -460,6 +467,7 @@ cd server && node test/smoke-retry.mjs       # nhà cung cấp trả 503/529 th�
 cd server && node test/smoke-manage.mjs      # sửa/xoá mọi tài nguyên; model tự gõ mật khẩu xoá thì bị chặn
 cd server && node test/smoke-stream.mjs      # chat dạng luồng SSE, ảnh hoá đơn tới model đúng hình dạng, cờ "bộ luật trả lời" khi AI hỏng
 cd server && node test/smoke-autopilot.mjs   # đề xuất chờ gật, chế độ tự lái, bản tin sáng, phản hồi tin ngân hàng, "ừ"/"thôi" trong chat
+cd server && node test/smoke-manual.mjs      # làm tay không cần AI: trả nợ, cân bằng quỹ, gộp trùng, xoá sạch có chốt; cầu dao mất mạng, cờ offline
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
@@ -469,7 +477,7 @@ cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học �
 cd web    && node test/render.mjs            # render thật 18 trang trong jsdom với API thật
 ```
 
-Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `smoke-autopilot`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
+Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `smoke-autopilot`, `smoke-manual`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 
 `scenarios.mjs` là bộ đánh giá lớn nhất: nó tự khởi động một server con trên DB tạm rồi diễn lại trọn vẹn hành trình của một người Việt sống ở Ireland — mở tài khoản EUR/VND, nhận lương, đọc 12 mẫu tin nhắn ngân hàng thật (AIB, BOI, Revolut, Wise, N26, VCB, Techcombank...), nhập sao kê CSV, chia quỹ, đặt mục tiêu, trả nợ, mua bán chứng khoán, gửi tiền về Việt Nam, tính thuế, hỏi AI 21 câu — kèm cả những tình huống người dùng hay làm sai (số tiền âm, JSON hỏng, chuyển khoản thiếu tài khoản nhận, bán nhiều hơn số đang có). Mỗi kịch bản kiểm chứng **hiệu ứng thật trên dữ liệu**, không chỉ mã trạng thái HTTP.
 

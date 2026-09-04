@@ -68,6 +68,16 @@ export default function App() {
   const [auth, setAuth] = useState(null); // null = đang kiểm tra
   const [curKey, setCurKey] = useState(0); // buộc vẽ lại khi đổi đồng tiền gốc
   const [theme, setTheme] = useState(readTheme);
+  // Mất mạng: app vẫn chạy đủ (máy chủ nằm ngay trên máy/LAN), chỉ cố vấn AI
+  // tạm nghỉ và bộ luật tiếng Việt trả lời thay. Báo cho người dùng biết rõ.
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    addEventListener('online', on);
+    addEventListener('offline', off);
+    return () => { removeEventListener('online', on); removeEventListener('offline', off); };
+  }, []);
 
   useEffect(() => { applyTheme(theme); }, [theme]);
   useEffect(() => watchSystemTheme(() => setTheme((t) => t)), []);
@@ -165,7 +175,7 @@ export default function App() {
 
   const page = () => {
     switch (tab) {
-      case 'chat': return <Chat onRefresh={refresh} />;
+      case 'chat': return <Chat onRefresh={refresh} offline={offline} />;
       case 'dashboard': return d ? <Dashboard d={d} go={go} onRefresh={refresh} /> : null;
       case 'transactions': return <Transactions onRefresh={refresh} />;
       case 'currency': return <Currency onRefresh={refresh} />;
@@ -201,6 +211,7 @@ export default function App() {
       <header className="topbar">
         <button className="avatar" onClick={() => setTab('more')} aria-label="Hồ sơ và cài đặt" style={{ border: 0, cursor: 'pointer' }}>{initial}</button>
         <div className="tb-title">{TITLE[tab] || 'FinMate'}</div>
+        {offline && <span className="tag warn" title="Không có internet. Mọi tính năng vẫn dùng được; cố vấn AI tạm nghỉ, bộ luật trả lời thay.">📴 Ngoại tuyến</span>}
         <button className="btn ghost icon" onClick={() => setCmd(true)} aria-label="Tìm nhanh"><IconSearch /></button>
         <button className="btn ghost icon" onClick={cycleTheme} aria-label={THEME_LABEL[theme]} title={THEME_LABEL[theme]}>{THEME_ICON[theme]}</button>
       </header>
@@ -240,6 +251,7 @@ export default function App() {
       </aside>
 
       <main className="main">
+        {offline && <div className="offline-bar">📴 Không có internet — mọi tính năng vẫn dùng được, cố vấn AI tạm nghỉ và bộ luật trả lời thay.</div>}
         {err && <div className="toast" onClick={() => setErr(null)} role="alert">⚠️ {err}</div>}
         <Fragment key={`${curKey}-${tab}`}><div className="page-fade">{page()}</div></Fragment>
       </main>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Card, Stat, Empty, Loading, Modal, Form } from '../components/ui.jsx';
-import { fmt, short, vnDate, baseCurrency, toMinor } from '../lib/format.js';
+import { fmt, short, vnDate, baseCurrency, toMinor, toMajor } from '../lib/format.js';
 
 const SAMPLES = {
   'AIB (Ireland)': 'AIB: Your Visa Debit card ending 4321 was used for EUR 45.20 at TESCO IRELAND on 24/08/2026. Available balance EUR 4,120.55',
@@ -83,6 +83,7 @@ export default function Automation({ onRefresh }) {
   const [csv, setCsv] = useState('');
   const [csvResult, setCsvResult] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [editRec, setEditRec] = useState(null);
   const [cats, setCats] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -193,8 +194,11 @@ export default function Automation({ onRefresh }) {
                   <td className="mini">{{ monthly: 'Hàng tháng', weekly: 'Hàng tuần', daily: 'Hàng ngày', yearly: 'Hàng năm', quarterly: 'Hàng quý' }[r.frequency] || r.frequency}</td>
                   <td className="mini">{vnDate(r.next_date)}</td>
                   <td className="num">{fmt(r.amount)}</td>
-                  <td>{r.auto_post ? '✅' : '—'}</td>
-                  <td className="acts"><button className="btn sm ghost" onClick={async () => { await api.del(`/recurring/${r.id}`); load(); }}>🗑</button></td>
+                  <td><button className="btn sm ghost" title={r.active ? 'Đang chạy — bấm để tạm dừng' : 'Đang tạm dừng — bấm để chạy lại'} onClick={async () => { await api.patch(`/recurring/${r.id}`, { active: r.active ? 0 : 1 }); load(); }}>{r.active ? (r.auto_post ? '✅' : '👁') : '⏸'}</button></td>
+                  <td className="acts">
+                    <button className="btn sm ghost" onClick={() => setEditRec(r)} aria-label="Sửa khoản định kỳ">✎</button>
+                    <button className="btn sm ghost" aria-label="Xoá khoản định kỳ" onClick={async () => { if (!confirm(`Xoá khoản định kỳ "${r.name}"?`)) return; await api.del(`/recurring/${r.id}`); load(); }}>🗑</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -218,6 +222,27 @@ export default function Automation({ onRefresh }) {
           {!d.log?.length && <Empty>Chưa nhận tin nhắn nào. Thử dán một SMS ở khung bên trên.</Empty>}
         </div>
       </Card>
+
+      {editRec && (
+        <Modal title={`Sửa ${editRec.name}`} onClose={() => setEditRec(null)}>
+          <Form
+            fields={[
+              { k: 'name', label: 'Tên', full: true },
+              { k: 'amount', label: `Số tiền (${editRec.currency || baseCurrency()})`, type: 'number' },
+              { k: 'frequency', label: 'Chu kỳ', type: 'select', options: [{ value: 'monthly', label: 'Hàng tháng' }, { value: 'weekly', label: 'Hàng tuần' }, { value: 'daily', label: 'Hàng ngày' }, { value: 'quarterly', label: 'Hàng quý' }, { value: 'yearly', label: 'Hàng năm' }] },
+              { k: 'day_of_month', label: 'Ngày trong tháng', type: 'number' },
+              { k: 'next_date', label: 'Lần kế tiếp', type: 'date' },
+              { k: 'auto_post', label: 'Tự ghi sổ', type: 'select', options: [{ value: '1', label: 'Tự ghi đúng ngày' }, { value: '0', label: 'Chỉ dự báo' }] },
+            ]}
+            initial={{ ...editRec, amount: toMajor(editRec.amount, editRec.currency), auto_post: String(editRec.auto_post ?? 1) }}
+            onSubmit={async (v) => {
+              await api.patch(`/recurring/${editRec.id}`, { name: v.name, amount: toMinor(v.amount, editRec.currency), frequency: v.frequency, day_of_month: Number(v.day_of_month) || null, next_date: v.next_date || undefined, auto_post: Number(v.auto_post) });
+              setEditRec(null); load(); onRefresh?.();
+            }}
+            onCancel={() => setEditRec(null)}
+          />
+        </Modal>
+      )}
 
       {adding && (
         <Modal title="Thêm khoản định kỳ" onClose={() => setAdding(false)}>

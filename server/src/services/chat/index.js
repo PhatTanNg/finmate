@@ -5,7 +5,7 @@ import { norm } from '../../util/vi.js';
 import { detectIntent, looksLikeQuestion } from './nlu.js';
 import { HANDLERS } from './handlers.js';
 import { handleOnboarding, startOnboarding, currentOnboardingQuestion } from './onboarding.js';
-import { llmEnabled, classify, answer, llmStatus } from './llm.js';
+import { llmEnabled, classify, answer, llmStatus, llmPaused } from './llm.js';
 import { baseCurrency } from '../fx.js';
 import { latestPending, acceptProposal, rejectProposal, getProposal } from '../ai_proposals.js';
 
@@ -209,7 +209,7 @@ export function validImage(image) {
  *   onEvent nhận tiến trình từng bước (đang suy nghĩ, đang gọi công cụ nào) để
  *           giao diện hiện theo thời gian thực thay vì ba chấm chờ đợi.
  */
-export async function chat(text, { image = null, onEvent = null } = {}) {
+export async function chat(text, { image = null, onEvent = null, offline = false } = {}) {
   const message = String(text || '').trim();
   const img = validImage(image);
   if (!message && !img) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
@@ -240,7 +240,13 @@ export async function chat(text, { image = null, onEvent = null } = {}) {
   // Ưu tiên AI cố vấn: hiểu ngữ cảnh cả cuộc trò chuyện và tự thao tác trong app.
   // Không cấu hình LLM (hoặc gọi lỗi) thì lùi về bộ luật tiếng Việt bên dưới.
   let fallback = null;
-  if (agentEnabled()) {
+  // Giao diện báo đang mất mạng (navigator.onLine): không gọi model cho phí
+  // thời gian, đi thẳng vào bộ luật và nói rõ vì sao.
+  if (offline && agentEnabled()) {
+    fallback = { nguon: 'rules', ly_do: 'offline', offline: true };
+  } else if (agentEnabled() && llmPaused()) {
+    fallback = { nguon: 'rules', ly_do: 'mất kết nối tới máy chủ AI, tạm dùng bộ luật', offline: true };
+  } else if (agentEnabled()) {
     const prior = recent(30).slice(0, -1); // bỏ chính câu vừa lưu
     const res = await runAgent(message, prior, { onboarding: isOnboarding, image: img, onEvent });
     if (res) {
@@ -259,7 +265,7 @@ export async function chat(text, { image = null, onEvent = null } = {}) {
     }
     // AI có bật mà không trả lời được: nói cho giao diện biết để người dùng
     // không tưởng câu trả lời theo mẫu bên dưới là của AI.
-    fallback = { nguon: 'rules', ly_do: llmStatus().loi_gan_nhat || 'model không trả lời được' };
+    fallback = { nguon: 'rules', ly_do: llmStatus().loi_gan_nhat || 'model không trả lời được', ...(llmPaused() ? { offline: true } : {}) };
   }
 
   if (img && !agentEnabled()) {

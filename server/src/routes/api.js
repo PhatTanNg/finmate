@@ -33,6 +33,8 @@ import { listMemory, remember, forget, pruneMemory } from '../services/ai_memory
 import { runReview, reviewConfig, setReviewConfig, lastReview, reviewHistory } from '../services/ai_review.js';
 import { listProposals, getProposal, acceptProposal, rejectProposal, proposalStats } from '../services/ai_proposals.js';
 import { runAutopilot, autopilotConfig, setAutopilotConfig, noteIngest, dailyBrief } from '../services/autopilot.js';
+import { runTool } from '../services/chat/tools.js';
+import { setUserUtterance } from '../services/chat/tools_manage.js';
 
 export const router = express.Router();
 
@@ -61,6 +63,9 @@ router.get('/health', wrap(async (req, res) => ok(res, {
     // (đã che key) cho người dùng thấy ngay đường dây AI có thật sự thông.
     ...(llmEnabled() ? { trang_thai: llmStatus() } : {}),
   },
+  // Không có mạng vẫn dùng đủ: mọi việc AI làm được đều có nút làm tay, bộ
+  // luật tiếng Việt trả lời chat, tỷ giá dùng bản đã lưu.
+  offline_ok: true,
 })));
 
 // ---- khoá ứng dụng bằng PIN ----------------------------------------------
@@ -156,7 +161,7 @@ router.get('/chat/history', wrap(async (req, res) => {
   });
 }));
 router.post('/chat', wrap(async (req, res) => {
-  const result = await chat(req.body?.message, { image: req.body?.image || null });
+  const result = await chat(req.body?.message, { image: req.body?.image || null, offline: req.body?.offline === true });
   ok(res, result);
 }));
 
@@ -184,6 +189,7 @@ router.post('/chat/stream', async (req, res) => {
     send('start', { at: new Date().toISOString() });
     const result = await chat(req.body?.message, {
       image: req.body?.image || null,
+      offline: req.body?.offline === true,
       onEvent: (ev) => send(ev.type, ev),
     });
     send('done', { ok: true, ...result });
@@ -315,6 +321,12 @@ router.post('/funds/:id/reopen', wrap(async (req, res) => {
   ok(res, { ...r, funds: fundsOverview() });
 }));
 router.delete('/funds/:id', wrap(async (req, res) => ok(res, { removed: remove('funds', Number(req.params.id)) })));
+/** Kéo tổng % về 100 giữ nguyên tỉ lệ — cùng logic công cụ AI dùng, nhưng làm tay thì không vào nhật ký AI. */
+router.post('/funds/rebalance', wrap(async (req, res) => {
+  const r = runTool('can_bang_phan_bo', { giu_nguyen: req.body?.keep || [] });
+  if (r.ok === false) return res.status(400).json(r);
+  ok(res, r);
+}));
 router.post('/funds/move', wrap(async (req, res) => {
   moveBetweenFunds(req.body);
   ok(res, fundsOverview());
@@ -444,6 +456,18 @@ router.patch('/debts/:id', wrap(async (req, res) => {
   ok(res, { debt: get('SELECT * FROM debts WHERE id = ?', [Number(req.params.id)]) });
 }));
 router.delete('/debts/:id', wrap(async (req, res) => ok(res, { removed: remove('debts', Number(req.params.id)) })));
+/** Ghi một lần trả nợ bằng tay: trừ dư nợ, ghi khoản chi, đánh dấu hết nợ khi về 0. */
+router.post('/debts/:id/pay', wrap(async (req, res) => {
+  const d = get('SELECT * FROM debts WHERE id = ?', [Number(req.params.id)]);
+  if (!d) return res.status(404).json({ ok: false, error: 'Không có khoản nợ này.' });
+  const amount = Math.round(Number(req.body?.amount));
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ ok: false, error: 'Số tiền trả phải lớn hơn 0.' });
+  const code = normalizeCurrency(req.body?.currency || d.currency || baseCurrency());
+  // Gắn debt_id: sổ cái tự tách phần lãi/gốc, trừ dư nợ và đánh dấu trả xong khi về 0.
+  const t = createTransaction({ type: 'expense', amount, currency: code, note: `Trả nợ ${d.name}`, date: req.body?.date || today(), account_id: req.body?.account_id || null, debt_id: d.id, source: 'manual' });
+  const after = get('SELECT * FROM debts WHERE id = ?', [d.id]);
+  ok(res, { debt: after, transaction: t.transaction, paid_off: after.balance <= 0 });
+}));
 router.get('/debts/:id/schedule', wrap(async (req, res) => {
   const d = get('SELECT * FROM debts WHERE id = ?', [Number(req.params.id)]);
   ok(res, { schedule: amortize(d, Number(req.query.extra) || 0) });
@@ -583,6 +607,24 @@ router.put('/ai/review', wrap(async (req, res) => ok(res, setReviewConfig(req.bo
 router.post('/ai/review/run', wrap(async (req, res) => {
   const r = await runReview({ force: true });
   return ok(res, r || { ok: false, error: 'Rà soát cần API key của AI. Bật trong Cài đặt rồi thử lại.' });
+}));
+
+// ---- dọn dẹp bằng tay (không cần AI) ---------------------------------------
+
+/** Gộp bản trùng tên. dry_run (mặc định) chỉ xem trước. */
+router.post('/admin/dedupe', wrap(async (req, res) => {
+  const r = runTool('don_trung_lap', { loai: req.body?.loai || req.body?.kind, thu_truoc: req.body?.dry_run !== false });
+  if (r.ok === false) return res.status(400).json(r);
+  ok(res, r);
+}));
+/** Xoá sạch dữ liệu: bắt buộc gõ đúng "XOA HET" — cùng chốt chặn với đường AI. */
+router.post('/admin/wipe', wrap(async (req, res) => {
+  const confirm = String(req.body?.confirm || '');
+  setUserUtterance(confirm);
+  const r = runTool('xoa_het_du_lieu', { xac_nhan: confirm, giu_lai_ho_so: req.body?.keep_profile === true });
+  setUserUtterance('');
+  if (r.ok === false) return res.status(400).json(r);
+  ok(res, r);
 }));
 
 // ---- thuế -----------------------------------------------------------------

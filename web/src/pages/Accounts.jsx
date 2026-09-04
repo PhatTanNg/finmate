@@ -84,8 +84,10 @@ export default function Accounts({ onRefresh }) {
                     <div className="mini">≈ {short(a.base_balance ?? a.balance)}</div>
                   )}
                   <div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
-                    <button className="btn sm ghost" onClick={() => setEdit(a)}>✎</button>
+                    <button className="btn sm ghost" onClick={() => setEdit(a)} aria-label="Sửa tài khoản">✎</button>
                     <button className="btn sm ghost" title="Đối soát số dư" onClick={() => setRec(a)}>⚖</button>
+                    <button className="btn sm ghost" title={a.is_active ? 'Đóng tài khoản (giữ lịch sử)' : 'Mở lại'} onClick={async () => { await api.patch(`/accounts/${a.id}`, { is_active: a.is_active ? 0 : 1 }); load(); onRefresh?.(); }}>{a.is_active ? '⏸' : '▶'}</button>
+                    {!a.is_active && <button className="btn sm ghost" title="Xoá hẳn" onClick={async () => { if (!confirm(`Xoá hẳn tài khoản "${a.name}"? Giao dịch cũ sẽ mất liên kết tài khoản.`)) return; await api.del(`/accounts/${a.id}`); load(); onRefresh?.(); }}>🗑</button>}
                   </div>
                 </div>
               </div>

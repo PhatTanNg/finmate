@@ -95,6 +95,12 @@ export default function Goals({ onRefresh }) {
       {(adding || edit) && (
         <Modal title={edit ? 'Sửa mục tiêu' : 'Mục tiêu mới'} onClose={() => { setEdit(null); setAdding(false); }}>
           <Form fields={fields} initial={edit ? { ...edit, target_amount: toMajor(edit.target_amount), current_amount: toMajor(edit.current_amount), monthly_contribution: toMajor(edit.monthly_contribution), fund_id: edit.fund_id ? String(edit.fund_id) : '' } : {}} onSubmit={save} onCancel={() => { setEdit(null); setAdding(false); }} />
+          {edit && (
+            <div className="between" style={{ marginTop: 12 }}>
+              <span className="mini">Đã đạt hay không còn cần nữa?</span>
+              <button className="btn sm danger" onClick={async () => { if (!confirm(`Xoá mục tiêu "${edit.name}"?`)) return; await api.del(`/goals/${edit.id}`); setEdit(null); load(); onRefresh?.(); }}>Xoá mục tiêu</button>
+            </div>
+          )}
         </Modal>
       )}
 

@@ -141,7 +141,7 @@ async function streamChat(body, onEvent) {
   return done;
 }
 
-export default function Chat({ onRefresh }) {
+export default function Chat({ onRefresh, offline = false }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -216,7 +216,7 @@ export default function Chat({ onRefresh }) {
     setBusy(true);
     setSteps([]);
     try {
-      const body = { message: content, ...(image ? { image } : {}) };
+      const body = { message: content, ...(image ? { image } : {}), ...(offline ? { offline: true } : {}) };
       let r;
       try {
         r = await streamChat(body, onEvent);
@@ -291,10 +291,12 @@ export default function Chat({ onRefresh }) {
   }
 
   const hint = useMemo(
-    () => (onboarding
-      ? 'Đang làm quen — cứ trả lời tự nhiên như nhắn tin nhé.'
-      : 'Nhắn tự nhiên: ghi chi tiêu, hỏi số liệu, đặt mục tiêu, xin lời khuyên. Hoặc chụp hoá đơn 📷.'),
-    [onboarding],
+    () => (offline
+      ? '📴 Đang ngoại tuyến — bộ luật trả lời: ghi chi tiêu, hỏi số liệu, tạo mục tiêu vẫn được; đọc ảnh hoá đơn cần mạng.'
+      : onboarding
+        ? 'Đang làm quen — cứ trả lời tự nhiên như nhắn tin nhé.'
+        : 'Nhắn tự nhiên: ghi chi tiêu, hỏi số liệu, đặt mục tiêu, xin lời khuyên. Hoặc chụp hoá đơn 📷.'),
+    [onboarding, offline],
   );
 
   return (
@@ -359,7 +361,9 @@ export default function Chat({ onRefresh }) {
                     {canUndo && (undone[batch] === true
                       ? <span className="act-chip dim">↩️ Đã hoàn tác lượt này</span>
                       : <button className="act-chip undo" disabled={undone[batch] === 'busy'} onClick={() => undoBatch(batch)} title="Trả dữ liệu về trước lượt này">↩️ Hoàn tác lượt này</button>)}
-                    {fb && <span className="act-chip warn" title={fb.ly_do || ''}>📐 Bộ luật trả lời — AI không phản hồi được{fb.ly_do ? `: ${String(fb.ly_do).slice(0, 80)}` : ''}</span>}
+                    {fb && (fb.offline
+                      ? <span className="act-chip" title={fb.ly_do || ''}>📴 Bộ luật trả lời — đang ngoại tuyến</span>
+                      : <span className="act-chip warn" title={fb.ly_do || ''}>📐 Bộ luật trả lời — AI không phản hồi được{fb.ly_do ? `: ${String(fb.ly_do).slice(0, 80)}` : ''}</span>)}
                   </div>
                 )}
               </div>

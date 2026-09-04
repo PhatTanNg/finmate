@@ -55,6 +55,18 @@ export const llmProvider = () => PROVIDER;
  * mỗi lượt chat tốn bao nhiêu và bộ đệm prompt có thực sự trúng hay không.
  */
 const health = { ok: null, at: null, error: null, errorAt: null, calls: 0, fails: 0, retries: 0 };
+/**
+ * Cầu dao mất mạng. Không có internet thì mỗi lượt chat sẽ chờ fetch hỏng,
+ * thử lại hai lần, rồi mới lùi về bộ luật — người dùng ngồi nhìn ba chấm vài
+ * giây cho một việc app làm được ngay. Sau một lần lỗi mạng, tạm không gọi
+ * model trong PAUSE_MS: bộ luật trả lời tức thì, hết hạn thì thử lại một lần.
+ */
+const PAUSE_MS = 60_000;
+let pausedUntil = 0;
+const isNetworkError = (e) => e?.name !== 'AbortError' && /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|socket hang up|network/i.test(String(e?.message || e));
+export const llmPaused = () => Date.now() < pausedUntil;
+export function pauseLlm(ms = PAUSE_MS) { pausedUntil = Date.now() + ms; }
+export function resumeLlm() { pausedUntil = 0; }
 const tokens = { vao: 0, ra: 0, cache_doc: 0, cache_ghi: 0, luot: 0, gan_nhat: null };
 export function llmStatus() {
   return {
@@ -63,11 +75,13 @@ export function llmStatus() {
     lan_goi: health.calls, lan_loi: health.fails, lan_thu_lai: health.retries,
     gan_nhat_ok: health.ok, gan_nhat_luc: health.at,
     loi_gan_nhat: health.error, loi_luc: health.errorAt,
+    tam_dung_den: llmPaused() ? new Date(pausedUntil).toISOString() : null,
     token: { ...tokens },
   };
 }
 function noteOk(usage) {
   health.ok = true; health.at = new Date().toISOString(); health.calls += 1;
+  pausedUntil = 0;
   if (usage) {
     tokens.vao += usage.vao; tokens.ra += usage.ra;
     tokens.cache_doc += usage.cache_doc; tokens.cache_ghi += usage.cache_ghi;
@@ -188,6 +202,10 @@ async function callApi(messages, { json = false, schema = null, timeout = TIMEOU
 /** Bọc quanh lời gọi thật: ghi nhận thành/bại, thử lại khi lỗi tạm thời, rồi ném tiếp như cũ. */
 async function call(messages, opts = {}) {
   if (!KEY) return null;
+  if (llmPaused()) {
+    const e = Object.assign(new Error(`LLM tạm dừng vì mất mạng, thử lại sau ${Math.ceil((pausedUntil - Date.now()) / 1000)}s`), { permanent: true, offline: true });
+    throw e;
+  }
   const { raw = false, ...rest } = opts;
   let last;
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt += 1) {
@@ -204,6 +222,10 @@ async function call(messages, opts = {}) {
       console.warn(`[finmate] thử lại lần ${attempt + 1} sau ${RETRY_DELAYS[attempt]}ms`);
       await sleep(RETRY_DELAYS[attempt]);
     }
+  }
+  if (isNetworkError(last)) {
+    pauseLlm();
+    console.warn(`[finmate] mất kết nối tới ${PROVIDER}; tạm dùng bộ luật ${PAUSE_MS / 1000}s rồi thử lại`);
   }
   throw last;
 }

@@ -9,6 +9,7 @@ export default function Investments({ onRefresh }) {
   const [price, setPrice] = useState(null);
   const [trade, setTrade] = useState(false);
   const [prop, setProp] = useState(false);
+  const [editProp, setEditProp] = useState(null);
 
   const load = () => api.get('/investments').then(setD);
   useEffect(() => { load(); }, []);
@@ -67,7 +68,10 @@ export default function Investments({ onRefresh }) {
                   <td className="num">{short(h.last_price, h.currency)}</td>
                   <td className="num">{fmt(h.value, h.currency)}</td>
                   <td className="num"><span className={h.pnl >= 0 ? 'up' : 'down'}>{h.pnl >= 0 ? '▲' : '▼'} {short(Math.abs(h.pnl), h.currency)} ({pct(h.pnl_pct, 1)})</span></td>
-                  <td className="acts"><button className="btn sm ghost" onClick={() => setPrice(h)}>Giá</button></td>
+                  <td className="acts">
+                    <button className="btn sm ghost" onClick={() => setPrice(h)}>Giá</button>
+                    <button className="btn sm ghost" aria-label="Xoá mã" onClick={async () => { if (!confirm(`Xoá ${h.symbol} khỏi danh mục?`)) return; await api.del(`/investments/holdings/${h.id}`); load(); onRefresh?.(); }}>🗑</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -90,6 +94,10 @@ export default function Investments({ onRefresh }) {
                   <div>{fmt(r.current_value, r.currency)}</div>
                   {r.currency && r.currency !== baseCurrency() && <div className="mini">≈ {short(r.value_base)}</div>}
                   <div className="mini">yield {pct(r.yield ?? r.yield_net ?? ((r.monthly_rent * 12) / (r.current_value || 1)), 1)}/năm</div>
+                  <div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
+                    <button className="btn sm ghost" onClick={() => setEditProp(r)} aria-label="Sửa bất động sản">✎</button>
+                    <button className="btn sm ghost" aria-label="Xoá bất động sản" onClick={async () => { if (!confirm(`Xoá "${r.name}"?`)) return; await api.del(`/properties/${r.id}`); load(); onRefresh?.(); }}>🗑</button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -109,6 +117,28 @@ export default function Investments({ onRefresh }) {
             ))}
           </div>
         </Card>
+      )}
+
+      {editProp && (
+        <Modal title={`Sửa ${editProp.name}`} onClose={() => setEditProp(null)}>
+          <Form
+            fields={[
+              { k: 'name', label: 'Tên', full: true },
+              { k: 'address', label: 'Địa chỉ', full: true },
+              { k: 'current_value', label: `Giá trị hiện tại (${editProp.currency || baseCurrency()})`, type: 'number' },
+              { k: 'monthly_rent', label: `Tiền thuê/tháng (${editProp.currency || baseCurrency()})`, type: 'number' },
+              { k: 'monthly_cost', label: `Chi phí/tháng (${editProp.currency || baseCurrency()})`, type: 'number' },
+              { k: 'occupancy', label: 'Tỉ lệ lấp đầy (0-1)', type: 'number' },
+            ]}
+            initial={{ ...editProp, current_value: toMajor(editProp.current_value, editProp.currency), monthly_rent: toMajor(editProp.monthly_rent, editProp.currency), monthly_cost: toMajor(editProp.monthly_cost, editProp.currency) }}
+            onSubmit={async (v) => {
+              const c = editProp.currency || baseCurrency();
+              await api.patch(`/properties/${editProp.id}`, { name: v.name, address: v.address, current_value: toMinor(v.current_value, c), monthly_rent: toMinor(v.monthly_rent, c), monthly_cost: toMinor(v.monthly_cost, c), occupancy: Number(v.occupancy) || 1 });
+              setEditProp(null); load(); onRefresh?.();
+            }}
+            onCancel={() => setEditProp(null)}
+          />
+        </Modal>
       )}
 
       {adding && (

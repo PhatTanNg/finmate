@@ -21,6 +21,12 @@ export default function Settings({ onRefresh }) {
   const [newPin, setNewPin] = useState('');
   const [llm, setLlm] = useState(null);
   const [auto, setAuto] = useState(null);
+  const [dedupe, setDedupe] = useState(null);   // kết quả xem trước gộp trùng
+  const [wipe, setWipe] = useState(false);
+  const [wipeText, setWipeText] = useState('');
+  const [addCat, setAddCat] = useState(false);
+  const [editCat, setEditCat] = useState(null);
+  const loadCats = () => api.get('/categories').then((d) => setCats(d.categories));
   const loadAuto = () => api.get('/ai/autopilot').then(setAuto).catch(() => setAuto(null));
   const setMode = async (che_do) => { setAuto(await api.put('/ai/autopilot', { che_do })); };
 
@@ -334,13 +340,82 @@ export default function Settings({ onRefresh }) {
         </Card>
       </div>
 
+      <Card title="Danh mục thu chi" right={<button className="btn sm" onClick={() => setAddCat(true)}>+ Danh mục</button>}>
+        <p className="mini" style={{ marginTop: 0 }}>Danh mục dùng để phân loại giao dịch và đặt ngân sách. Chạm để đổi tên hoặc icon.</p>
+        <div className="chips">
+          {cats.map((c) => (
+            <button key={c.id} className="chip" onClick={() => setEditCat(c)} title={c.kind === 'income' ? 'Thu' : 'Chi'}>{c.icon || ''} {c.name}</button>
+          ))}
+        </div>
+      </Card>
+
+      <Card title="Dọn dẹp">
+        <p className="mini" style={{ marginTop: 0 }}>Những việc cố vấn AI hay làm giúp — làm tay cũng được, không cần mạng.</p>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {[['muc_tieu', 'mục tiêu'], ['nguon_thu', 'nguồn thu'], ['no', 'khoản nợ'], ['tai_khoan', 'tài khoản'], ['dinh_ky', 'khoản định kỳ']].map(([k, l]) => (
+            <button key={k} className="btn ghost sm" onClick={async () => { const r = await api.post('/admin/dedupe', { loai: k, dry_run: true }); setDedupe({ loai: k, label: l, ...r }); }}>Gộp {l} trùng</button>
+          ))}
+          <button className="btn ghost sm" onClick={async () => { await api.post('/transactions/rebuild'); onRefresh?.(); alert('Đã tính lại số dư từ toàn bộ giao dịch.'); }}>Tính lại số dư tài khoản</button>
+          <button className="btn ghost sm" onClick={async () => { await api.post('/networth/snapshot'); onRefresh?.(); alert('Đã lưu mốc tài sản ròng hôm nay.'); }}>Chốt tài sản ròng hôm nay</button>
+        </div>
+        {dedupe && (
+          <div className="note" style={{ marginTop: 10 }}>
+            {dedupe.tong_xoa
+              ? <>Tìm thấy <b>{dedupe.tong_xoa}</b> bản trùng: {dedupe.ke_hoach.map((k) => `"${k.ten}" ×${k.se_xoa.length + 1}`).join(', ')}. Giữ bản cũ nhất, xoá phần còn lại.
+                  <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                    <button className="btn primary sm" onClick={async () => { await api.post('/admin/dedupe', { loai: dedupe.loai, dry_run: false }); setDedupe(null); onRefresh?.(); alert('Đã gộp xong.'); }}>Gộp thật</button>
+                    <button className="btn sm" onClick={() => setDedupe(null)}>Thôi</button>
+                  </div></>
+              : <>Không có {dedupe.label} nào trùng tên. <button className="btn sm ghost" onClick={() => setDedupe(null)}>Đóng</button></>}
+          </div>
+        )}
+      </Card>
+
       <Card title="Vùng nguy hiểm">
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button className="btn ghost" onClick={resetChat}>Xoá lịch sử trò chuyện</button>
-          <button className="btn ghost" onClick={async () => { await api.post('/transactions/rebuild'); onRefresh?.(); alert('Đã tính lại số dư từ toàn bộ giao dịch.'); }}>Tính lại số dư tài khoản</button>
-          <button className="btn ghost" onClick={async () => { await api.post('/networth/snapshot'); onRefresh?.(); alert('Đã lưu mốc tài sản ròng hôm nay.'); }}>Chốt tài sản ròng hôm nay</button>
+          <button className="btn danger" onClick={() => { setWipe(true); setWipeText(''); }}>Xoá sạch dữ liệu, làm lại từ đầu</button>
         </div>
       </Card>
+
+      {wipe && (
+        <Modal title="Xoá sạch dữ liệu" onClose={() => setWipe(false)}>
+          <p>Việc này <b>không hoàn tác được</b>: mọi giao dịch, tài khoản, quỹ, mục tiêu, nợ, đầu tư, lịch sử chat sẽ bị xoá. App tự chụp một bản sao lưu vào thư mục backups trước khi xoá.</p>
+          <p className="mini">Gõ đúng <code>XOA HET</code> để xác nhận:</p>
+          <input className="inp" value={wipeText} onChange={(e) => setWipeText(e.target.value)} placeholder="XOA HET" autoFocus />
+          <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end', gap: 8 }}>
+            <button className="btn" onClick={() => setWipe(false)}>Huỷ</button>
+            <button className="btn danger" disabled={wipeText.trim().toUpperCase() !== 'XOA HET'} onClick={async () => {
+              try {
+                const r = await api.post('/admin/wipe', { confirm: wipeText.trim().toUpperCase(), keep_profile: true });
+                setWipe(false); onRefresh?.();
+                alert(`Đã xoá sạch. Bản sao lưu: ${r.ban_sao || r.backup || 'đã tạo'}.`);
+                location.hash = 'chat'; location.reload();
+              } catch (e) { alert(e.message); }
+            }}>Xoá sạch</button>
+          </div>
+        </Modal>
+      )}
+
+      {(addCat || editCat) && (
+        <Modal title={editCat ? `Sửa danh mục ${editCat.name}` : 'Danh mục mới'} onClose={() => { setAddCat(false); setEditCat(null); }}>
+          <Form
+            fields={[
+              { k: 'name', label: 'Tên', full: true },
+              { k: 'icon', label: 'Icon (emoji)' },
+              { k: 'kind', label: 'Loại', type: 'select', options: [{ value: 'expense', label: 'Chi' }, { value: 'income', label: 'Thu' }], def: 'expense' },
+              { k: 'essential', label: 'Thiết yếu?', type: 'select', options: [{ value: '0', label: 'Không' }, { value: '1', label: 'Có' }], def: '0' },
+            ]}
+            initial={editCat ? { ...editCat, essential: String(editCat.essential ?? 0) } : {}}
+            onSubmit={async (v) => {
+              const body = { name: v.name, icon: v.icon, kind: v.kind, essential: Number(v.essential) };
+              if (editCat) await api.patch(`/categories/${editCat.id}`, body); else await api.post('/categories', body);
+              setAddCat(false); setEditCat(null); loadCats(); onRefresh?.();
+            }}
+            onCancel={() => { setAddCat(false); setEditCat(null); }}
+          />
+        </Modal>
+      )}
 
       {addRule && (
         <Modal title="Thêm luật phân loại" onClose={() => setAddRule(false)}>
