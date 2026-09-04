@@ -90,6 +90,19 @@ export default function Dashboard({ d, go, onRefresh }) {
         ))}
         <div className="acc-card add" onClick={() => go('accounts')} role="button" tabIndex={0}><span style={{ fontSize: 22 }}>＋</span>Thêm tài khoản</div>
       </div>
+      <div className="acc-list card pad0">
+        <div className="list">
+          {(d.accounts || []).slice(0, 4).map((a) => (
+            <div key={a.id} className="item tap" onClick={() => go('accounts')} role="button" tabIndex={0}>
+              <div className="ic">{a.icon || ACC_ICON[a.type] || '🏦'}</div>
+              <div style={{ minWidth: 0 }}><div className="t">{a.name}</div><div className="s">{a.institution || a.type}{a.currency && a.currency !== (d.base_currency || 'VND') ? ` · ${a.currency}` : ''}</div></div>
+              <div className={`amt ${a.balance < 0 ? 'down' : ''}`}>{short(a.balance, a.currency)}</div>
+            </div>
+          ))}
+          {(d.accounts || []).length > 4 && <div className="item tap" onClick={() => go('accounts')} role="button" tabIndex={0}><div className="ic">…</div><div className="t">Xem {(d.accounts || []).length - 4} tài khoản còn lại</div></div>}
+          {!(d.accounts || []).length && <div className="item tap" onClick={() => go('accounts')} role="button" tabIndex={0}><div className="ic">＋</div><div className="t">Thêm tài khoản đầu tiên</div></div>}
+        </div>
+      </div>
 
       {props.length > 0 && (
         <>

@@ -114,6 +114,26 @@ export default function App() {
     return () => removeEventListener('keydown', onKey);
   }, []);
 
+  // Gắn nhãn cột cho từng ô bảng (data-label = chữ ở thead) để CSS điện thoại
+  // xếp mỗi hàng thành thẻ dọc mà vẫn đọc được ô nào là gì. Làm ở đây một lần
+  // cho mọi trang, không phải sửa từng bảng.
+  useEffect(() => {
+    const label = () => {
+      for (const table of document.querySelectorAll('.main table')) {
+        const heads = [...table.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+        if (!heads.length) continue;
+        for (const tr of table.querySelectorAll('tbody tr')) {
+          [...tr.children].forEach((td, i) => { if (td.dataset.label !== (heads[i] || '')) td.dataset.label = heads[i] || ''; });
+        }
+      }
+    };
+    label();
+    let t = null;
+    const mo = new MutationObserver(() => { clearTimeout(t); t = setTimeout(label, 30); });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => { mo.disconnect(); clearTimeout(t); };
+  }, []);
+
   useEffect(() => {
     if (!err) return undefined;
     const t = setTimeout(() => setErr(null), 6000);
