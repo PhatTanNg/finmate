@@ -1,6 +1,12 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolveNative, SERVER_SRC } from './native.aliases.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Hai cách build:
@@ -19,11 +25,44 @@ const nativePlugin = (embedded) => ({
   },
 });
 
+/**
+ * Nhúng danh sách tài nguyên vào service worker sau khi build.
+ *
+ * Tên tệp build có hash nên trình duyệt tự đệm ở tầng HTTP; request không bao
+ * giờ chạm tới service worker, và kiểu "gặp gì đệm nấy" để lại kho rỗng — mất
+ * mạng là app mở ra trang trắng. Ở đây ta liệt kê thẳng mọi tệp đã sinh ra
+ * (kể cả sql-wasm.wasm chỉ được nhắc tới từ trong bundle) để service worker
+ * nạp đủ ngay lúc cài đặt. Tên kho gắn với hash của chính danh sách đó, nên
+ * bản build mới tự dọn kho cũ.
+ */
+const swPrecachePlugin = (outDir) => ({
+  name: 'finmate-sw-precache',
+  apply: 'build',
+  closeBundle() {
+    const sw = path.resolve(__dirname, outDir, 'sw.js');
+    if (!fs.existsSync(sw)) return;
+    const walk = (dir, base = '') => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (
+      d.isDirectory() ? walk(path.join(dir, d.name), `${base}${d.name}/`) : [`${base}${d.name}`]
+    ));
+    const root = path.resolve(__dirname, outDir);
+    const assets = walk(root)
+      .filter((f) => !/^(sw\.js|index\.html)$/.test(f))
+      .map((f) => `./${f}`)
+      .sort();
+    const build = createHash('sha1').update(assets.join('|')).digest('hex').slice(0, 10);
+    const src = fs.readFileSync(sw, 'utf8')
+      .replace('__FINMATE_BUILD__', build)
+      .replace('const BUILD =', `self.__FINMATE_ASSETS__ = ${JSON.stringify(assets)};\nconst BUILD =`);
+    fs.writeFileSync(sw, src);
+    this.warn?.(`sw.js: đệm sẵn ${assets.length} tệp (build ${build})`);
+  },
+});
+
 export default defineConfig(({ mode }) => {
   const embedded = mode === 'embedded';
   return {
     base: embedded ? './' : '/',
-    plugins: [react(), nativePlugin(embedded)],
+    plugins: [react(), nativePlugin(embedded), swPrecachePlugin(embedded ? 'dist-embedded' : 'dist')],
     define: { 'import.meta.env.VITE_EMBEDDED': JSON.stringify(embedded ? '1' : '0') },
     server: {
       port: 5173,

@@ -101,6 +101,17 @@ const READ_INTENTS = new Set([
   'query_fx', 'query_tax', 'summary', 'help',
 ]);
 
+/**
+ * Dấu hiệu một khoản ĐÃ TIÊU/ĐÃ THU xong, xảy ra một lần tại một thời điểm:
+ * "tối qua", "sáng nay", "vừa mua"... Đây là thứ phân biệt câu ghi sổ thật
+ * với câu khai báo trong lúc thiết lập ("thuê nhà 5 triệu" là chi phí cố
+ * định hằng tháng, còn "tối qua cà phê 40k" là một giao dịch cụ thể).
+ */
+const ONE_OFF_MOMENT = /\b(hom qua|hom kia|hom nay|toi qua|toi nay|sang nay|sang qua|trua nay|trua qua|chieu nay|chieu qua|dem qua|ban nay|luc nay|khi nay|nay vua|vua moi|vua an|vua mua|vua tra|vua di|moi an|moi mua|moi tra|tuan truoc|tuan roi)\b/;
+
+/** Dấu hiệu khoản lặp lại hằng kỳ — không phải giao dịch một lần. */
+const RECURRING_HINT = /(moi thang|hang thang|\/ ?thang|mot thang|moi tuan|hang tuan|moi nam|hang nam|dinh ky|thuong xuyen|trung binh)/;
+
 /** Ý định ghi/sửa dữ liệu — không được để câu hỏi kiến thức chiếm chỗ. */
 const WRITE_INTENTS = new Set([
   'add_expense', 'add_income', 'add_transfer', 'add_account', 'add_income_stream', 'add_debt',
@@ -293,6 +304,30 @@ export async function chat(text, { image = null, onEvent = null, offline = false
         const reply = step ? `${ans.reply}\n\n---\nMình quay lại phần thiết lập nhé — ${step}` : ans.reply;
         saveMessage('assistant', reply, 'onboarding-answer', { intent: ans.intent });
         return { reply, intent: ans.intent, onboarding: true, quick: quickFor(true) };
+      }
+    }
+
+    // Đang thiết lập nhưng người dùng ghi một khoản vừa tiêu ("tối qua cà phê
+    // 40k") thì phải ghi ĐÚNG khoản đó rồi quay lại bước đang dở. Nếu để câu
+    // này rơi vào bộ hỏi đáp thiết lập, 40k sẽ bị ghi thành *lương tháng* —
+    // sai hẳn hồ sơ tài chính mà người dùng không hề hay biết. Chỉ nhận khi
+    // câu có mốc thời gian một lần và không mang nghĩa lặp hằng kỳ, để các
+    // câu khai báo thật ("thuê nhà 5 triệu", "lương 30 triệu") vẫn đi đúng
+    // đường thiết lập.
+    const n = norm(message);
+    const recording = !asking
+      && (probe.intent === 'add_expense' || probe.intent === 'add_income' || probe.intent === 'add_transfer')
+      && probe.entities.amount
+      && ONE_OFF_MOMENT.test(n)
+      && !RECURRING_HINT.test(n);
+    if (recording) {
+      const res = await answerNormally(message);
+      if (res?.reply) {
+        if (res.refresh) generateInsights();
+        const step = currentOnboardingQuestion();
+        const reply = step ? `${res.reply}\n\n---\nMình quay lại phần thiết lập nhé — ${step}` : res.reply;
+        saveMessage('assistant', reply, 'onboarding-record', { intent: res.intent });
+        return { reply, intent: res.intent, onboarding: true, refresh: true, quick: quickFor(true) };
       }
     }
 

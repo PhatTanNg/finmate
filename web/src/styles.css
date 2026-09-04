@@ -495,7 +495,14 @@ kbd { background: var(--soft2); border-radius: 5px; padding: 1px 6px; font: inhe
   .acc-list { display: block; }
   .page-h > .row { flex-wrap: wrap; gap: 6px; }
   .page-h .btn { padding: 8px 13px; font-size: 13px; }
-  .btn.sm { min-height: 34px; }
+  /* Vùng chạm tối thiểu 44px theo chuẩn cảm ứng: các nút "Tất cả", "Chi
+     tiết" ở đầu mỗi mục trước đây chỉ cao 20px nên rất khó bấm trúng bằng
+     ngón tay. Nới vùng chạm ra chứ không phóng to chữ, để bố cục giữ nguyên. */
+  .btn, .btn.sm, .chip, .seg button { min-height: 44px; }
+  .seg { padding: 2px; }
+  .section-h { align-items: center; }
+  .section-h button { min-height: 44px; display: inline-flex; align-items: center; padding: 0 8px; margin-right: -8px; }
+  .card > .between button { min-height: 44px; }
   .cmdk-bg { padding-top: 8vh; }
 }
 

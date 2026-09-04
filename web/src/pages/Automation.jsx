@@ -131,12 +131,17 @@ export default function Automation({ onRefresh }) {
         <Stat label="Lần chạy gần nhất" value={d.last_run ? new Date(d.last_run).toLocaleTimeString('vi-VN') : '—'} sub={d.last_run ? vnDate(d.last_run.slice(0, 10)) : 'Chưa chạy'} />
       </div>
 
-      <IphoneGuide
-        url={d.webhook_url}
-        token={d.token}
-        pinSet={d.pin_set}
-        onRotate={async () => { await api.post('/automation/rotate-token'); load(); }}
-      />
+      {/* Bản chạy trên máy không có máy chủ nên không có địa chỉ POST: cả bài
+          hướng dẫn Shortcuts đều vô nghĩa, mà còn in ra "app://undefined/api/
+          ingest" trông như app hỏng. Ô nhắc phía trên đã chỉ cách thay thế. */}
+      {!EMBEDDED && (
+        <IphoneGuide
+          url={d.webhook_url}
+          token={d.token}
+          pinSet={d.pin_set}
+          onRotate={async () => { await api.post('/automation/rotate-token'); load(); }}
+        />
+      )}
 
       <Card title="Ngân hàng đọc được tự động">
         <p className="mini">

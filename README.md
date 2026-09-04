@@ -484,9 +484,10 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 
 ```bash
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
-npm run test:smoke                # chạy liền 15 bộ smoke bên dưới
+npm run test:smoke                # chạy liền 16 bộ smoke bên dưới
 npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
-npm run test:all                  # tất cả: unit + smoke + mô phỏng + bản điện thoại
+npm run test:e2e                  # 2 hành trình đầu-cuối trên trình duyệt thật (mobile 390x844)
+npm run test:all                  # tất cả: unit + smoke + mô phỏng + bản điện thoại + đầu-cuối
 
 cd server && node test/smoke-auth.mjs        # PIN, phiên, sao lưu, xuất dữ liệu
 cd server && node test/smoke-ui.mjs          # mọi field frontend dùng đều tồn tại trong API
@@ -501,6 +502,7 @@ cd server && node test/smoke-manage.mjs      # sửa/xoá mọi tài nguyên; mo
 cd server && node test/smoke-stream.mjs      # chat dạng luồng SSE, ảnh hoá đơn tới model đúng hình dạng, cờ "bộ luật trả lời" khi AI hỏng
 cd server && node test/smoke-autopilot.mjs   # đề xuất chờ gật, chế độ tự lái, bản tin sáng, phản hồi tin ngân hàng, "ừ"/"thôi" trong chat
 cd server && node test/smoke-manual.mjs      # làm tay không cần AI: trả nợ, cân bằng quỹ, gộp trùng, xoá sạch có chốt; cầu dao mất mạng, cờ offline
+cd server && node test/smoke-onboarding.mjs  # lúc thiết lập: câu ghi sổ thật, câu khai báo và câu hỏi không được lẫn vào nhau
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
@@ -509,7 +511,12 @@ cd server && node test/journey5y.mjs         # 5 năm liên tục của một ng
 cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
 cd web    && node test/render.mjs            # render thật 18 trang trong jsdom với API thật
 cd web    && node test/embedded.mjs          # bản chạy trên điện thoại: engine WebAssembly + router trong tiến trình, không node:sqlite
+cd web    && node test/pwa.mjs               # service worker đệm sẵn đủ tài nguyên -> mất mạng mở lại app không ra trang trắng
+cd web    && npm run test:e2e                # hành trình thật trên Chromium: thêm tài khoản, ghi/sửa giao dịch, mục tiêu,
+                                             # ngân sách, chat, quỹ, rút wifi, mở lại app, sao lưu, cỡ vùng chạm 44px
 ```
+
+`test:e2e` mở Chromium ở khổ điện thoại (390×844) và đi trọn một ngày dùng app — trên **cả hai bản**: bản gọi máy chủ (`dist`) và bản chạy thẳng trên máy (`dist-embedded`). Nó bắt đúng những lỗi mà test chạy trong Node không thấy được: nút quá nhỏ để chạm, bố cục tràn ngang, lỗi JavaScript lúc chạy thật, và quan trọng nhất — **rút wifi rồi mở lại app có ra trang trắng không**. Cần `playwright-core` và một bản Chromium (tự tìm qua `PLAYWRIGHT_BROWSERS_PATH`, hoặc chỉ định bằng `E2E_CHROME`); thiếu thì bộ test tự bỏ qua chứ không báo hỏng.
 
 Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `smoke-autopilot`, `smoke-manual`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 

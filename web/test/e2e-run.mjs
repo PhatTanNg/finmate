@@ -1,0 +1,44 @@
+/**
+ * Chạy cả hai hành trình đầu-cuối: bản gọi máy chủ và bản chạy thẳng trên máy.
+ * Tự dựng máy chủ tĩnh + API trên sổ trắng tinh rồi dọn sạch khi xong.
+ */
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const web = path.resolve(here, '..');
+const server = path.resolve(web, '..', 'server');
+const DB = path.join(os.tmpdir(), 'finmate-e2e.db');
+const kids = [];
+const spawnBg = (cmd, args, opts) => { const p = spawn(cmd, args, { stdio: 'ignore', ...opts }); kids.push(p); return p; };
+const stop = () => kids.forEach((p) => { try { p.kill(); } catch {} });
+process.on('exit', stop); process.on('SIGINT', () => { stop(); process.exit(1); });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const up = async (url) => { for (let i = 0; i < 40; i += 1) { try { await fetch(url); return true; } catch { await wait(500); } } return false; };
+
+const run = (env) => new Promise((res) => {
+  const p = spawn(process.execPath, [path.join(here, 'e2e.mjs')], { stdio: 'inherit', env: { ...process.env, ...env } });
+  p.on('exit', (c) => res(c || 0));
+});
+
+for (const s of ['', '-shm', '-wal']) if (fs.existsSync(DB + s)) fs.rmSync(DB + s);
+let bad = 0;
+
+if (fs.existsSync(path.join(web, 'dist', 'index.html'))) {
+  spawnBg(process.execPath, ['src/index.js'], { cwd: server, env: { ...process.env, FINMATE_DB: DB, PORT: '4001', FINMATE_FX_OFFLINE: '1' } });
+  spawnBg(process.execPath, [path.join(here, 'serve-static.mjs')], { env: { ...process.env, E2E_ROOT: path.join(web, 'dist'), E2E_API: 'http://127.0.0.1:4001', E2E_PORT: '4200' } });
+  await up('http://127.0.0.1:4200/');
+  bad += await run({ E2E_BASE: 'http://127.0.0.1:4200', E2E_LABEL: 'bản máy chủ' });
+} else console.log('⚠ chưa build dist — bỏ qua hành trình bản máy chủ');
+
+if (fs.existsSync(path.join(web, 'dist-embedded', 'index.html'))) {
+  spawnBg(process.execPath, [path.join(here, 'serve-static.mjs')], { env: { ...process.env, E2E_ROOT: path.join(web, 'dist-embedded'), E2E_PORT: '4100' } });
+  await up('http://127.0.0.1:4100/');
+  bad += await run({ E2E_BASE: 'http://127.0.0.1:4100', E2E_LABEL: 'bản chạy trên máy (nhúng)', E2E_EMBEDDED: '1' });
+} else console.log('⚠ chưa build dist-embedded — bỏ qua hành trình bản nhúng');
+
+stop();
+process.exit(bad ? 1 : 0);

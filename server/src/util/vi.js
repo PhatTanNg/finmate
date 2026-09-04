@@ -148,7 +148,9 @@ const WEEKDAYS = { 'chu nhat': 0, cn: 0, 'thu 2': 1, 'thu hai': 1, 'thu 3': 2, '
 export function parseDate(text = '', ref = today()) {
   const n = norm(text);
   if (/\bhom kia\b|\bhôm kia\b/.test(n)) return addDays(ref, -2);
-  if (/\bhom qua\b/.test(n)) return addDays(ref, -1);
+  // "tối qua", "đêm qua", "chiều qua"... cũng là hôm qua — phải bắt trước
+  // nhánh \bnay\b bên dưới, nếu không "tối qua" sẽ bị ghi thành hôm nay.
+  if (/\b(hom|toi|dem|chieu|sang|trua|khuya) qua\b/.test(n)) return addDays(ref, -1);
   if (/\bngay mai\b|\bmai\b/.test(n)) return addDays(ref, 1);
   if (/\bngay mot\b|\bmot\b(?!\s*so)/.test(n)) return addDays(ref, 2);
   if (/\bhom nay\b|\bnay\b/.test(n)) return ref;

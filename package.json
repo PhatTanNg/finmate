@@ -22,10 +22,11 @@
     "test": "npm test -w server",
     "test:smoke": "npm run test:smoke -w server",
     "test:sim": "npm run test:sim -w server",
-    "test:all": "npm test -w server && npm run test:smoke -w server && npm run test:sim -w server && npm run test:app -w web",
+    "test:all": "npm test -w server && npm run test:smoke -w server && npm run test:sim -w server && npm run test:app -w web && npm run test:e2e -w web",
     "build:app": "npm run build:app -w web",
     "preview:app": "npm run preview:app -w web",
-    "test:app": "npm run test:app -w web"
+    "test:app": "npm run test:app -w web",
+    "test:e2e": "npm run test:e2e -w web"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -9,11 +9,12 @@
     "preview": "vite preview",
     "build:app": "vite build --mode embedded",
     "preview:app": "vite preview --outDir dist-embedded --port 5174",
-    "test:app": "node test/embedded.mjs",
+    "test:app": "node test/embedded.mjs && node test/pwa.mjs",
     "cap:init": "npm i -D @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android && npx cap add ios && npx cap add android",
     "cap:sync": "npm run build:app && npx cap sync",
     "cap:ios": "npx cap open ios",
-    "cap:android": "npx cap open android"
+    "cap:android": "npx cap open android",
+    "test:e2e": "node test/e2e-run.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
