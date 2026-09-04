@@ -498,6 +498,20 @@ Vài chỗ iOS hay làm khó đã được xử lý sẵn: `apple-touch-icon` ph
 
 **Android.** Trình duyệt tự mời cài; app hiện nút **Cài ngay** khi bắt được lời mời đó.
 
+### Tự phát hành lên GitHub Pages
+
+`.github/workflows/deploy.yml` build `web/dist-embedded` rồi đẩy lên Pages mỗi lần có code mới. Bản này chạy trọn vẹn trong trình duyệt nên chỉ cần chỗ chứa tệp tĩnh, và Pages cấp sẵn HTTPS — điều kiện bắt buộc để service worker chạy, tức là điều kiện để cài được vào màn hình chính.
+
+**Phải bật Pages một lần bằng tay** (token của workflow không có quyền tự tạo site — nó trả `Resource not accessible by integration`):
+
+1. **Settings → Pages → Source** chọn **GitHub Actions**.
+2. **Settings → Actions → General → Workflow permissions** chọn **Read and write permissions**.
+3. Chạy lại workflow **Deploy** (tab Actions → Deploy → Re-run jobs).
+
+Repo **private** thì Pages cần gói trả phí (GitHub Pro trở lên); tài khoản miễn phí phải để repo public. Lưu ý bản đưa lên chỉ là **mã của app** — không có máy chủ, không có kho dữ liệu chung, sổ sách của mỗi người nằm trong bộ nhớ trình duyệt máy họ.
+
+Trước khi phát hành, workflow chạy `web/test/pwa.mjs`: thiếu tài nguyên đệm sẵn là mất mạng mở app ra trang trắng, mà lỗi đó chỉ lộ sau khi đã cài lên điện thoại rồi.
+
 **Bản đóng gói native (.ipa / .apk).** Có sẵn cấu hình Capacitor (`npm run cap:init`, `cap:sync`, `cap:ios`, `cap:android`). Dựng `.ipa` **bắt buộc máy Mac có Xcode** và tài khoản Apple Developer để cài lên máy thật; `.apk` cần Android SDK. Bản PWA ở trên không cần gì cả và chạy cùng một mã.
 
 ## Kiểm thử

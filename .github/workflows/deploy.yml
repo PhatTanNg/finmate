@@ -52,9 +52,11 @@ jobs:
       # Không có tệp này thì Pages chạy Jekyll và bỏ qua mọi thứ bắt đầu bằng "_".
       - run: touch web/dist-embedded/.nojekyll
 
+      # Không đặt enablement: true — token của workflow KHÔNG có quyền tự tạo
+      # site Pages ("Resource not accessible by integration"). Phải bật một
+      # lần bằng tay: Settings → Pages → Source = GitHub Actions. Sau đó mọi
+      # lần đẩy code đều tự phát hành.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
