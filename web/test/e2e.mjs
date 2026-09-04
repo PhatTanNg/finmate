@@ -23,19 +23,38 @@ const EMBEDDED = process.env.E2E_EMBEDDED === '1';
 const SHOTS = process.env.E2E_SHOTS || path.join(os.tmpdir(), 'finmate-e2e');
 fs.mkdirSync(SHOTS, { recursive: true });
 
-// Playwright là phụ kiện chỉ dùng để test giao diện, không nằm trong
-// dependencies — thiếu nó thì bỏ qua chứ không làm hỏng cả mẻ test.
+/**
+ * Thiếu trình duyệt thì bỏ qua chứ không làm hỏng cả mẻ test — trừ khi đặt
+ * E2E_REQUIRED=1 (CI dùng cờ này, vì một bộ test âm thầm bỏ qua trên CI còn
+ * tệ hơn là không có nó).
+ */
+const skip = (why) => {
+  if (process.env.E2E_REQUIRED === '1') { console.error('✗ ' + why); process.exit(1); }
+  console.log('⚠ ' + why + ' — bỏ qua hành trình đầu-cuối');
+  process.exit(0);
+};
+
 let chromium;
 try { ({ chromium } = await import('playwright-core')); }
-catch { console.log('⚠ chưa cài playwright-core — bỏ qua hành trình đầu-cuối'); process.exit(0); }
+catch { skip('chưa cài playwright-core'); }
 
 /** Tìm Chromium: biến môi trường -> kho của Playwright -> trình duyệt hệ thống. */
 const findChrome = () => {
   if (process.env.E2E_CHROME) return process.env.E2E_CHROME;
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  if (root && fs.existsSync(root)) {
+  const rels = [
+    'chrome-linux/headless_shell', 'chrome-linux/chrome',
+    'chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+    'chrome-win/chrome.exe',
+  ];
+  const roots = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    path.join(os.homedir(), '.cache', 'ms-playwright'),          // Linux
+    path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright'), // macOS
+    path.join(os.homedir(), 'AppData', 'Local', 'ms-playwright'),  // Windows
+  ].filter((r) => r && fs.existsSync(r));
+  for (const root of roots) {
     for (const d of fs.readdirSync(root)) {
-      for (const rel of ['chrome-linux/headless_shell', 'chrome-linux/chrome', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium']) {
+      for (const rel of rels) {
         const f = path.join(root, d, rel);
         if (fs.existsSync(f)) return f;
       }
@@ -43,13 +62,15 @@ const findChrome = () => {
       if (fs.statSync(f).isFile()) return f;
     }
   }
-  for (const f of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome']) {
+  for (const f of ['/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']) {
     if (fs.existsSync(f)) return f;
   }
   return null;
 };
 const exe = findChrome();
-if (!exe) { console.log('⚠ không tìm thấy Chromium (đặt E2E_CHROME) — bỏ qua hành trình đầu-cuối'); process.exit(0); }
+if (!exe) skip('không tìm thấy Chromium (đặt E2E_CHROME hoặc chạy: npx playwright install chromium)');
 let pass = 0; const fails = []; const pageErrors = [];
 const ok = (name, cond, extra = '') => {
   if (cond) { pass += 1; console.log('  ✅ ' + name + (extra ? ' — ' + extra : '')); }

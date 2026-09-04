@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../lib/api.js';
+import { api, EMBEDDED } from '../lib/api.js';
 import { Card, Stat, Empty, Loading, Modal, Form, Donut, Money } from '../components/ui.jsx';
 import { fmt, short, pct, vnDate, baseCurrency, toMinor, toMajor, CURRENCIES } from '../lib/format.js';
 
@@ -12,6 +12,7 @@ export default function Investments({ onRefresh }) {
   const [editProp, setEditProp] = useState(null);
   const [px, setPx] = useState(null);       // trạng thái cập nhật giá tự động
   const [busyPx, setBusyPx] = useState(false);
+  const [proxy, setProxy] = useState(null);  // ô nhập proxy CORS (bản chạy trên máy)
 
   const load = () => Promise.all([api.get('/investments').then(setD), api.get('/investments/prices').then(setPx).catch(() => setPx(null))]);
   useEffect(() => { load(); }, []);
@@ -76,6 +77,44 @@ export default function Investments({ onRefresh }) {
             ? <>Giá tự cập nhật mỗi giờ từ VNDirect/VPS (cổ phiếu VN), Yahoo (quốc tế), SJC và giá thế giới (vàng), CoinGecko (crypto). Lần cuối: <b>{when(px.last_ok || px.last)}</b>{px.results?.some((x) => !x.ok) ? <> · <span className="warn">{px.results.filter((x) => !x.ok).length} mã chưa lấy được</span></> : ''}.</>
             : 'Cập nhật giá tự động đang tắt (chế độ offline). Giá nhập tay vẫn dùng được.'}
         </p>
+      )}
+
+      {/* Bản chạy trên máy gọi thẳng từ trình duyệt nên Yahoo/VNDirect/PNJ có
+          thể chặn CORS. Cách gỡ là đi qua một proxy — nhưng người cài app lên
+          điện thoại không có chỗ nào đặt biến môi trường, nên phải đặt được
+          ngay tại đây. */}
+      {EMBEDDED && px?.enabled && (
+        <div className="note mini" style={{ marginTop: 10 }}>
+          {proxy === null ? (
+            <>
+              Vài nguồn giá chặn trình duyệt gọi thẳng (CORS). Nếu có mã báo <i>"bị chặn"</i>,
+              bạn có thể cho FinMate đi vòng qua một proxy.{' '}
+              <button className="btn sm ghost" onClick={() => setProxy(px.proxy || '')}>
+                {px.proxy ? 'Đổi proxy' : 'Đặt proxy'}
+              </button>
+              {px.proxy && <> Đang dùng: <code>{px.proxy}</code>{px.proxy_from_env && ' (từ biến môi trường)'}</>}
+            </>
+          ) : (
+            <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
+              <input
+                className="inp" style={{ flex: '1 1 220px' }} value={proxy} autoFocus
+                placeholder="https://proxy-cua-ban.com/?url="
+                onChange={(e) => setProxy(e.target.value)}
+              />
+              <button
+                className="btn sm primary"
+                onClick={async () => {
+                  try { setPx(await api.put('/investments/price-proxy', { url: proxy.trim() })); setProxy(null); }
+                  catch (e) { alert(e.message); }
+                }}
+              >Lưu</button>
+              <button className="btn sm ghost" onClick={() => setProxy(null)}>Huỷ</button>
+              <div className="mini" style={{ flexBasis: '100%' }}>
+                Địa chỉ mã hoá của nguồn giá sẽ được nối vào cuối. Để trống rồi Lưu là bỏ proxy.
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <Card title="Danh mục nắm giữ">

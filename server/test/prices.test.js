@@ -170,4 +170,37 @@ test('FINMATE_FX_OFFLINE tắt hẳn việc gọi ra ngoài', async () => {
   process.env.FINMATE_FX_OFFLINE = '';
 });
 
+/**
+ * Proxy CORS: người cài app lên điện thoại không có chỗ nào đặt biến môi
+ * trường, nên phải đặt được từ trong app. Setting thắng biến môi trường.
+ */
+test('proxy CORS đặt trong app được dùng thật khi gọi nguồn giá', async () => {
+  calls.length = 0;
+  setting('price_proxy', 'https://proxy.test/?url=');
+  await refreshPrices({ force: true, symbols: ['BTC'], fetchImpl: mockFetch(SOURCES) });
+  assert.ok(calls.length > 0, 'không gọi ra nguồn nào');
+  assert.ok(calls.every((u) => u.startsWith('https://proxy.test/?url=')), calls.join(' | '));
+  // địa chỉ gốc phải được mã hoá và nối vào sau, không mất
+  assert.match(decodeURIComponent(calls[0]), /coingecko/i);
+  setting('price_proxy', '');
+});
+
+test('không đặt proxy thì gọi thẳng nguồn', async () => {
+  calls.length = 0;
+  await refreshPrices({ force: true, symbols: ['BTC'], fetchImpl: mockFetch(SOURCES) });
+  assert.ok(calls.length > 0);
+  assert.ok(calls.every((u) => !u.includes('proxy.test')), calls.join(' | '));
+});
+
+test('proxy trong app thắng biến môi trường', async () => {
+  process.env.FINMATE_PRICE_PROXY = 'https://env.test/?url=';
+  assert.equal(priceStatus().proxy, 'https://env.test/?url=');
+  assert.equal(priceStatus().proxy_from_env, true);
+  setting('price_proxy', 'https://app.test/?url=');
+  assert.equal(priceStatus().proxy, 'https://app.test/?url=');
+  assert.equal(priceStatus().proxy_from_env, false, 'đặt trong app rồi mà vẫn báo là lấy từ env');
+  setting('price_proxy', '');
+  delete process.env.FINMATE_PRICE_PROXY;
+});
+
 test.after(() => { for (const s of ['', '-shm', '-wal']) if (existsSync(DB + s)) rmSync(DB + s); });

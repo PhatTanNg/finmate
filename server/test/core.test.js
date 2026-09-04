@@ -1,6 +1,8 @@
 /** Unit test cho các hàm lõi không phụ thuộc HTTP. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { parseAmount, findAmounts, parsePercent, norm } from '../src/util/vi.js';
 import { short, pct, monthsToTarget } from '../src/util/money.js';
@@ -170,4 +172,19 @@ test('monthsToCapital tính theo lãi kép hàng tháng, không phải cộng d�
   assert.equal(monthsToCapital(0, 0, 0, 1_000_000), null);
   // Mục tiêu quá xa so với khả năng cũng phải dừng lại và trả null.
   assert.equal(monthsToCapital(0, 1, 0, 1_000_000_000_000), null);
+});
+
+/**
+ * README nói app có bao nhiêu công cụ AI thì phải đúng bấy nhiêu. Con số này
+ * đã từng trôi (README ghi 68 chỗ này, 72 chỗ kia, mã thì 74) — người đọc
+ * không có cách nào biết chỗ nào đúng.
+ */
+test('số công cụ AI trong README khớp với mã', async () => {
+  const { TOOLS } = await import('../src/services/chat/tools.js');
+  const readme = readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8');
+  const nums = [...readme.matchAll(/(\d+) công cụ(?! ghi| tra)/g)].map((m) => Number(m[1]));
+  assert.ok(nums.length > 0, 'README không nhắc số công cụ nào');
+  for (const n of new Set(nums)) {
+    assert.equal(n, TOOLS.length, `README ghi ${n} công cụ nhưng mã có ${TOOLS.length}`);
+  }
 });

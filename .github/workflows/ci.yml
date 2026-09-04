@@ -1,0 +1,122 @@
+# Chạy toàn bộ bộ test của FinMate trên mỗi lần push và mỗi pull request.
+#
+# Chia làm hai việc chạy song song:
+#   test  — unit, smoke, mô phỏng, render 18 trang, bản nhúng + PWA
+#   e2e   — hai hành trình người dùng thật trên Chromium khổ điện thoại
+#
+# Không có bước nào cần khoá API: mọi bộ test hoặc tự dựng DB tạm, hoặc dùng
+# LLM giả lập. FINMATE_FX_OFFLINE=1 chặn mọi lời gọi ra mạng ngoài để CI không
+# phụ thuộc vào nguồn tỷ giá/giá cổ phiếu của bên thứ ba.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FINMATE_FX_OFFLINE: '1'
+
+jobs:
+  test:
+    name: Unit · smoke · mô phỏng · render
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # node:sqlite (DatabaseSync) chỉ có từ Node 22.5 trở lên.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit test
+        run: npm test -w server
+
+      # smoke-chat / smoke-knowledge / smoke-auth / smoke-ui và render.mjs gọi
+      # API thật, nên phải có server chạy sẵn. Các bộ còn lại tự dựng lấy.
+      #
+      # Phải có dữ liệu mẫu: sổ trống thì nhiều phép kiểm không có gì để soi
+      # (ví dụ smoke-ui đọc tax.detail của nguồn thu — không có nguồn thu nào
+      # thì không kiểm được gì), và câu trả lời của cố vấn cũng rỗng tuếch.
+      - name: Dựng API trên DB tạm có dữ liệu mẫu
+        env:
+          FINMATE_DB: ${{ runner.temp }}/ci.db
+        run: |
+          npm run seed -w server
+          nohup node server/src/index.js > "${RUNNER_TEMP}/api.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/api.pid"
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:4000/api/health >/dev/null && exit 0
+            sleep 0.5
+          done
+          echo "API không lên được sau 20s. Nhật ký:"; cat "${RUNNER_TEMP}/api.log"; exit 1
+
+      - name: Smoke test
+        run: npm run test:smoke -w server
+
+      - name: Mô phỏng (kịch bản, 5 năm, trọn đời, chân dung)
+        run: npm run test:sim -w server
+
+      - name: Render 18 trang với dữ liệu thật
+        run: npm run test:render -w web
+
+
+      - name: Bản chạy trên điện thoại (engine WebAssembly + service worker)
+        run: |
+          npm run build:app -w web
+          npm run test:app -w web
+
+      - name: Nhật ký API khi có bước hỏng
+        if: failure()
+        run: cat "${RUNNER_TEMP}/api.log" || true
+
+      - name: Dừng API
+        if: always()
+        run: kill "$(cat "${RUNNER_TEMP}/api.pid")" 2>/dev/null || true
+
+  e2e:
+    name: Hành trình đầu-cuối trên trình duyệt
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cài Chromium cho Playwright
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Build cả hai bản
+        run: |
+          npm run build -w web
+          npm run build:app -w web
+
+      # E2E_REQUIRED=1: thiếu trình duyệt hay thiếu bản build thì BÁO HỎNG.
+      # Một bộ test âm thầm bỏ qua trên CI còn tệ hơn là không có nó.
+      - name: Hành trình bản máy chủ + bản chạy trên máy
+        env:
+          E2E_REQUIRED: '1'
+          E2E_SHOTS: ${{ runner.temp }}/e2e-shots
+        run: npm run test:e2e -w web
+
+      - name: Giữ ảnh chụp màn hình khi hỏng
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shots
+          path: ${{ runner.temp }}/e2e-shots
+          if-no-files-found: ignore

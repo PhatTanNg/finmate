@@ -1,5 +1,7 @@
 # FinMate — Cố vấn tài chính cá nhân all-in-one
 
+[![CI](https://github.com/PhatTanNg/finmate/actions/workflows/ci.yml/badge.svg)](https://github.com/PhatTanNg/finmate/actions/workflows/ci.yml)
+
 Ứng dụng quản lý tài chính cá nhân cho người Việt — kể cả người Việt đang sống ở nước ngoài: **tự động theo dõi thu chi**, **tự phân bổ tiền vào quỹ**, **đa tiền tệ (VND, EUR, USD, GBP, JPY, KRW, TWD, AUD, CAD, SGD)**, và một **cố vấn tài chính AI** trò chuyện bằng tiếng Việt — không chỉ trả lời, mà còn **tự thao tác trong app** giúp bạn: ghi giao dịch, cập nhật số dư, tạo mục tiêu, chia lại quỹ ("trưa nay ăn 60k", "AIB còn 5000 euro", "gửi 800 euro về Việt Nam", "bao giờ mình tự do tài chính?").
 
 Thiết kế cho **điện thoại** trước — mở app là vào thẳng cuộc trò chuyện với cố vấn của bạn.
@@ -82,7 +84,7 @@ Có hai chế độ, tự chọn theo cấu hình:
 
 **A. Cố vấn AI thật sự** (khi có `FINMATE_LLM_KEY` — [xem cách bật](#kết-nối-llm-tuỳ-chọn))
 
-Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **72 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
+Chat box trở thành một cố vấn tài chính có toàn quyền đọc và chỉnh sửa dữ liệu trong app qua **74 công cụ**. Không phải kịch bản hỏi-A-đáp-A: AI tự quyết định cần tra cứu gì, ghi gì, rồi trả lời bằng số liệu thật của bạn.
 
 **App là công cụ làm việc của AI.** Nó không chỉ tra cứu và khuyên — nó tự dựng và vận hành cấu trúc tài chính cho bạn: tạo tài khoản, mở quỹ mới, đặt mục tiêu và hạn hoàn thành, đổi tỷ lệ phân bổ, sắp xếp lại độ ưu tiên, đóng quỹ không còn phù hợp và dồn số dư sang quỹ khác. Việc nào hoàn tác được thì nó làm luôn rồi báo lại; chỉ những việc xoá vĩnh viễn mới hỏi bạn trước.
 
@@ -131,7 +133,7 @@ Chat box trở thành một cố vấn tài chính có toàn quyền đọc và 
 
 Nhật ký bắt thay đổi ở tầng cơ sở dữ liệu bằng trigger SQLite, nên chi phí **không tăng theo độ dày sổ sách**: khoảng 6ms dù bạn đã ghi 6.000 giao dịch.
 
-**AI điều phối app thay bạn — chế độ tự lái.** Bạn không phải mở tab nào để "vận hành" sổ sách. Mỗi giờ (và ngay khi có tin nhắn ngân hàng mới), cố vấn tự nhìn toàn bộ dữ liệu và biến việc cần làm thành **đề xuất cụ thể có sẵn tham số** — không phải lời khuyên chung chung. Mỗi đề xuất là một chuỗi công cụ (đúng bộ 72 công cụ AI dùng trong chat); bấm **Đồng ý** ở Trang chủ/Chat, hoặc nhắn "ừ", là app làm, có nhật ký và **hoàn tác được cả cụm**.
+**AI điều phối app thay bạn — chế độ tự lái.** Bạn không phải mở tab nào để "vận hành" sổ sách. Mỗi giờ (và ngay khi có tin nhắn ngân hàng mới), cố vấn tự nhìn toàn bộ dữ liệu và biến việc cần làm thành **đề xuất cụ thể có sẵn tham số** — không phải lời khuyên chung chung. Mỗi đề xuất là một chuỗi công cụ (đúng bộ 74 công cụ AI dùng trong chat); bấm **Đồng ý** ở Trang chủ/Chat, hoặc nhắn "ừ", là app làm, có nhật ký và **hoàn tác được cả cụm**.
 
 | Cố vấn tự nhận ra | Nó đề xuất (và làm khi bạn gật) |
 |---|---|
@@ -308,7 +310,7 @@ FINMATE_LLM_EFFORT=medium              # tuỳ chọn: low | medium | high | xhi
 
 Lớp nói chuyện với Claude (`services/chat/anthropic.js`) viết theo API hiện hành của thế hệ Claude 4.6+ / 5, nên có mấy điều đáng biết:
 
-- **Bộ đệm prompt (prompt caching)**: bộ 68 công cụ và phần hướng dẫn cố định của system prompt giống hệt nhau qua mọi lượt, được đánh dấu `cache_control`; phần "tình hình hiện tại" (đổi từng lượt) đặt sau cùng để không phá bộ đệm. Từ lượt thứ hai, phần lớn token đầu vào chỉ tính ~10% giá. Thẻ "Cố vấn AI" trong **Cài đặt** hiện tỉ lệ bộ đệm trúng, tổng token vào/ra và lỗi gần nhất — nếu tỉ lệ trúng là 0% suốt thì có gì đó đang làm prompt đổi mỗi lượt.
+- **Bộ đệm prompt (prompt caching)**: bộ 74 công cụ và phần hướng dẫn cố định của system prompt giống hệt nhau qua mọi lượt, được đánh dấu `cache_control`; phần "tình hình hiện tại" (đổi từng lượt) đặt sau cùng để không phá bộ đệm. Từ lượt thứ hai, phần lớn token đầu vào chỉ tính ~10% giá. Thẻ "Cố vấn AI" trong **Cài đặt** hiện tỉ lệ bộ đệm trúng, tổng token vào/ra và lỗi gần nhất — nếu tỉ lệ trúng là 0% suốt thì có gì đó đang làm prompt đổi mỗi lượt.
 - **Model tự suy nghĩ** trước khi trả lời (Opus 5 mặc định bật). Các khối suy nghĩ có chữ ký được gửi lại nguyên vẹn trong vòng lặp gọi công cụ — API đòi vậy. `FINMATE_LLM_EFFORT` chỉnh độ sâu; `FINMATE_LLM_THINKING=off` tắt hẳn khi cần nhanh.
 - **Không gửi `temperature`, không mớm lời trợ lý**: hai thứ thế hệ Claude mới từ chối thẳng (400). Phân loại ý định ép JSON bằng `output_config.format` + JSON schema thay vì mớm "{" như trước.
 - **Model từ chối trả lời** (bộ lọc an toàn, `stop_reason: refusal`) được coi như lỗi vĩnh viễn: không thử lại, lùi về bộ luật và ghi lý do vào `/api/health`.
@@ -324,7 +326,7 @@ FINMATE_LLM_MODEL=qwen2.5:14b
 
 Vào tab **Cài đặt** để xem app đang chạy chế độ nào — thẻ "Cố vấn AI" ở đầu trang nói rõ đang dùng bộ luật hay AI thật, và model nào.
 
-Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **68 công cụ** (34 công cụ ghi/sửa/xoá dữ liệu, 34 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu, dọn bản trùng — rồi mới trả lời.
+Cách hoạt động: mỗi lượt chat, agent nhận ảnh chụp tình hình tài chính của bạn cùng **74 công cụ** (39 công cụ ghi/sửa/xoá dữ liệu, 35 công cụ tra cứu và phân tích). Nó gọi công cụ tối đa 6 vòng — tra số, ghi giao dịch, sửa số dư, mở quỹ, đặt hạn mục tiêu, dọn bản trùng — rồi mới trả lời.
 
 - **Mọi con số vẫn tính từ dữ liệu trong máy bạn.** LLM không được phép tự bịa số; nó chỉ diễn đạt kết quả công cụ trả về.
 - **Không được nói suông là đã làm.** Nếu model trả lời "đã ghi 45.000đ" mà chưa hề gọi công cụ nào, app chặn lại và nhắc nó làm thật; vẫn nói suông lần nữa thì câu trả lời đó **bị bỏ** và bộ luật xử lý thay — thà mất một câu văn hay còn hơn để người dùng tin là đã ghi trong khi sổ trống. (Model nhỏ hay bắt chước định dạng câu trả lời cũ trong lịch sử chat, nên các lượt do bộ luật sinh cũng được đánh dấu rõ trước khi đưa cho model.)
@@ -379,7 +381,7 @@ finmate/
 │  │  │  ├─ ai_audit.js       # nhật ký thao tác của AI + hoàn tác (kể cả số dư)
 │  │  │  ├─ ai_memory.js      # trí nhớ dài hạn, nhét vào prompt mỗi lượt chat
 │  │  │  ├─ ai_review.js      # phiên rà soát chủ động theo chu kỳ
-│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (68 công cụ)
+│  │  │  └─ chat/             # agent.js (vòng lặp AI + tool calling) · tools.js (74 công cụ)
 │  │  │                       # tools_manage.js (sửa/xoá/dọn dẹp + chốt chặn phá dữ liệu)
 │  │  │                       # llm.js · anthropic.js (lớp dịch sang Claude) · nlu.js
 │  │  │                       # handlers.js · knowledge.js · life_events.js · onboarding.js
@@ -493,7 +495,7 @@ cd server && node test/smoke-auth.mjs        # PIN, phiên, sao lưu, xuất d�
 cd server && node test/smoke-ui.mjs          # mọi field frontend dùng đều tồn tại trong API
 cd server && node test/smoke-chat.mjs        # 29 ý định chat
 cd server && node test/smoke-knowledge.mjs   # 19 câu hỏi tài chính mở
-cd server && node test/smoke-tools.mjs       # 68 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
+cd server && node test/smoke-tools.mjs       # 74 công cụ AI ghi/đọc đúng dữ liệu (không cần key)
 cd server && node test/smoke-agent.mjs       # vòng lặp AI agent qua LLM giả lập (không cần key)
 cd server && node test/smoke-ai.mjs          # nhật ký + hoàn tác, trí nhớ dài hạn, rà soát chủ động
 cd server && node test/smoke-llm.mjs         # lớp dịch sang Claude, chạy qua máy chủ giả (không cần key)
@@ -517,6 +519,17 @@ cd web    && npm run test:e2e                # hành trình thật trên Chromiu
 ```
 
 `test:e2e` mở Chromium ở khổ điện thoại (390×844) và đi trọn một ngày dùng app — trên **cả hai bản**: bản gọi máy chủ (`dist`) và bản chạy thẳng trên máy (`dist-embedded`). Nó bắt đúng những lỗi mà test chạy trong Node không thấy được: nút quá nhỏ để chạm, bố cục tràn ngang, lỗi JavaScript lúc chạy thật, và quan trọng nhất — **rút wifi rồi mở lại app có ra trang trắng không**. Cần `playwright-core` và một bản Chromium (tự tìm qua `PLAYWRIGHT_BROWSERS_PATH`, hoặc chỉ định bằng `E2E_CHROME`); thiếu thì bộ test tự bỏ qua chứ không báo hỏng.
+
+### Chạy tự động trên GitHub
+
+`.github/workflows/ci.yml` chạy toàn bộ những thứ trên cho **mỗi lần push và mỗi pull request**, chia hai việc song song:
+
+| Việc | Nội dung |
+|---|---|
+| `test` | unit → dựng API trên DB tạm **có dữ liệu mẫu** → smoke → mô phỏng → render 18 trang → bản nhúng + PWA |
+| `e2e` | cài Chromium → build cả hai bản → hai hành trình người dùng thật; hỏng thì tự lưu ảnh chụp màn hình làm artifact |
+
+Không bước nào cần khoá API: mọi bộ test hoặc tự dựng DB tạm, hoặc dùng LLM giả lập. `FINMATE_FX_OFFLINE=1` chặn mọi lời gọi ra mạng ngoài để CI không phụ thuộc nguồn tỷ giá/giá cổ phiếu của bên thứ ba. Trên CI, `E2E_REQUIRED=1` biến "thiếu trình duyệt → bỏ qua" thành **báo hỏng** — một bộ test âm thầm bỏ qua trên CI còn tệ hơn là không có nó.
 
 Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `smoke-autopilot`, `smoke-manual`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.
 

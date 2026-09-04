@@ -431,6 +431,13 @@ router.get('/investments/prices', wrap(async (req, res) => ok(res, priceStatus()
 router.get('/investments/history/:symbol', wrap(async (req, res) => ok(res, { symbol: req.params.symbol.toUpperCase(), history: priceHistory(req.params.symbol, Number(req.query.days) || 90) })));
 router.get('/investments/gold', wrap(async (req, res) => ok(res, { gold: await goldQuote() })));
 router.put('/investments/gold-premium', wrap(async (req, res) => { setting('gold_premium_pct', Number(req.body?.pct) || 0); ok(res, priceStatus()); }));
+// Proxy CORS cho bản chạy trên điện thoại — đặt được ngay trong app.
+router.put('/investments/price-proxy', wrap(async (req, res) => {
+  const url = String(req.body?.url ?? '').trim();
+  if (url && !/^https:\/\//i.test(url)) return res.status(400).json({ ok: false, error: 'Địa chỉ proxy phải bắt đầu bằng https://' });
+  setting('price_proxy', url);
+  ok(res, priceStatus());
+}));
 router.get('/properties', wrap(async (req, res) => ok(res, realEstate())));
 router.post('/properties', wrap(async (req, res) => {
   const id = insert('properties', req.body);

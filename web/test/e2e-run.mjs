@@ -32,13 +32,15 @@ if (fs.existsSync(path.join(web, 'dist', 'index.html'))) {
   spawnBg(process.execPath, [path.join(here, 'serve-static.mjs')], { env: { ...process.env, E2E_ROOT: path.join(web, 'dist'), E2E_API: 'http://127.0.0.1:4001', E2E_PORT: '4200' } });
   await up('http://127.0.0.1:4200/');
   bad += await run({ E2E_BASE: 'http://127.0.0.1:4200', E2E_LABEL: 'bản máy chủ' });
-} else console.log('⚠ chưa build dist — bỏ qua hành trình bản máy chủ');
+} else if (process.env.E2E_REQUIRED === '1') { console.error('✗ chưa build dist (npm run build -w web)'); process.exit(1); }
+else console.log('⚠ chưa build dist — bỏ qua hành trình bản máy chủ');
 
 if (fs.existsSync(path.join(web, 'dist-embedded', 'index.html'))) {
   spawnBg(process.execPath, [path.join(here, 'serve-static.mjs')], { env: { ...process.env, E2E_ROOT: path.join(web, 'dist-embedded'), E2E_PORT: '4100' } });
   await up('http://127.0.0.1:4100/');
   bad += await run({ E2E_BASE: 'http://127.0.0.1:4100', E2E_LABEL: 'bản chạy trên máy (nhúng)', E2E_EMBEDDED: '1' });
-} else console.log('⚠ chưa build dist-embedded — bỏ qua hành trình bản nhúng');
+} else if (process.env.E2E_REQUIRED === '1') { console.error('✗ chưa build dist-embedded (npm run build:app -w web)'); process.exit(1); }
+else console.log('⚠ chưa build dist-embedded — bỏ qua hành trình bản nhúng');
 
 stop();
 process.exit(bad ? 1 : 0);

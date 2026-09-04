@@ -14,7 +14,8 @@
     "cap:sync": "npm run build:app && npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android",
-    "test:e2e": "node test/e2e-run.mjs"
+    "test:e2e": "node test/e2e-run.mjs",
+    "test:render": "node test/render.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^30.0.1",
+    "playwright-core": "^1.49.0",
     "vite": "^5.4.11"
   }
 }

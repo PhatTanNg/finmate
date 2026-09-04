@@ -22,7 +22,13 @@ import { currency as cur } from '../util/currency.js';
 import { convert, baseCurrency } from './fx.js';
 
 const OFF = () => /^(1|true|yes)$/i.test(String(process.env.FINMATE_FX_OFFLINE || '')) || /^(off|0|false)$/i.test(String(process.env.FINMATE_PRICES || ''));
-const PROXY = () => String(process.env.FINMATE_PRICE_PROXY || '');
+/**
+ * Proxy CORS cho bản chạy trên điện thoại. Đặt được từ TRONG app (Cài đặt →
+ * Đầu tư) chứ không chỉ bằng biến môi trường: người cài app lên máy không có
+ * chỗ nào để đặt biến môi trường cả, mà họ mới đúng là người cần cái này.
+ * Biến môi trường vẫn được tôn trọng, dùng làm mặc định cho bản máy chủ.
+ */
+const PROXY = () => String(setting('price_proxy') || process.env.FINMATE_PRICE_PROXY || '').trim();
 const MIN_GAP_MS = 60 * 60 * 1000;
 const TIMEOUT_MS = 10000;
 
@@ -303,6 +309,8 @@ export function priceStatus() {
     last_ok: setting('prices_last_ok') || null,
     next_auto: setting('prices_last_refresh') ? new Date(Date.parse(setting('prices_last_refresh')) + MIN_GAP_MS).toISOString() : null,
     gold_premium_pct: Number(setting('gold_premium_pct')) || 0,
+    proxy: PROXY(),
+    proxy_from_env: !setting('price_proxy') && !!process.env.FINMATE_PRICE_PROXY,
     results,
   };
 }
