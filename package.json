@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "FinMate - Cố vấn tài chính cá nhân all-in-one (tự động hoá thu chi, phân bổ quỹ, mục tiêu, FIRE)",
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "install:all": "npm install --workspaces --include-workspace-root",
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
@@ -19,7 +22,10 @@
     "test": "npm test -w server",
     "test:smoke": "npm run test:smoke -w server",
     "test:sim": "npm run test:sim -w server",
-    "test:all": "npm run test:all -w server"
+    "test:all": "npm test -w server && npm run test:smoke -w server && npm run test:sim -w server && npm run test:app -w web",
+    "build:app": "npm run build:app -w web",
+    "preview:app": "npm run preview:app -w web",
+    "test:app": "npm run test:app -w web"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

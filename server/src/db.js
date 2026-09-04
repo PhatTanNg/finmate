@@ -1,16 +1,12 @@
-import { DatabaseSync } from 'node:sqlite';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { openEngine } from './db_engine.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.resolve(__dirname, '..', 'data');
-fs.mkdirSync(dataDir, { recursive: true });
-
-export const DB_PATH = process.env.FINMATE_DB || path.join(dataDir, 'finmate.db');
-
-export const db = new DatabaseSync(DB_PATH);
-db.exec('PRAGMA journal_mode = WAL;');
+// Engine đổi theo nơi chạy: node:sqlite trên máy chủ, SQLite WebAssembly
+// trong bản chạy ngay trên điện thoại (xem web/src/native). Mọi thứ bên dưới
+// — schema, migration, trigger nhật ký, helper — là chung.
+const engine = openEngine();
+export const db = engine.db;
+export const DB_PATH = engine.DB_PATH;
+export const ENGINE = engine.kind;
 db.exec('PRAGMA foreign_keys = ON;');
 
 const SCHEMA = `

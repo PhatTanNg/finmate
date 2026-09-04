@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, getKey } from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { Md } from '../components/ui.jsx';
 
 const DEFAULT_QUICK = [
@@ -98,49 +98,6 @@ function shrinkImage(file, max = 1600, quality = 0.85) {
   });
 }
 
-/**
- * Gửi một lượt chat qua luồng SSE, gọi onEvent cho từng bước; trả về payload
- * cuối cùng (y hệt POST /chat). Server cũ hoặc proxy không hỗ trợ luồng thì
- * ném lỗi để nơi gọi lùi về POST /chat thường.
- */
-async function streamChat(body, onEvent) {
-  const key = getKey();
-  const res = await fetch('/api/chat/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(key ? { 'x-finmate-key': key } : {}) },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok || !/text\/event-stream/.test(res.headers.get('content-type') || '')) {
-    const err = new Error(res.status === 401 ? 'locked' : `Không mở được luồng (${res.status})`);
-    err.status = res.status;
-    throw err;
-  }
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
-  let done = null;
-  for (;;) {
-    const { value, done: end } = await reader.read();
-    if (end) break;
-    buf += dec.decode(value, { stream: true });
-    let idx;
-    while ((idx = buf.indexOf('\n\n')) >= 0) {
-      const block = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-      const ev = /^event: (.+)$/m.exec(block)?.[1];
-      const raw = /^data: (.+)$/m.exec(block)?.[1];
-      if (!ev || !raw) continue;
-      let data = {};
-      try { data = JSON.parse(raw); } catch { continue; }
-      if (ev === 'done') done = data;
-      else if (ev === 'error') throw new Error(data.error || 'Lỗi không rõ');
-      else onEvent?.(ev, data);
-    }
-  }
-  if (!done) throw new Error('Luồng kết thúc mà chưa có câu trả lời');
-  return done;
-}
-
 export default function Chat({ onRefresh, offline = false }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
@@ -219,7 +176,7 @@ export default function Chat({ onRefresh, offline = false }) {
       const body = { message: content, ...(image ? { image } : {}), ...(offline ? { offline: true } : {}) };
       let r;
       try {
-        r = await streamChat(body, onEvent);
+        r = await api.chatStream(body, onEvent);
       } catch (e) {
         // Luồng không mở được (server cũ chưa có /chat/stream, proxy không cho
         // SSE, hay 401 do khoá phiên): dùng đường thường — api.post tự xử lý

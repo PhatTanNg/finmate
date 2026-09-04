@@ -2,10 +2,10 @@
   "name": "FinMate — Cố vấn tài chính cá nhân",
   "short_name": "FinMate",
   "description": "Theo dõi thu chi, chia quỹ, mục tiêu, FIRE — có hoặc không có AI.",
-  "start_url": "/#dashboard",
+  "start_url": "./#dashboard",
   "display": "standalone",
   "background_color": "#f4f5f7",
   "theme_color": "#f4f5f7",
   "lang": "vi",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "icons": [{ "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

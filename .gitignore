@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 web/dist/
+web/dist-embedded/
+web/test/.build-embedded.mjs
 server/public/
 
 # Dữ liệu cá nhân - TUYỆT ĐỐI không đẩy lên GitHub

@@ -8,6 +8,7 @@ import esbuild from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import { resolveNative } from '../native.aliases.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const API = process.env.FINMATE_URL || 'http://localhost:4000';
@@ -52,7 +53,9 @@ await esbuild.build({
   bundle: true, format: 'esm', outfile: out, jsx: 'automatic',
   external: ['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client'],
   loader: { '.js': 'jsx', '.jsx': 'jsx' }, logLevel: 'error',
-  define: { 'process.env.NODE_ENV': '"development"' },
+  define: { 'process.env.NODE_ENV': '"development"', 'import.meta.env.VITE_EMBEDDED': '"0"' },
+  // Bản máy chủ: engine nhúng thay bằng stub, giống vite.config.
+  plugins: [{ name: 'boot-stub', setup(b) { b.onResolve({ filter: /native\/boot\.js$/ }, () => ({ path: resolveNative('boot-stub') })); } }],
 });
 
 const { PAGES, React, Wrap, Boundary, setBaseCurrency } = await import('file://' + out.replace(/\\/g, '/'));

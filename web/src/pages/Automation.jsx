@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../lib/api.js';
+import { api, EMBEDDED } from '../lib/api.js';
 import { Card, Stat, Empty, Loading, Modal, Form } from '../components/ui.jsx';
 import { fmt, short, vnDate, baseCurrency, toMinor, toMajor } from '../lib/format.js';
 
@@ -120,6 +120,11 @@ export default function Automation({ onRefresh }) {
         <button className="btn primary" onClick={runNow} disabled={busy}>{busy ? 'Đang chạy...' : '▶ Chạy engine ngay'}</button>
       </div>
 
+      {EMBEDDED && (
+        <div className="note" style={{ marginBottom: 14 }}>
+          📱 <b>Bản chạy ngay trên điện thoại</b>: không có máy chủ nên không có webhook. Cách nhận tin ngân hàng: chọn tin nhắn/thông báo → <b>Chia sẻ</b> hoặc chép, rồi dán vào ô "Thử nhận diện tin nhắn" bên dưới và bấm Ghi sổ thật. Khoản định kỳ, import CSV, luật phân loại đều chạy như thường.
+        </div>
+      )}
       <div className="grid g3">
         <Stat label="Khoản định kỳ" value={rec.recurring?.length || 0} sub={`${rec.recurring?.filter((r) => r.auto_post).length || 0} tự động ghi sổ`} />
         <Stat label="Chi phí cố định/tháng" value={short(rec.monthly_fixed?.expense)} sub={`Thu định kỳ ${short(rec.monthly_fixed?.income)}`} />

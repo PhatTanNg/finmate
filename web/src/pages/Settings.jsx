@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, setKey } from '../lib/api.js';
+import { api, setKey, EMBEDDED, saveBlob } from '../lib/api.js';
 import { Card, Empty, Loading, Modal, Form } from '../components/ui.jsx';
 import { fmt, pct, toMinor, baseCurrency } from '../lib/format.js';
 
@@ -25,6 +25,8 @@ export default function Settings({ onRefresh }) {
   const [wipe, setWipe] = useState(false);
   const [wipeText, setWipeText] = useState('');
   const [addCat, setAddCat] = useState(false);
+  const [env, setEnv] = useState(null);      // bản điện thoại: cấu hình AI lưu trên máy
+  const fileRef = React.useRef(null);
   const [editCat, setEditCat] = useState(null);
   const loadCats = () => api.get('/categories').then((d) => setCats(d.categories));
   const loadAuto = () => api.get('/ai/autopilot').then(setAuto).catch(() => setAuto(null));
@@ -45,7 +47,33 @@ export default function Settings({ onRefresh }) {
     loadBackups();
     api.get('/health').then((d) => setLlm(d.llm)).catch(() => setLlm(null));
     loadAuto();
+    if (EMBEDDED) import('../native/boot.js').then((m) => setEnv(m.readEnv()));
   }, []);
+
+  async function saveEnv() {
+    const m = await import('../native/boot.js');
+    const clean = Object.fromEntries(Object.entries(env || {}).filter(([, v]) => String(v || '').trim() !== ''));
+    m.writeEnv(clean);
+    alert('Đã lưu. App sẽ tải lại để áp dụng.');
+    location.reload();
+  }
+  async function exportDb() {
+    const m = await import('../native/boot.js');
+    const bytes = m.embedded().exportDb();
+    await saveBlob(new Blob([bytes], { type: 'application/x-sqlite3' }), `finmate-${new Date().toISOString().slice(0, 10)}.db`);
+  }
+  async function importDb(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!confirm(`Thay toàn bộ dữ liệu hiện tại bằng file "${f.name}"? Dữ liệu đang có sẽ mất (nên xuất ra trước).`)) return;
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    if (String.fromCharCode(...bytes.slice(0, 6)) !== 'SQLite') { alert('File này không phải cơ sở dữ liệu FinMate (.db).'); return; }
+    const m = await import('../native/boot.js');
+    await m.embedded().importDb(bytes);
+    alert('Đã nhập. App sẽ tải lại.');
+    location.reload();
+  }
   if (!p) return <Loading />;
 
   const taxCountry = (p.tax_country || p.country || 'VN').toUpperCase();
@@ -111,6 +139,47 @@ export default function Settings({ onRefresh }) {
         <div><h1>Cài đặt</h1><p>Hồ sơ cá nhân quyết định mọi con số cố vấn đưa ra</p></div>
         <button className="btn primary" onClick={save}>{saved ? '✅ Đã lưu' : 'Lưu thay đổi'}</button>
       </div>
+
+      {EMBEDDED && env && (
+        <Card title="Cố vấn AI (bản trên điện thoại)">
+          <p className="mini" style={{ marginTop: 0 }}>
+            Không có mạng hay không có key thì app vẫn chạy đủ bằng bộ luật. Dán key vào đây để cố vấn AI hiểu câu hỏi tự do, đọc ảnh hoá đơn và tự thao tác.
+            Key chỉ lưu trên máy này và gọi thẳng tới nhà cung cấp — không qua máy chủ trung gian nào.
+          </p>
+          <div className="form">
+            <label className="fld full"><span>API key (Claude <code>sk-ant-…</code> hoặc OpenAI-compatible)</span>
+              <input className="inp" type="password" value={env.FINMATE_LLM_KEY || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_KEY: e.target.value })} placeholder="sk-ant-…" autoComplete="off" /></label>
+            <label className="fld"><span>Model</span>
+              <input className="inp" value={env.FINMATE_LLM_MODEL || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_MODEL: e.target.value })} placeholder="claude-opus-5 / claude-sonnet-5" /></label>
+            <label className="fld"><span>Độ sâu suy nghĩ (Claude)</span>
+              <select className="inp" value={env.FINMATE_LLM_EFFORT || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_EFFORT: e.target.value })}>
+                <option value="">Mặc định</option><option value="low">low (nhanh, rẻ)</option><option value="medium">medium</option><option value="high">high</option>
+              </select></label>
+            <label className="fld full"><span>URL API (bỏ trống nếu dùng Claude/OpenAI chính thức)</span>
+              <input className="inp" value={env.FINMATE_LLM_URL || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_URL: e.target.value })} placeholder="https://…/v1/chat/completions" /></label>
+          </div>
+          <div className="row" style={{ marginTop: 12, gap: 8 }}>
+            <button className="btn primary" onClick={saveEnv}>Lưu và tải lại</button>
+            {env.FINMATE_LLM_KEY && <button className="btn ghost" onClick={() => { setEnv({ ...env, FINMATE_LLM_KEY: '' }); }}>Gỡ key</button>}
+          </div>
+        </Card>
+      )}
+
+      {EMBEDDED && (
+        <Card title="Dữ liệu trên máy này">
+          <p className="mini" style={{ marginTop: 0 }}>
+            Toàn bộ sổ sách nằm trong bộ nhớ của trình duyệt/app trên điện thoại này, không gửi đi đâu. Đổi máy hay cài lại thì mang file <code>.db</code> theo.
+          </p>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn primary" onClick={exportDb}>Xuất file dữ liệu (.db)</button>
+            <button className="btn" onClick={() => fileRef.current?.click()}>Nhập file dữ liệu</button>
+            <input ref={fileRef} type="file" accept=".db,application/x-sqlite3,application/octet-stream" hidden onChange={importDb} />
+          </div>
+          <p className="mini" style={{ marginTop: 10 }}>
+            ⚠️ Xoá dữ liệu trình duyệt / gỡ app là mất sổ. Hãy xuất file định kỳ vào iCloud Drive / Google Drive.
+          </p>
+        </Card>
+      )}
 
       {auto && (
         <Card title="Cố vấn tự lái">

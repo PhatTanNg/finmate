@@ -41,6 +41,39 @@ npm run reset          # xoá sạch, app sẽ tự chạy onboarding qua chat
 
 ---
 
+## Chạy ngay trên điện thoại — không cần máy chủ
+
+FinMate có hai cách chạy, cùng một mã nguồn:
+
+| | Máy chủ Node (mặc định) | **App trên điện thoại** |
+|---|---|---|
+| Engine SQLite | `node:sqlite`, file `.db` trên đĩa | **SQLite WebAssembly** (sql.js) trong trình duyệt, chép xuống IndexedDB sau mỗi lần ghi |
+| API | Express qua HTTP | Cùng `routes/api.js`, gọi **thẳng trong tiến trình** (không cổng, không mạng) |
+| Cần gì để chạy | Node ≥ 22.5 trên máy tính | Chỉ trình duyệt của điện thoại; cài lên màn hình chính là thành app |
+| Webhook tin ngân hàng | Có (`/api/ingest`) | Không có máy chủ nên không có webhook — dán tin nhắn vào ô nhận diện |
+| Cố vấn AI | key trong `.env` | key nhập trong **Cài đặt**, lưu trên máy, gọi thẳng nhà cung cấp |
+| Sao lưu | thư mục `backups/` | hệ tệp ảo trong IndexedDB + nút **Xuất file .db** / **Nhập file .db** |
+
+```bash
+npm run build:app          # -> web/dist-embedded/  (một thư mục tĩnh, mở là chạy)
+npm run preview:app        # xem thử tại http://localhost:5174
+npm run test:app           # 27 kiểm: engine WebAssembly, router trong tiến trình, PIN, sao lưu, xoá sạch
+```
+
+Đưa `web/dist-embedded/` lên bất kỳ nơi phục vụ file tĩnh có HTTPS (GitHub Pages, Netlify, Cloudflare Pages…), mở trên điện thoại rồi **Thêm vào màn hình chính**: từ đó app mở toàn màn hình, chạy được khi tắt wifi (service worker đệm mã, IndexedDB giữ dữ liệu). Muốn lên App Store / Play Store thì bọc bằng Capacitor — cấu hình đã có sẵn ở `web/capacitor.config.json`:
+
+```bash
+cd web
+npm run cap:init           # cài Capacitor, tạo thư mục ios/ và android/
+npm run cap:sync           # build bản nhúng rồi chép vào project native
+npm run cap:ios            # mở Xcode  (macOS)  -> Run lên iPhone
+npm run cap:android        # mở Android Studio -> Run lên máy Android
+```
+
+Cách nó hoạt động (thư mục `web/src/native/`): `db_engine.browser.js` bọc sql.js theo đúng giao diện `node:sqlite` mà `server/src/db.js` dùng, nên schema, migration, trigger nhật ký AI là chung; `router.js` thay HTTP bằng `dispatch(method, path, body)` với req/res giả đủ cho các handler (kể cả luồng SSE của chat và tải file sao lưu); `shims/` giả `fs` (hệ tệp ảo), `crypto` (scrypt thuần JS cùng tham số với Node nên PIN băm giống nhau), `express`; `boot.js` dựng môi trường rồi mới import `routes/api.js`. Vite đổi module theo `web/native.aliases.js` khi build `--mode embedded`; bản máy chủ không đổi gì.
+
+Giới hạn đáng biết: dữ liệu nằm trong bộ nhớ trình duyệt của máy đó — xoá dữ liệu trang / gỡ app là mất, nên hãy **xuất file .db** định kỳ (nút trong Cài đặt, chia sẻ thẳng lên iCloud/Drive). Safari có thể dọn IndexedDB của web app không dùng lâu; bản bọc Capacitor không bị vậy.
+
 ## Tính năng
 
 ### 1. Chat — trái tim của app
@@ -453,7 +486,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
 npm run test:smoke                # chạy liền 15 bộ smoke bên dưới
 npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
-npm run test:all                  # tất cả: unit + smoke + mô phỏng
+npm run test:all                  # tất cả: unit + smoke + mô phỏng + bản điện thoại
 
 cd server && node test/smoke-auth.mjs        # PIN, phiên, sao lưu, xuất dữ liệu
 cd server && node test/smoke-ui.mjs          # mọi field frontend dùng đều tồn tại trong API
@@ -475,6 +508,7 @@ cd server && node test/personas.mjs          # 8 hành trình người dùng đ�
 cd server && node test/journey5y.mjs         # 5 năm liên tục của một người Việt ở Ireland, 34 bước
 cd server && node test/lifetime.mjs          # 12 cuộc đời từ đi học đến nghỉ hưu, 58 bước
 cd web    && node test/render.mjs            # render thật 18 trang trong jsdom với API thật
+cd web    && node test/embedded.mjs          # bản chạy trên điện thoại: engine WebAssembly + router trong tiến trình, không node:sqlite
 ```
 
 Các lệnh smoke cần server đang chạy (`npm run dev:api`), trừ `smoke-tools`, `smoke-agent`, `smoke-ai`, `smoke-llm`, `smoke-retry`, `smoke-manage`, `smoke-honesty`, `smoke-life-events`, `smoke-stream`, `smoke-autopilot`, `smoke-manual`, `scenarios`, `personas`, `journey5y` và `lifetime` — các lệnh này tự dựng DB tạm và LLM giả lập nên chạy được ở bất kỳ đâu, không tốn tiền API. `render.mjs` bắt cả lỗi hiển thị `undefined`/`NaN` trên giao diện.

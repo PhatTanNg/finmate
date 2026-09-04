@@ -1,0 +1,8 @@
+{
+  "appId": "app.finmate",
+  "appName": "FinMate",
+  "webDir": "dist-embedded",
+  "server": { "androidScheme": "https", "iosScheme": "https" },
+  "ios": { "contentInset": "always" },
+  "android": { "allowMixedContent": false }
+}
