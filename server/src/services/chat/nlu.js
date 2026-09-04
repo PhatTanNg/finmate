@@ -97,6 +97,8 @@ const RULES = [
   // --- thao tác đặc biệt ---
   { intent: 'undo', w: 9, t: (n) => has(n, 'undo', 'xoa giao dich', 'huy giao dich', 'nham roi', 'ghi nham', 'bo giao dich', 'xoa cai vua') },  { intent: 'help', w: 9, t: (n) => has(n, 'lam duoc gi', 'giup duoc gi', 'huong dan', 'cach dung', 'ban co the lam', 'chuc nang', 'help', 'menu') || ['giup toi', 'giup minh', 'giup em', 'help me'].includes(n) },
   { intent: 'greeting', w: 9, t: (n, e) => !e.amount && n.length <= 28 && has(n, 'xin chao', 'chao ban', 'chao buoi', 'hello', 'hey', 'alo', 'chao app', 'chao') },
+  { intent: 'query_gold', w: 9, t: (n, e) => !e.amount && has(n, 'gia vang', 'vang hom nay', 'vang sjc', 'vang the gioi', 'gia xau', 'gold price') },
+  { intent: 'refresh_prices', w: 9, t: (n, e) => !e.amount && (has(n, 'cap nhat gia', 'update gia', 'lay gia', 'gia thi truong', 'gia moi nhat', 'gia hom nay') && !has(n, 'vang')) },
   { intent: 'set_price', w: 9, t: (n, e) => e.symbol && e.amount && has(n, 'gia ', 'gia la', 'update gia', 'cap nhat gia') && !has(n, 'mua ', 'ban ', 'co phieu', 'chung khoan', ' cp ') },
   { intent: 'update_profile', w: 8, t: (n) => has(n, 'minh ten', 'toi ten', 'goi minh la', 'minh sinh nam', 'toi sinh nam', 'khau vi rui ro cua minh') || /\b(minh|toi) nam nay \d/.test(n) },
 

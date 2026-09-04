@@ -11,6 +11,7 @@ import { learnRule } from '../services/categorize.js';
 import { createRecurring, runDueRecurring, upcoming, projectRecurring, monthlyFixed } from '../services/recurring.js';
 import { accrueInterest, projectedAnnualInterest } from '../services/interest.js';
 import { portfolio, upsertHolding, setPrice, recordTrade, realEstate, listHoldings } from '../services/investments.js';
+import { refreshPrices, priceStatus, priceHistory, goldQuote } from '../services/prices.js';
 import { listDebts, amortize, payoffPlan, debtSummary } from '../services/debts.js';
 import { monthReport, monthlyTrend, categoryBreakdown, incomeSources, totals, averageMonthlyExpense, averageMonthlyIncome } from '../services/reports.js';
 import { netWorth, snapshot, history as nwHistory } from '../services/networth.js';
@@ -424,6 +425,12 @@ router.post('/investments/holdings', wrap(async (req, res) => ok(res, { holding:
 router.delete('/investments/holdings/:id', wrap(async (req, res) => ok(res, { removed: remove('holdings', Number(req.params.id)) })));
 router.post('/investments/price', wrap(async (req, res) => ok(res, { updated: setPrice(req.body.symbol, req.body.price, req.body.date) })));
 router.post('/investments/trade', wrap(async (req, res) => ok(res, { holding: recordTrade(req.body) })));
+// Giá thị trường tự động: cập nhật ngay (bỏ qua giới hạn 1 giờ), xem trạng thái, lịch sử giá, giá vàng.
+router.post('/investments/refresh-prices', wrap(async (req, res) => ok(res, await refreshPrices({ force: true, symbols: req.body?.symbols || null }))));
+router.get('/investments/prices', wrap(async (req, res) => ok(res, priceStatus())));
+router.get('/investments/history/:symbol', wrap(async (req, res) => ok(res, { symbol: req.params.symbol.toUpperCase(), history: priceHistory(req.params.symbol, Number(req.query.days) || 90) })));
+router.get('/investments/gold', wrap(async (req, res) => ok(res, { gold: await goldQuote() })));
+router.put('/investments/gold-premium', wrap(async (req, res) => { setting('gold_premium_pct', Number(req.body?.pct) || 0); ok(res, priceStatus()); }));
 router.get('/properties', wrap(async (req, res) => ok(res, realEstate())));
 router.post('/properties', wrap(async (req, res) => {
   const id = insert('properties', req.body);
@@ -745,6 +752,8 @@ export function runAutomation() {
   ensureSeedRates();
   // Tỷ giá lấy về nền, không chặn khởi động — offline vẫn dùng tỷ giá đã lưu.
   refreshRates().catch((e) => console.warn('[finmate] không lấy được tỷ giá:', e.message));
+  // Giá cổ phiếu/vàng/crypto: chạy nền, tối đa mỗi giờ một lần; lỗi từng mã không chặn gì.
+  refreshPrices().then((r) => { if (r.updated) { snapshot(); console.log(`[finmate] cập nhật giá ${r.updated} mã`); } }).catch((e) => console.warn('[finmate] cập nhật giá lỗi:', e.message));
   const posted = runDueRecurring();
   const interest = accrueInterest();
   snapshot();

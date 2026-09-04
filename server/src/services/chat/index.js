@@ -163,7 +163,8 @@ async function answerNormally(message) {
   const handler = HANDLERS[intent] || HANDLERS.unknown;
   let result;
   try {
-    result = handler(message, entities) || HANDLERS.unknown(message, entities);
+    // Vài handler gọi internet (giá thị trường, giá vàng) nên là async — chờ được cả hai kiểu.
+    result = (await handler(message, entities)) || HANDLERS.unknown(message, entities);
   } catch (e) {
     result = { reply: `Mình gặp trục trặc khi xử lý: ${e.message}. Bạn thử diễn đạt khác giúp mình nhé.` };
   }

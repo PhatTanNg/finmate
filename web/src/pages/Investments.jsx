@@ -10,9 +10,23 @@ export default function Investments({ onRefresh }) {
   const [trade, setTrade] = useState(false);
   const [prop, setProp] = useState(false);
   const [editProp, setEditProp] = useState(null);
+  const [px, setPx] = useState(null);       // trạng thái cập nhật giá tự động
+  const [busyPx, setBusyPx] = useState(false);
 
-  const load = () => api.get('/investments').then(setD);
+  const load = () => Promise.all([api.get('/investments').then(setD), api.get('/investments/prices').then(setPx).catch(() => setPx(null))]);
   useEffect(() => { load(); }, []);
+
+  async function refreshPrices() {
+    setBusyPx(true);
+    try {
+      const r = await api.post('/investments/refresh-prices', {});
+      await load(); onRefresh?.();
+      const bad = (r.results || []).filter((x) => !x.ok);
+      if (r.offline) alert(r.error);
+      else if (bad.length) alert(`Cập nhật ${r.updated}/${r.results.length} mã. Chưa lấy được: ${bad.map((x) => `${x.symbol} (${x.error})`).join('; ')}`);
+    } catch (e) { alert(e.message); } finally { setBusyPx(false); }
+  }
+  const when = (s) => (s ? s.slice(0, 16).replace('T', ' ') : '—');
   if (!d) return <Loading />;
 
   const p = d.portfolio || {};
@@ -25,6 +39,7 @@ export default function Investments({ onRefresh }) {
         <div><h1>Đầu tư & tài sản</h1><p>Cổ phiếu, quỹ, vàng và bất động sản cho thuê</p></div>
         <div className="row">
           <button className="btn" onClick={() => setProp(true)}>+ Bất động sản</button>
+          <button className="btn" onClick={refreshPrices} disabled={busyPx} title={px?.last ? `Lần cuối ${when(px.last)}` : 'Kéo giá thị trường mới nhất'}>{busyPx ? 'Đang lấy giá…' : '↻ Cập nhật giá'}</button>
           <button className="btn" onClick={() => setTrade(true)}>Ghi lệnh mua/bán</button>
           <button className="btn primary" onClick={() => setAdding(true)}>+ Mã mới</button>
         </div>
@@ -55,6 +70,14 @@ export default function Investments({ onRefresh }) {
         </Card>
       </div>
 
+      {px && (
+        <p className="mini" style={{ margin: '10px 2px 0' }}>
+          {px.enabled
+            ? <>Giá tự cập nhật mỗi giờ từ VNDirect/VPS (cổ phiếu VN), Yahoo (quốc tế), SJC và giá thế giới (vàng), CoinGecko (crypto). Lần cuối: <b>{when(px.last_ok || px.last)}</b>{px.results?.some((x) => !x.ok) ? <> · <span className="warn">{px.results.filter((x) => !x.ok).length} mã chưa lấy được</span></> : ''}.</>
+            : 'Cập nhật giá tự động đang tắt (chế độ offline). Giá nhập tay vẫn dùng được.'}
+        </p>
+      )}
+
       <Card title="Danh mục nắm giữ">
         <div className="scrollx">
           <table>
@@ -67,7 +90,7 @@ export default function Investments({ onRefresh }) {
                   <td className="num">{short(h.avg_cost, h.currency)}</td>
                   <td className="num">{short(h.last_price, h.currency)}</td>
                   <td className="num">{fmt(h.value, h.currency)}</td>
-                  <td className="num"><span className={h.pnl >= 0 ? 'up' : 'down'}>{h.pnl >= 0 ? '▲' : '▼'} {short(Math.abs(h.pnl), h.currency)} ({pct(h.pnl_pct, 1)})</span></td>
+                  <td className="num"><span className={h.pnl >= 0 ? 'up' : 'down'}>{h.pnl >= 0 ? '▲' : '▼'} {short(Math.abs(h.pnl), h.currency)} ({pct(h.pnl_pct, 1)})</span>{h.last_price_at && <div className="mini" style={{ fontSize: 11 }}>{h.price_source ? `${h.price_source} · ` : 'nhập tay · '}{vnDate(h.last_price_at)}</div>}</td>
                   <td className="acts">
                     <button className="btn sm ghost" onClick={() => setPrice(h)}>Giá</button>
                     <button className="btn sm ghost" aria-label="Xoá mã" onClick={async () => { if (!confirm(`Xoá ${h.symbol} khỏi danh mục?`)) return; await api.del(`/investments/holdings/${h.id}`); load(); onRefresh?.(); }}>🗑</button>

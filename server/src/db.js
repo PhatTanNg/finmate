@@ -405,6 +405,17 @@ CREATE TABLE IF NOT EXISTS ai_memory (
   UNIQUE(kind, key)
 );
 
+-- Lịch sử giá thị trường (mỗi mã một dòng/ngày) để vẽ đường giá và so hôm qua.
+CREATE TABLE IF NOT EXISTS price_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  date TEXT NOT NULL,
+  price REAL NOT NULL,
+  currency TEXT,
+  source TEXT,
+  UNIQUE(symbol, date)
+);
+
 -- Đề xuất của AI chờ người dùng gật đầu: mỗi đề xuất là một chuỗi lời gọi công
 -- cụ cụ thể (không phải lời khuyên chung chung), bấm "Đồng ý" là app tự làm.
 CREATE TABLE IF NOT EXISTS ai_proposals (
@@ -459,6 +470,8 @@ const ADD_COLUMNS = [
   ['profile', 'country', "TEXT DEFAULT 'VN'"],
   ['profile', 'tax_country', "TEXT DEFAULT 'VN'"],
   ['profile', 'secondary_currency', 'TEXT'],
+  // Giá thị trường tự động: nguồn của giá gần nhất (sjc, coingecko, vndirect, yahoo…)
+  ['holdings', 'price_source', 'TEXT'],
 ];
 
 function columnNames(table) {
@@ -612,7 +625,7 @@ function warnDropped(table, data, kept) {
  * tác, tức vài giây cho một lượt chat sau ít năm dùng. Trigger chỉ tốn công
  * theo số hàng thật sự đổi, nên sổ có to đến đâu cũng không chậm đi.
  */
-const AUDIT_SKIP = new Set(['ai_actions', 'ai_changes', 'ai_audit_state', 'ai_proposals', 'chat_messages',
+const AUDIT_SKIP = new Set(['ai_actions', 'ai_changes', 'ai_audit_state', 'ai_proposals', 'chat_messages', 'price_history',
   'insights', 'networth_snapshots', 'fx_rates', 'settings', 'ingest_log', 'sqlite_sequence']);
 
 function jsonOf(prefix, table) {

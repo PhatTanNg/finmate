@@ -22,7 +22,7 @@ import { upcoming } from '../recurring.js';
 import { memoryBrief } from '../ai_memory.js';
 import { pendingBrief } from '../ai_proposals.js';
 import { llmEnabled, complete } from './llm.js';
-import { TOOLS, runTool } from './tools.js';
+import { TOOLS, runToolAsync } from './tools.js';
 import { setUserUtterance } from './tools_manage.js';
 
 export const agentEnabled = () => llmEnabled() && process.env.FINMATE_AGENT !== 'off';
@@ -378,7 +378,7 @@ export async function runAgent(message, history, {
       emit({ type: 'tool', name, args: summarizeArgs(args) });
       beginAudit({ tool: name, args, batch, source, reason: ly_do });
       try {
-        out = runTool(name, args);
+        out = await runToolAsync(name, args);
       } finally {
         try { endAudit(out, out?.ok !== false); } catch { abortAudit(); }
       }

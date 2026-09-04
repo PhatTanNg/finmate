@@ -31,6 +31,7 @@ import { categoryByName, fundByName } from '../../bootstrap.js';
 import { generateInsights, listInsights } from '../insights.js';
 import { MANAGE_IMPL, MANAGE_TOOLS } from './tools_manage.js';
 import { propose, listProposals, acceptProposal, rejectProposal } from '../ai_proposals.js';
+import { refreshPrices, priceStatus, goldQuote } from '../prices.js';
 
 const ACCOUNT_TYPES = ['cash', 'bank', 'ewallet', 'savings', 'investment', 'credit', 'credit_card', 'brokerage', 'crypto', 'real_estate', 'loan', 'other_asset'];
 const INCOME_TYPES = ['salary', 'business', 'freelance', 'dividend', 'interest', 'rental', 'capital_gain', 'royalty', 'other'];
@@ -535,6 +536,22 @@ function cap_nhat_gia({ ma, gia, dong_tien }) {
   return { ok: true, mutates: true, ma: String(ma).toUpperCase(), gia_moi: value, dong_tien: code };
 }
 
+/** Kéo giá thị trường mới nhất cho toàn bộ (hoặc vài) mã. Bất đồng bộ — agent chờ được, đề xuất/làm tay dùng đường API riêng. */
+async function cap_nhat_gia_thi_truong({ ma } = {}) {
+  const symbols = Array.isArray(ma) ? ma : ma ? [ma] : null;
+  const r = await refreshPrices({ force: true, symbols });
+  if (r.offline) return { ok: false, error: r.error };
+  return {
+    ok: true, mutates: r.updated > 0, da_cap_nhat: r.updated,
+    ket_qua: r.results.map((x) => (x.ok ? { ma: x.symbol, gia: x.price, dong_tien: x.currency, doi: x.change_pct == null ? null : Math.round(x.change_pct * 1000) / 10, nguon: x.source } : { ma: x.symbol, loi: x.error })),
+    luu_y: 'Giá lưu theo đơn vị nhỏ nhất (VND: đồng, EUR/USD: cent); vàng VN tính theo chỉ.',
+  };
+}
+
+async function xem_gia_vang() {
+  try { return { ok: true, ...(await goldQuote()) }; } catch (e) { return { ok: false, error: e.message, trang_thai: priceStatus() }; }
+}
+
 function tao_giao_dich_dinh_ky({ ten, loai = 'expense', so_tien, dong_tien, tan_suat = 'monthly', ngay_trong_thang, danh_muc, tai_khoan }) {
   if (!ten || !so_tien) return { ok: false, error: 'Cần tên và số tiền.' };
   const acc = findAccount(tai_khoan);
@@ -649,7 +666,7 @@ function de_xuat({ tieu_de, noi_dung, hanh_dong, muc_do, ma }) {
     .map((h) => ({ tool: h.cong_cu || h.tool, args: h.tham_so || h.args || {} }));
   for (const a of actions) {
     if (!TOOL_IMPL[a.tool]) return { ok: false, error: `Không có công cụ "${a.tool}" để đưa vào đề xuất.`, cong_cu_hop_le: Object.keys(TOOL_IMPL).filter((k) => !/^(liet_ke_|xem_|tinh_|tu_van_|de_xuat|chap_nhan_de_xuat|tu_choi_de_xuat)/.test(k)) };
-    if (/^(xoa_het_du_lieu|de_xuat|chap_nhan_de_xuat|tu_choi_de_xuat)$/.test(a.tool)) return { ok: false, error: `Không được đưa "${a.tool}" vào đề xuất.` };
+    if (/^(xoa_het_du_lieu|de_xuat|chap_nhan_de_xuat|tu_choi_de_xuat|cap_nhat_gia_thi_truong|xem_gia_vang)$/.test(a.tool)) return { ok: false, error: `Không được đưa "${a.tool}" vào đề xuất.` };
   }
   const p = propose({ key: ma ? String(ma) : null, title: tieu_de, body: noi_dung, actions, source: 'chat', severity: ['info', 'warn', 'danger'].includes(muc_do) ? muc_do : 'info' });
   if (!p) return { ok: false, error: 'Đề xuất này người dùng vừa từ chối hoặc vừa được làm gần đây, không hỏi lại.' };
@@ -763,6 +780,7 @@ export const TOOL_IMPL = {
   tinh_chuyen_tien, tinh_thue,
   ghi_nho, quen_di, xem_ghi_nho, xem_nhat_ky_thao_tac, hoan_tac,
   de_xuat, xem_de_xuat, chap_nhan_de_xuat, tu_choi_de_xuat,
+  cap_nhat_gia_thi_truong, xem_gia_vang,
   ...MANAGE_IMPL,
 };
 
@@ -875,7 +893,11 @@ export const TOOLS = [
     dong_tien: S('VND/EUR/USD/GBP'), loai: S('Loại tài sản', { enum: ['stock', 'etf', 'fund', 'crypto', 'gold', 'bond', 'other'] }), ten: S('Tên đầy đủ'),
   }, ['ma']),
 
-  T('cap_nhat_gia', 'Cập nhật giá thị trường của một mã đang nắm giữ.', { ma: S('Mã'), gia: N('Giá mỗi đơn vị'), dong_tien: S('VND/EUR/USD/GBP') }, ['ma', 'gia']),
+  T('cap_nhat_gia', 'Đặt giá thị trường của một mã bằng tay (khi người dùng nói giá).', { ma: S('Mã'), gia: N('Giá mỗi đơn vị'), dong_tien: S('VND/EUR/USD/GBP') }, ['ma', 'gia']),
+  T('cap_nhat_gia_thi_truong', 'Kéo giá thị trường mới nhất từ internet cho các mã đang nắm giữ (cổ phiếu VN qua VNDirect/VPS, quốc tế qua Yahoo, vàng SJC/thế giới, crypto qua CoinGecko). Dùng khi người dùng hỏi "giá hôm nay", "lãi lỗ hiện tại", hoặc bảo cập nhật giá.', {
+    ma: { type: 'array', items: { type: 'string' }, description: 'Chỉ cập nhật các mã này; bỏ trống = tất cả' },
+  }, []),
+  T('xem_gia_vang', 'Xem giá vàng hôm nay: SJC (mua/bán, theo lượng và chỉ) và giá thế giới quy đổi.'),
 
   T('tao_giao_dich_dinh_ky', 'Tạo khoản thu/chi lặp lại: tiền nhà, gói cước, lương…', {
     ten: S('Tên'), loai: S('Loại', { enum: ['income', 'expense', 'transfer'] }), so_tien: N('Số tiền mỗi kỳ'),
@@ -1023,12 +1045,25 @@ function normalizeArgs(name, args) {
   return out;
 }
 
-/** Chạy một tool theo tên, luôn trả object an toàn để nhét vào hội thoại. */
+/** Chạy một tool theo tên, luôn trả object an toàn để nhét vào hội thoại. Tool bất đồng bộ (gọi internet) chỉ chạy qua runToolAsync. */
 export function runTool(name, args) {
   const fn = TOOL_IMPL[name];
   if (!fn) return { ok: false, error: `Không có công cụ "${name}".`, cong_cu_hop_le: Object.keys(TOOL_IMPL) };
   try {
-    return fn(normalizeArgs(name, args)) || { ok: true };
+    const r = fn(normalizeArgs(name, args));
+    if (r && typeof r.then === 'function') return { ok: false, error: `Công cụ "${name}" cần internet và chạy bất đồng bộ; hãy gọi qua đường API tương ứng.` };
+    return r || { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/** Như runTool nhưng chờ được tool bất đồng bộ (cập nhật giá thị trường, giá vàng). */
+export async function runToolAsync(name, args) {
+  const fn = TOOL_IMPL[name];
+  if (!fn) return { ok: false, error: `Không có công cụ "${name}".`, cong_cu_hop_le: Object.keys(TOOL_IMPL) };
+  try {
+    return (await fn(normalizeArgs(name, args))) || { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };
   }

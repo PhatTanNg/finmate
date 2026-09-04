@@ -194,7 +194,7 @@ Ngoài ra còn **19 chủ đề kiến thức** trả lời gắn với số li�
 - **Mục tiêu**: tiến độ, còn bao nhiêu tháng, cần để dành bao nhiêu/tháng, cảnh báo chậm tiến độ, tự nạp từ quỹ.
 - **Ngân sách** theo danh mục, cảnh báo khi sắp vượt, có rollover.
 - **Nợ**: kế hoạch trả **avalanche** vs **snowball**, ngày sạch nợ, tổng lãi tiết kiệm được.
-- **Đầu tư**: cổ phiếu / quỹ mở / vàng / crypto, lãi lỗ, phân bổ tài sản, cổ tức dự kiến.
+- **Đầu tư**: cổ phiếu / quỹ mở / vàng / crypto, lãi lỗ, phân bổ tài sản, cổ tức dự kiến. **Giá thị trường tự cập nhật mỗi giờ** từ nguồn miễn phí không cần key: VNDirect → VPS (cổ phiếu VN, nghìn đồng → đồng), Yahoo → Stooq (ETF/cổ phiếu quốc tế, tự quy đổi khi niêm yết bằng đồng khác ví), SJC (XML chính thức, theo lượng → chỉ) → giá thế giới × premium (vàng), CoinGecko (crypto theo đúng đồng tiền nắm giữ). Lịch sử giá lưu mỗi ngày một dòng; mã nào lỗi thì giữ giá cũ và ghi rõ vì sao, nhập tay vẫn được. Nút ↻ Cập nhật giá trên trang Đầu tư, chat _"cập nhật giá"_, _"giá vàng hôm nay"_, hoặc AI tự gọi `cap_nhat_gia_thi_truong` khi bạn hỏi lãi lỗ.
 - **Bất động sản**: giá trị, dòng tiền cho thuê, tỷ suất.
 - **Thu nhập**: lương, freelance, cho thuê, lãi ngân hàng, cổ tức — theo dõi độ ổn định và tỷ trọng **thu nhập thụ động**.
 
@@ -475,7 +475,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 
 ### Những việc chỉ bạn làm được
 - **Kết nối ngân hàng tự động (Open Banking)**: ở châu Âu có PSD2 — các nhà cung cấp như GoCardless Bank Account Data (Nordigen cũ) cho phép đọc trực tiếp giao dịch từ AIB, BOI, Revolut, N26… mà không cần Shortcuts. Cần bạn tự đăng ký tài khoản nhà cung cấp và lấy khoá; sau đó nối vào `services/ingest.js`. Việt Nam chưa có Open Banking mở cho cá nhân nên vẫn phải dùng webhook tin nhắn hoặc import CSV.
-- **Giá chứng khoán/vàng tự cập nhật**: hiện nhập tay hoặc qua chat (`giá HPG 30`). Nếu có nguồn API bạn được phép dùng, có thể nối vào `services/investments.js` → `setPrice()`.
+- **Nguồn giá trả phí / realtime**: giá đang lấy từ nguồn miễn phí (trễ vài phút tới cuối ngày tuỳ nguồn). Có nguồn riêng thì nối thêm một fetcher trong `services/prices.js`.
 - **Nhiều người dùng**: app thiết kế cho một người. Muốn dùng chung cho gia đình thì cần thêm bảng `users` và tách dữ liệu theo `user_id`.
 
 ---

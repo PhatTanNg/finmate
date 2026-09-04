@@ -10,6 +10,7 @@ import { totals, categoryBreakdown, monthlyTrend, incomeSources, averageMonthlyE
 import { netWorth } from '../networth.js';
 import { fireStats, emergencyStatus, passiveIncomeMonthly, declaredIncomeMonthly, streamMonthly, isPassiveStream } from '../fire.js';
 import { listProposals } from '../ai_proposals.js';
+import { refreshPrices, goldQuote, priceStatus } from '../prices.js';
 import { debtSummary, payoffPlan } from '../debts.js';
 import { budgetStatus, upsertBudget, suggestBudgets } from '../budgets.js';
 import { dailyForecast, monthlyForecast, safeToSpend } from '../forecast.js';
@@ -855,6 +856,43 @@ function unknown(text, ent) {
   };
 }
 
+async function refreshPricesIntent() {
+  const r = await refreshPrices({ force: true });
+  if (r.offline) return { reply: `📴 ${r.error}. Bạn vẫn nhắn được giá bằng tay, ví dụ _"giá HPG 28.5"_.` };
+  if (!r.results.length) return { reply: 'Bạn chưa có mã nào trong danh mục đầu tư để cập nhật giá.' };
+  const okRows = r.results.filter((x) => x.ok);
+  const bad = r.results.filter((x) => !x.ok);
+  const pf = portfolio();
+  return {
+    reply: bullet([
+      `📈 **Cập nhật giá thị trường**: ${okRows.length}/${r.results.length} mã.`,
+      ...okRows.map((x) => `• ${x.symbol}: **${short(x.price, x.currency)}**${x.change_pct != null ? ` (${x.change_pct >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(x.change_pct * 1000) / 10)}%)` : ''} · ${x.source}`),
+      bad.length ? `\n⚠️ Chưa lấy được: ${bad.map((x) => `${x.symbol} (${x.error})`).join('; ')}. Nhắn _"giá <mã> <số>"_ để đặt tay.` : null,
+      okRows.length ? `\nDanh mục hiện ${short(pf.total_value)} · lãi/lỗ **${pf.unrealized_pnl >= 0 ? '+' : ''}${short(pf.unrealized_pnl)}** (${Math.round(pf.unrealized_pct * 100)}%).` : null,
+    ]),
+    refresh: okRows.length > 0,
+  };
+}
+
+async function queryGold() {
+  try {
+    const g = await goldQuote();
+    const base = baseCurrency();
+    return {
+      reply: bullet([
+        '🥇 **Giá vàng hôm nay**',
+        g.sjc ? `• SJC (${g.sjc.type}): bán **${fmt(g.sjc.sell_per_luong, 'VND')}**/lượng · mua ${fmt(g.sjc.buy_per_luong, 'VND')}/lượng → **${short(g.sjc.sell_per_chi, 'VND')}/chỉ**` : `• SJC: chưa lấy được (${g.sjc_error})`,
+        g.world ? `• Thế giới: **$${Math.round(g.world.usd_per_oz).toLocaleString('en-US')}/oz** ≈ ${short(g.world.per_chi_base, base)}/chỉ (${g.world.source})` : `• Thế giới: chưa lấy được (${g.world_error})`,
+        g.premium_pct != null ? `• SJC đang cao hơn giá thế giới quy đổi khoảng **${g.premium_pct}%**${g.premium_pct > 15 ? ' — chênh lệch lớn, mua vào lúc này chịu rủi ro thu hẹp chênh lệch' : ''}.` : null,
+        '\nMuốn mình cập nhật giá vàng đang nắm giữ thì nhắn _"cập nhật giá"_.',
+      ]),
+    };
+  } catch (e) {
+    const st = priceStatus();
+    return { reply: `Chưa lấy được giá vàng lúc này (${e.message}).${st.last_ok ? ` Giá gần nhất cập nhật lúc ${st.last_ok.slice(0, 16).replace('T', ' ')}.` : ''}` };
+  }
+}
+
 function setPrice(text, ent) {
   const sym = ent.symbol;
   const a = ent.amounts?.[0];
@@ -1036,5 +1074,7 @@ export const HANDLERS = {
   greeting,
   update_profile: updateProfile,
   set_price: setPrice,
+  refresh_prices: refreshPricesIntent,
+  query_gold: queryGold,
   unknown,
 };
