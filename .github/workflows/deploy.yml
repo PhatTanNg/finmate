@@ -1,0 +1,71 @@
+# Đưa bản chạy-trên-máy lên GitHub Pages để mở được từ điện thoại.
+#
+# Chỉ đẩy `web/dist-embedded` — bản này chạy TRỌN VẸN trong trình duyệt
+# (SQLite WebAssembly + router trong tiến trình) nên không cần máy chủ nào.
+# Sổ sách của mỗi người nằm trong bộ nhớ trình duyệt máy họ, không có kho
+# chung, không có gì gửi lên mạng.
+#
+# Pages cấp sẵn HTTPS — điều kiện bắt buộc để service worker chạy, tức là
+# điều kiện để cài được vào màn hình chính iPhone và mở khi mất mạng.
+name: Deploy
+
+on:
+  push:
+    # Deploy được từ cả nhánh đang phát triển: Pages không quan tâm artifact
+    # ra lò từ nhánh nào, nên không phải gộp vào main mới xem được trên máy.
+    branches: [main, claude/finmate-ai-upgrade-g5bq9c]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Không huỷ bản đang deploy dở: để nó chạy xong cho site không rơi vào
+# trạng thái nửa vời.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build bản chạy trên máy
+        run: npm run build:app -w web
+
+      # Kiểm lại ngay trước khi phát hành: thiếu tài nguyên đệm sẵn là mất
+      # mạng mở app ra trang trắng, mà lỗi đó chỉ lộ khi đã cài lên điện thoại.
+      - name: Kiểm service worker và các bẫy của iPhone
+        run: node web/test/pwa.mjs
+
+      # Không có tệp này thì Pages chạy Jekyll và bỏ qua mọi thứ bắt đầu bằng "_".
+      - run: touch web/dist-embedded/.nojekyll
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist-embedded
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
