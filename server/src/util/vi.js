@@ -73,12 +73,25 @@ export function findAmounts(text = '', opts = {}) {
     const unit = um ? unitInfo(um[1]) : null;
     if (unit) end += um[0].length;
 
-    // Đồng tiền: ưu tiên ký hiệu viết rõ, sau đó suy từ đơn vị thuần Việt
+    // Đồng tiền: ưu tiên ký hiệu viết rõ, sau đó suy từ đơn vị thuần Việt.
+    //
+    // Phải dò ở CẢ hai vị trí. Với "3k6 euro", chữ số đuôi của đơn vị ("6")
+    // mãi khối dưới mới đọc, nên ngay sau "k" con trỏ còn đứng ở "6" và
+    // "euro" trượt — lương 3.600 EUR bị ghi thành 3.600 ĐỒNG, sai gần mười
+    // nghìn lần mà không một cảnh báo nào. Ở đây chỉ NHÌN TRƯỚC, việc dời
+    // con trỏ để sau khi đã đọc xong chữ số đuôi.
     let explicit = null;
-    const sufM = s.slice(end).match(CUR_SUFFIX);
-    if (sufM) {
-      explicit = normalizeCurrency(sufM[1].trim());
-      if (explicit) end += sufM[0].length;
+    let curEnd = 0;
+    const probes = [end];
+    if (unit) {
+      const tail = s.slice(end).match(/^\s*\d{1,3}(?![\d])/);
+      if (tail) probes.push(end + tail[0].length);
+    }
+    for (const p of probes) {
+      const sufM = s.slice(p).match(CUR_SUFFIX);
+      if (!sufM) continue;
+      const c = normalizeCurrency(sufM[1].trim());
+      if (c) { explicit = c; curEnd = p + sufM[0].length; break; }
     }
     if (!explicit) {
       const preM = s.slice(0, idx).match(CUR_PREFIX);
@@ -108,7 +121,12 @@ export function findAmounts(text = '', opts = {}) {
         base += Number(chain[1]) * 1e3;
         end += chain[0].length;
       }
-    } else if (!explicit && ccy === 'VND' && !grouped && base > 0 && base < 1000 && Number.isInteger(base)) {
+      // Giờ mới nuốt phần ký hiệu tiền tệ đã nhìn thấy từ trước.
+      if (curEnd > end) end = curEnd;
+    } else if (curEnd > end) {
+      end = curEnd;
+    }
+    if (!unit && !explicit && ccy === 'VND' && !grouped && base > 0 && base < 1000 && Number.isInteger(base)) {
       // "ăn trưa 50" -> 50 nghìn (thói quen nói tắt của người Việt).
       // Chỉ áp dụng cho VND; với EUR thì "ăn trưa 12" đúng là 12 €.
       base *= 1000;

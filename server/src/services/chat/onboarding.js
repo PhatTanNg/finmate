@@ -7,6 +7,7 @@ import { parseNamedAmounts, splitItems } from './nlu.js';
 import { createTransaction } from '../ledger.js';
 import { createRecurring } from '../recurring.js';
 import { categoryByName, fundByName } from '../../bootstrap.js';
+import { baseCurrency } from '../fx.js';
 import { fireStats, emergencyStatus } from '../fire.js';
 import { healthScore, nextActions } from '../advisor.js';
 import { generateInsights } from '../insights.js';
@@ -15,9 +16,38 @@ import { snapshot } from '../networth.js';
 const STEPS = ['welcome', 'income', 'accounts', 'other_income', 'fixed_costs', 'debts', 'goals', 'lifestyle', 'done'];
 
 const SKIP = ['bo qua', 'khong', 'ko', 'chua co', 'skip', 'khong co', 'chua', 'k co', 'next', 'tiep'];
+
+/**
+ * Người dùng bỏ qua bước này.
+ *
+ * Trước đây chỉ khớp "khong" đứng một mình hoặc có dấu cách theo sau, nên
+ * "Không, xoá mọi dữ liệu đi" trượt hết và bị đem đi phân tích thành dữ liệu.
+ * Dấu câu ngay sau từ phủ định cũng phải tính là ranh giới từ.
+ */
+const startsWithAny = (n, words) => words.some((s) => n === s || new RegExp(`^${s}(?![a-z0-9])`).test(n));
 const isSkip = (t) => {
   const n = norm(t);
-  return SKIP.some((s) => n === s || n.startsWith(s + ' ') || n === s + '.') || n.length < 2;
+  return startsWithAny(n, SKIP) || n.length < 2;
+};
+
+/**
+ * Câu mở đầu bằng lời phủ định RỒI kể tiếp: "Không, mình nhận 2 tuần 1 lần".
+ *
+ * Đây là người dùng đang SỬA câu trả lời trước, không phải đang trả lời câu
+ * đang hỏi. Ghi bừa vào là ra rác: một lần thật đã tạo hai "tài khoản" tên
+ * "mình nhận theo 2 tuần 1 lần và thứ" (6.000đ, lấy từ chữ "thứ 6") và
+ * "mỗi lần" (1.800đ). Thà hỏi lại còn hơn ghi sai.
+ */
+const isCorrection = (t) => {
+  const n = norm(t);
+  return /^(khong|ko|k|sai|nham|chua dung|khong phai)[,.:;!]/.test(n) && n.replace(/^[a-z]+[,.:;!]\s*/, '').length > 8;
+};
+
+/** Yêu cầu xoá sạch / làm lại — tuyệt đối không được hiểu thành dữ liệu. */
+const isWipeRequest = (t) => {
+  const n = norm(t);
+  return /(xoa|xoá|clear|reset|lam lai)\s*(het|sach|moi|tat ca|toan bo|du lieu|data|tu dau)?/.test(n)
+    && /(xoa|xoá|clear|reset|lam lai)/.test(n);
 };
 
 function profile() {
@@ -50,11 +80,12 @@ function guessAccountType(name) {
   return 'bank';
 }
 
-function createAccount({ name, amount, type }) {
+function createAccount({ name, amount, type, currency }) {
   const t = type || guessAccountType(name);
   const id = insert('accounts', {
     name: name.replace(/^tk\s+/i, '').replace(/\b(ngan hang|ngân hàng)\b/gi, '').trim() || 'Tài khoản',
     type: t,
+    currency: currency || baseCurrency(),
     institution: BANK_KEYS.find((b) => norm(name).includes(b)) || null,
     balance: 0,
     opening_balance: 0,
@@ -113,20 +144,26 @@ const stepHandlers = {
     const job = jobM ? jobM[1].trim() : 'Công việc chính';
 
     if (amount) {
-      const acc = get("SELECT * FROM accounts WHERE type IN ('bank') ORDER BY id LIMIT 1") || createAccount({ name: 'Tài khoản lương', amount: 0, type: 'bank' });
+      // Người Việt ở nước ngoài khai lương bằng đồng bản xứ ("3k6 euro"). Nếu
+      // bỏ qua đồng tiền thì 3.600 EUR vào sổ thành 3.600 ĐỒNG và mọi con số
+      // sau đó — còn tiêu an toàn, ngày tự do tài chính, điểm sức khoẻ — đều
+      // dựng trên một mức lương sai gần mười nghìn lần.
+      const ccy = a.currency || baseCurrency();
+      const acc = get('SELECT * FROM accounts WHERE type = ? AND currency = ? ORDER BY id LIMIT 1', ['bank', ccy])
+        || createAccount({ name: 'Tài khoản lương', amount: 0, type: 'bank', currency: ccy });
       const streamId = insert('income_streams', {
-        name: `Lương - ${job}`, type: 'salary', employer: job, account_id: acc.id,
+        name: `Lương - ${job}`, type: 'salary', employer: job, account_id: acc.id, currency: ccy,
         net_amount: amount, gross_amount: amount, frequency: 'monthly', payday, stability: 5, active: 1, tax_mode: 'net',
       });
       createRecurring({
-        name: `Lương ${job}`, type: 'income', amount, account_id: acc.id,
+        name: `Lương ${job}`, type: 'income', amount, account_id: acc.id, currency: ccy,
         category_id: categoryByName('Lương', 'income')?.id, income_stream_id: streamId,
         frequency: 'monthly', day_of_month: payday, start_date: today(), auto_post: 1,
       });
-      saveMeta({ monthly_income: amount, job });
+      saveMeta({ monthly_income: amount, monthly_income_currency: ccy, job });
     }
     return {
-      reply: `${amount ? `Đã ghi: **${short(amount)}/tháng**, nhận ngày ${payday}. Mỗi kỳ lương app sẽ **tự ghi nhận và tự chia vào các quỹ** — bạn không cần làm gì.` : 'Ghi nhận.'}\n\n**Câu 2/7 — Tiền đang nằm ở đâu?** Liệt kê tài khoản và số dư hiện tại.\n_Ví dụ: "VCB 50 triệu, Momo 2 triệu, tiết kiệm 300 triệu, tiền mặt 5 triệu"_`,
+      reply: `${amount ? `Đã ghi: **${short(amount, a?.currency)}/tháng**, nhận ngày ${payday}. Mỗi kỳ lương app sẽ **tự ghi nhận và tự chia vào các quỹ** — bạn không cần làm gì.` : 'Ghi nhận.'}\n\n**Câu 2/7 — Tiền đang nằm ở đâu?** Liệt kê tài khoản và số dư hiện tại.\n_Ví dụ: "VCB 50 triệu, Momo 2 triệu, tiết kiệm 300 triệu, tiền mặt 5 triệu"_`,
       quick: ['VCB 50 triệu, tiền mặt 3 triệu', 'Chưa có gì nhiều'],
       next: 'accounts',
     };
@@ -430,6 +467,24 @@ export function buildPlan() {
 export function handleOnboarding(text) {
   const p = profile();
   const step = p.onboarding_step || 'welcome';
+
+  // Chặn TRƯỚC mọi handler: hai loại câu này mà để lọt xuống dưới là ghi rác
+  // vào sổ hoặc lờ đi một yêu cầu nghiêm trọng.
+  if (isWipeRequest(text)) {
+    return {
+      reply: 'Mình hiểu là bạn muốn **xoá sạch dữ liệu và làm lại**. Việc này không hoàn tác được nên mình không tự làm.\n\nVào **Thêm → Cài đặt → Xoá sạch dữ liệu**, gõ đúng `XOA HET` để xác nhận. Xong quay lại đây, mình thiết lập lại từ đầu.\n\nCòn nếu bạn chỉ muốn sửa một câu trả lời vừa rồi thì nói rõ sửa gì, mình chỉnh riêng chỗ đó.',
+      quick: ['Chỉ sửa thu nhập thôi', 'Tiếp tục thiết lập'],
+      next: step,
+    };
+  }
+  if (isCorrection(text)) {
+    return {
+      reply: `Xin lỗi, mình ghi chưa đúng. Bạn nói lại giúp mình phần cần sửa nhé — ví dụ *"thu nhập là 3600 euro mỗi tháng"* hoặc *"lương trả 2 tuần 1 lần, mỗi lần 1800 euro"*.\n\nMình sẽ ghi đè đúng chỗ đó, không tạo thêm gì mới.`,
+      quick: ['Sửa thu nhập', 'Bỏ qua, đi tiếp'],
+      next: step,
+    };
+  }
+
   const handler = stepHandlers[step];
   if (!handler) {
     update('profile', 1, { onboarding_step: 'welcome' });

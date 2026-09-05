@@ -24,10 +24,24 @@ delete process.env.FINMATE_LLM_URL;
 
 const { bootstrap } = await import('../src/bootstrap.js');
 bootstrap();
-const { all, get } = await import('../src/db.js');
+const { all, get, run, update } = await import('../src/db.js');
 const { chat, ensureWelcome } = await import('../src/services/chat/index.js');
-const { parseDate } = await import('../src/util/vi.js');
+const { parseDate, parseAmount } = await import('../src/util/vi.js');
 const { today, addDays } = await import('../src/util/date.js');
+
+/**
+ * Dọn sổ để diễn lại từ đầu.
+ *
+ * Không thể nạp lại module với DB khác: `chat` đã giữ tham chiếu tới instance
+ * db.js đầu tiên, nên mọi lần ghi vẫn chảy về sổ cũ dù có đổi FINMATE_DB.
+ * Xoá bảng trong chính sổ đang dùng là cách duy nhất chắc chắn.
+ */
+const reset = () => {
+  for (const t of ['income_streams', 'accounts', 'transactions', 'recurring', 'chat_messages', 'goals', 'debts']) {
+    run(`DELETE FROM ${t}`);
+  }
+  update('profile', 1, { onboarded: 0, onboarding_step: 'welcome', name: null });
+};
 
 const step = () => get('SELECT * FROM profile WHERE id = 1')?.onboarding_step;
 const txs = () => all('SELECT * FROM transactions ORDER BY id');
@@ -73,6 +87,48 @@ head('Câu hỏi giữa lúc thiết lập');
   const r = await chat('tài sản ròng của mình bao nhiêu');
   ok('câu hỏi được trả lời chứ không bị nuốt', r.intent !== 'onboarding', 'intent=' + r.intent);
   ok('vẫn ở nguyên bước đang dở', step() === before, before + ' -> ' + step());
+}
+
+head('Lương bằng ngoại tệ (người Việt ở nước ngoài)');
+{
+  for (const [s2, want, ccy] of [['3k6 euro', 3600, 'EUR'], ['1k8 euro', 1800, 'EUR'],
+    ['2tr5 usd', 2_500_000, 'USD'], ['3600 euro', 3600, 'EUR'], ['lương 30 triệu', 30_000_000, 'VND']]) {
+    const a = parseAmount(s2);
+    ok(`"${s2}" -> ${want} ${ccy}`, a?.major === want && a?.currency === ccy, JSON.stringify(a && [a.major, a.currency]));
+  }
+}
+
+head('Thiết lập: lương ngoại tệ vào sổ đúng đồng tiền');
+{
+  reset(); ensureWelcome();
+  await chat('Xin chào');
+  await chat('Mình làm thực tập sinh ở Microsoft tại Ireland, lương 3k6 euro 1 tháng');
+  const st = all('SELECT name, net_amount, currency FROM income_streams');
+  ok('ghi được nguồn thu', st.length === 1, JSON.stringify(st));
+  ok('ĐÚNG đồng tiền EUR, không phải VND', st[0]?.currency === 'EUR', st[0]?.currency);
+  ok('số tiền là 3.600 EUR chứ không phải 3.600 đồng', st[0]?.net_amount === 360000, String(st[0]?.net_amount));
+  const acc = all("SELECT name, currency FROM accounts WHERE type = 'bank'");
+  ok('tài khoản nhận lương cũng theo EUR', acc.some((a) => a.currency === 'EUR'), JSON.stringify(acc));
+}
+
+head('Câu phủ định giữa lúc thiết lập không được biến thành dữ liệu');
+{
+  reset(); ensureWelcome();
+  await chat('Xin chào');
+  await chat('lương 30 triệu');
+  const before = all('SELECT * FROM accounts').length;
+  // Người dùng SỬA câu trước, không phải trả lời câu đang hỏi. Bản cũ tạo ra
+  // hai "tài khoản" tên "mình nhận theo 2 tuần 1 lần và thứ" và "mỗi lần".
+  const r = await chat('Không, mình nhận theo 2 tuần 1 lần vào thứ 6, mỗi lần 1k8');
+  ok('không đẻ ra tài khoản rác', all('SELECT * FROM accounts').length === before,
+    JSON.stringify(all('SELECT name, balance FROM accounts').map((a) => a.name)));
+  ok('nhận ra là đang sửa và hỏi lại', /ghi chưa đúng|nói lại|sửa/i.test(r.reply), r.reply.slice(0, 70));
+
+  // Yêu cầu xoá sạch tuyệt đối không được hiểu thành "có nguồn thu khác".
+  const r2 = await chat('Không, xoá mọi dữ liệu đi');
+  ok('hiểu đúng là yêu cầu xoá sạch', /xoá sạch|XOA HET/i.test(r2.reply), r2.reply.slice(0, 80));
+  ok('KHÔNG tự ý xoá', all('SELECT * FROM income_streams').length > 0);
+  ok('không trả lời nhầm thành "nhiều nguồn thu"', !/nhiều nguồn thu/i.test(r2.reply));
 }
 
 head('Các mốc thời gian tiếng Việt');
