@@ -19,7 +19,19 @@ export function readEnv() {
   try { return JSON.parse(localStorage.getItem(ENV_KEY) || '{}') || {}; } catch { return {}; }
 }
 export function writeEnv(env) {
-  try { localStorage.setItem(ENV_KEY, JSON.stringify(env)); } catch { /* riêng tư */ }
+  let luuDuoc = false;
+  try { localStorage.setItem(ENV_KEY, JSON.stringify(env)); luuDuoc = true; } catch { /* riêng tư */ }
+  // Áp dụng NGAY vào tiến trình đang chạy, đừng bắt người dùng tải lại mới
+  // có tác dụng: lớp gọi model đọc process.env mỗi lần dùng. Phải xoá các
+  // khoá cũ đã bị bỏ đi, nếu không gỡ key xong app vẫn tưởng còn key.
+  const g = globalThis;
+  if (g.process?.env) {
+    for (const k of Object.keys(g.process.env)) {
+      if (k.startsWith('FINMATE_') && k !== 'FINMATE_EMBEDDED' && !(k in (env || {}))) delete g.process.env[k];
+    }
+    Object.assign(g.process.env, env || {});
+  }
+  return luuDuoc;
 }
 
 let engineApi = null;   // { db, api, auth, chat }

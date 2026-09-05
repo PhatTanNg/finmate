@@ -238,7 +238,7 @@ process.env.FINMATE_LLM_KEY = 'sk-ant-fake-for-test';
 process.env.FINMATE_LLM_URL = `http://127.0.0.1:${port}/v1/messages`;
 process.env.FINMATE_LLM_MODEL = 'claude-test';
 
-const { llmProvider, llmModel } = await import('../src/services/chat/llm.js');
+const { llmProvider, llmModel, llmEnabled } = await import('../src/services/chat/llm.js');
 ok('tự nhận ra đang dùng Claude từ dạng key', llmProvider() === 'anthropic');
 
 const { runAgent } = await import('../src/services/chat/agent.js');
@@ -303,6 +303,21 @@ head('Thử kết nối dùng đúng cấu hình đang nhìn thấy');
   // đã nạp — không đụng tới module state của các phép kiểm khác.
   const trong = await testLlm({ key: ' ', model: 'x' });
   ok('biết là máy ĐANG có key được lưu', trong.da_luu === true, String(trong.da_luu));
+
+  // Cấu hình phải đọc LẠI mỗi lần, không đóng băng lúc nạp module. Đóng băng
+  // là Cài đặt và Trò chuyện nói ngược nhau: một bên vừa thử thấy key chạy,
+  // bên kia vẫn bảo "chưa có key".
+  const keyCu = process.env.FINMATE_LLM_KEY;
+  const modelCu = process.env.FINMATE_LLM_MODEL;
+  delete process.env.FINMATE_LLM_KEY;
+  ok('gỡ key khỏi môi trường -> llmEnabled tắt ngay, không cần tải lại', llmEnabled() === false);
+  process.env.FINMATE_LLM_KEY = 'sk-ant-vua-dan';
+  process.env.FINMATE_LLM_MODEL = 'claude-opus-5';
+  ok('dán key mới -> bật ngay', llmEnabled() === true);
+  ok('đổi model -> thấy ngay model mới', llmModel() === 'claude-opus-5', llmModel());
+  process.env.FINMATE_LLM_KEY = keyCu;
+  process.env.FINMATE_LLM_MODEL = modelCu;
+  ok('trả lại cấu hình cũ thì về đúng như trước', llmModel() === modelCu, llmModel());
   // Thử được nhưng chưa lưu là cái bẫy số một: phải nói rõ cấu hình vừa thử
   // có đúng là cấu hình đang chạy hay không.
   const dung = await testLlm({ key: 'sk-ant-fake-for-test', model: 'claude-test', url: process.env.FINMATE_LLM_URL });

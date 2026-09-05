@@ -18,31 +18,43 @@
  */
 import { detectProvider, anthropicUrl, anthropicHeaders, toAnthropicRequest, fromAnthropicResponse } from './anthropic.js';
 
-const RAW_URL = process.env.FINMATE_LLM_URL || '';
-const KEY = process.env.FINMATE_LLM_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || '';
-const PROVIDER = process.env.FINMATE_LLM_PROVIDER || detectProvider(KEY, RAW_URL);
-const URL_ = RAW_URL || 'https://api.openai.com/v1/chat/completions';
-const MODEL = process.env.FINMATE_LLM_MODEL || (PROVIDER === 'anthropic' ? 'claude-opus-5' : 'gpt-4o-mini');
+/**
+ * Cấu hình model đọc LẠI mỗi lần dùng, không đóng băng lúc nạp module.
+ *
+ * Bản chạy trên điện thoại cho người dùng dán key ngay trong app rồi ghi vào
+ * process.env. Nếu đọc một lần lúc khởi động thì key mới chỉ có tác dụng sau
+ * khi tải lại — mà tải lại đúng lúc hay không thì không ai kiểm soát được.
+ * Hậu quả thật đã gặp: Cài đặt bấm "Thử kết nối" báo xanh, còn Trò chuyện
+ * cùng lúc báo "chưa có key AI được lưu", hai màn hình của cùng một app nói
+ * ngược nhau và người dùng không biết tin ai. Đọc lười thì lưu xong là dùng
+ * được ngay, và mọi nơi trong app luôn thấy cùng một sự thật.
+ */
+const env = (k) => String(process.env[k] || '').trim();
+
+const rawUrl = () => env('FINMATE_LLM_URL');
+const apiKey = () => env('FINMATE_LLM_KEY') || env('ANTHROPIC_API_KEY') || env('OPENAI_API_KEY');
+const provider = () => env('FINMATE_LLM_PROVIDER') || detectProvider(apiKey(), rawUrl());
+const openaiUrl = () => rawUrl() || 'https://api.openai.com/v1/chat/completions';
+const modelName = () => env('FINMATE_LLM_MODEL') || (provider() === 'anthropic' ? 'claude-opus-5' : 'gpt-4o-mini');
 // Với Claude, max_tokens là trần cho CẢ phần suy nghĩ lẫn câu trả lời, nên phải
 // rộng tay hơn hẳn con số 2-4k của thời chưa có thinking; kẻo câu trả lời bị
 // cắt ngang giữa chừng mà không ai hiểu vì sao.
-const MAX_TOKENS = Number(process.env.FINMATE_LLM_MAX_TOKENS) || (PROVIDER === 'anthropic' ? 16000 : 4096);
+const maxTokens = () => Number(env('FINMATE_LLM_MAX_TOKENS')) || (provider() === 'anthropic' ? 16000 : 4096);
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
-const EFFORT = EFFORTS.has(String(process.env.FINMATE_LLM_EFFORT || '').toLowerCase())
-  ? String(process.env.FINMATE_LLM_EFFORT).toLowerCase() : null;
-const THINKING = (() => {
-  const v = String(process.env.FINMATE_LLM_THINKING || '').toLowerCase();
+const effortCfg = () => (EFFORTS.has(env('FINMATE_LLM_EFFORT').toLowerCase()) ? env('FINMATE_LLM_EFFORT').toLowerCase() : null);
+const thinkingCfg = () => {
+  const v = env('FINMATE_LLM_THINKING').toLowerCase();
   if (v === 'adaptive' || v === 'on') return { type: 'adaptive' };
   if (v === 'off' || v === 'disabled') return { type: 'disabled' };
   return null;
-})();
+};
 // Model suy nghĩ lâu hơn model đời cũ; 25 giây là quá chật cho một lượt có
 // nhiều công cụ. Vẫn cho chỉnh vì Ollama trên máy yếu có thể cần lâu hơn nữa.
-const TIMEOUT_MS = Number(process.env.FINMATE_LLM_TIMEOUT_MS) || 90000;
+const timeoutMs = () => Number(env('FINMATE_LLM_TIMEOUT_MS')) || 90000;
 
-export const llmEnabled = () => Boolean(KEY);
-export const llmModel = () => MODEL;
-export const llmProvider = () => PROVIDER;
+export const llmEnabled = () => Boolean(apiKey());
+export const llmModel = () => modelName();
+export const llmProvider = () => provider();
 
 /**
  * Sức khoẻ đường dây LLM. Trước đây mọi lỗi gọi model đều bị nuốt im lặng và
@@ -70,8 +82,8 @@ export function resumeLlm() { pausedUntil = 0; }
 const tokens = { vao: 0, ra: 0, cache_doc: 0, cache_ghi: 0, luot: 0, gan_nhat: null };
 export function llmStatus() {
   return {
-    bat: Boolean(KEY), nha_cung_cap: PROVIDER, model: MODEL,
-    do_sau_suy_nghi: EFFORT, suy_nghi: THINKING?.type || 'mac_dinh',
+    bat: Boolean(apiKey()), nha_cung_cap: provider(), model: modelName(),
+    do_sau_suy_nghi: effortCfg(), suy_nghi: thinkingCfg()?.type || 'mac_dinh',
     lan_goi: health.calls, lan_loi: health.fails, lan_thu_lai: health.retries,
     gan_nhat_ok: health.ok, gan_nhat_luc: health.at,
     loi_gan_nhat: health.error, loi_luc: health.errorAt,
@@ -95,7 +107,7 @@ function noteFail(e) {
   // mà chính nó lại là thứ dễ bị một lượt tốt kế tiếp xoá sạch dấu vết.
   health.error = String(e?.message || e).replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***').slice(0, 300);
   health.errorAt = health.at;
-  console.warn(`[finmate] gọi ${PROVIDER}/${MODEL} lỗi: ${health.error}`);
+  console.warn(`[finmate] gọi ${provider()}/${modelName()} lỗi: ${health.error}`);
 }
 
 /**
@@ -149,18 +161,18 @@ function openaiMessages(messages) {
  * Gọi API chat. Trả về { msg, usage }: `msg` là nguyên message của model
  * (có thể chứa tool_calls) theo hình dạng OpenAI.
  */
-async function callApi(messages, { json = false, schema = null, timeout = TIMEOUT_MS, temperature = 0.4, tools = null } = {}) {
-  if (!KEY) return null;
+async function callApi(messages, { json = false, schema = null, timeout = timeoutMs(), temperature = 0.4, tools = null } = {}) {
+  if (!apiKey()) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
-    if (PROVIDER === 'anthropic') {
+    if (provider() === 'anthropic') {
       const body = toAnthropicRequest(messages, tools, {
-        model: MODEL, json, schema, maxTokens: MAX_TOKENS, effort: EFFORT, thinking: THINKING,
+        model: modelName(), json, schema, maxTokens: maxTokens(), effort: effortCfg(), thinking: thinkingCfg(),
       });
-      const res = await fetch(anthropicUrl(RAW_URL), {
+      const res = await fetch(anthropicUrl(rawUrl()), {
         method: 'POST',
-        headers: anthropicHeaders(KEY),
+        headers: anthropicHeaders(apiKey()),
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
@@ -172,14 +184,14 @@ async function callApi(messages, { json = false, schema = null, timeout = TIMEOU
       // Bộ lọc an toàn của model từ chối trả lời: không phải lỗi mạng, gọi lại
       // cũng vậy. Báo lên để tầng trên lùi về bộ luật thay vì im lặng trả rỗng.
       if (msg?.refusal) throw Object.assign(new Error(`LLM từ chối trả lời (${msg.refusal === true ? 'refusal' : msg.refusal})`), { permanent: true });
-      if (msg?.truncated) console.warn(`[finmate] câu trả lời của ${MODEL} bị cắt ở ${MAX_TOKENS} token — tăng FINMATE_LLM_MAX_TOKENS nếu hay gặp`);
+      if (msg?.truncated) console.warn(`[finmate] câu trả lời của ${modelName()} bị cắt ở ${maxTokens()} token — tăng FINMATE_LLM_MAX_TOKENS nếu hay gặp`);
       return { msg, usage: msg?.usage || null };
     }
-    const res = await fetch(URL_, {
+    const res = await fetch(openaiUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey()}` },
       body: JSON.stringify({
-        model: MODEL,
+        model: modelName(),
         messages: openaiMessages(messages),
         temperature,
         ...(tools ? { tools, tool_choice: 'auto' } : {}),
@@ -201,7 +213,7 @@ async function callApi(messages, { json = false, schema = null, timeout = TIMEOU
 
 /** Bọc quanh lời gọi thật: ghi nhận thành/bại, thử lại khi lỗi tạm thời, rồi ném tiếp như cũ. */
 async function call(messages, opts = {}) {
-  if (!KEY) return null;
+  if (!apiKey()) return null;
   if (llmPaused()) {
     const e = Object.assign(new Error(`LLM tạm dừng vì mất mạng, thử lại sau ${Math.ceil((pausedUntil - Date.now()) / 1000)}s`), { permanent: true, offline: true });
     throw e;
@@ -225,7 +237,7 @@ async function call(messages, opts = {}) {
   }
   if (isNetworkError(last)) {
     pauseLlm();
-    console.warn(`[finmate] mất kết nối tới ${PROVIDER}; tạm dùng bộ luật ${PAUSE_MS / 1000}s rồi thử lại`);
+    console.warn(`[finmate] mất kết nối tới ${provider()}; tạm dùng bộ luật ${PAUSE_MS / 1000}s rồi thử lại`);
   }
   throw last;
 }
@@ -250,18 +262,18 @@ export async function testLlm(override = {}) {
   // điền ô key mà không bắn sự kiện cho giao diện: người dùng thấy ô đầy
   // dấu chấm, còn app thì không có gì trong tay. Gửi thẳng giá trị đang gõ
   // sang thì kết quả thử luôn khớp với thứ người ta đang nhìn.
-  const key = String(override.key ?? '').trim() || KEY;
-  const model = String(override.model ?? '').trim() || MODEL;
-  const rawUrl = String(override.url ?? '').trim() || RAW_URL;
-  const provider = String(override.provider ?? '').trim() || detectProvider(key, rawUrl);
+  const key = String(override.key ?? '').trim() || apiKey();
+  const model = String(override.model ?? '').trim() || modelName();
+  const url = String(override.url ?? '').trim() || rawUrl();
+  const nhaCungCap = String(override.provider ?? '').trim() || detectProvider(key, url);
   const t0 = Date.now();
   // dang_dung: cấu hình vừa thử có ĐÚNG là cấu hình app đang chạy không.
   // Thử được mà chưa lưu thì chat vẫn chạy bộ luật — người dùng phải được
   // bảo thẳng, không thì tưởng xong rồi.
   const info = {
-    provider, model, url: rawUrl || undefined,
-    da_luu: Boolean(KEY),
-    dang_dung: Boolean(KEY) && key === KEY && model === MODEL && (rawUrl || '') === (RAW_URL || ''),
+    provider: nhaCungCap, model, url: url || undefined,
+    da_luu: Boolean(apiKey()),
+    dang_dung: Boolean(apiKey()) && key === apiKey() && model === modelName() && url === rawUrl(),
   };
 
   if (!key) {
@@ -278,15 +290,15 @@ export async function testLlm(override = {}) {
   const timer = setTimeout(() => ctrl.abort(), 30_000);
   try {
     let text = '';
-    if (provider === 'anthropic') {
+    if (nhaCungCap === 'anthropic') {
       const body = toAnthropicRequest(msgs, null, { model, maxTokens: 64, effort: 'low' });
-      const res = await fetch(anthropicUrl(rawUrl), {
+      const res = await fetch(anthropicUrl(url), {
         method: 'POST', headers: anthropicHeaders(key), body: JSON.stringify(body), signal: ctrl.signal,
       });
       if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text().catch(() => '')).slice(0, 220)}`);
       text = fromAnthropicResponse(await res.json(), {})?.content || '';
     } else {
-      const res = await fetch(rawUrl || URL_, {
+      const res = await fetch(url || openaiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({ model, messages: openaiMessages(msgs), max_tokens: 64 }),

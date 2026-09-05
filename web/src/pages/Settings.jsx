@@ -83,8 +83,16 @@ export default function Settings({ onRefresh }) {
   async function saveEnv() {
     const m = await import('../native/boot.js');
     const clean = Object.fromEntries(Object.entries(env || {}).filter(([, v]) => String(v || '').trim() !== ''));
-    m.writeEnv(clean);
-    alert('Đã lưu. App sẽ tải lại để áp dụng.');
+    const luuDuoc = m.writeEnv(clean);
+    // writeEnv đã áp dụng ngay vào tiến trình, nên cấu hình có tác dụng lập
+    // tức. Vẫn tải lại để mọi màn hình đọc lại từ đầu — nhưng nếu bộ nhớ
+    // trình duyệt không ghi được (chế độ riêng tư, hết dung lượng) thì phải
+    // nói thẳng, chứ tải lại là mất sạch key vừa dán.
+    if (!luuDuoc) {
+      alert('⚠️ Không ghi được vào bộ nhớ trình duyệt (chế độ riêng tư?). Key đang có tác dụng cho phiên này, nhưng đóng app là mất.');
+      setAiTest(null);
+      return;
+    }
     location.reload();
   }
   async function exportDb() {
