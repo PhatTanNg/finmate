@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, setKey, EMBEDDED, saveBlob } from '../lib/api.js';
 import { Card, Empty, Loading, Modal, Form } from '../components/ui.jsx';
 import { InstallCard } from '../components/Install.jsx';
 import { fmt, pct, toMinor, baseCurrency } from '../lib/format.js';
+
+/** Che key nhưng vẫn cho thấy đuôi, để biết đang cầm đúng key nào. */
+const maskKey = (k) => (k.length > 8 ? `${'•'.repeat(Math.min(k.length - 4, 28))}${k.slice(-4)}` : k);
 
 const RISK = { conservative: 'Thận trọng', balanced: 'Cân bằng', aggressive: 'Mạo hiểm' };
 /** Lương gộp/tháng mặc định để thử tính thuế, theo từng nước. */
@@ -29,7 +32,7 @@ export default function Settings({ onRefresh }) {
   const [env, setEnv] = useState(null);      // bản điện thoại: cấu hình AI lưu trên máy
   const [aiTest, setAiTest] = useState(null); // kết quả bấm "Thử kết nối"
   const [testing, setTesting] = useState(false);
-  const savedEnv = useRef('');                // cấu hình ĐANG chạy, để biết ô nhập đã sửa mà chưa lưu
+  const [showKey, setShowKey] = useState(false);
   const fileRef = React.useRef(null);
   const [editCat, setEditCat] = useState(null);
   const loadCats = () => api.get('/categories').then((d) => setCats(d.categories));
@@ -51,7 +54,7 @@ export default function Settings({ onRefresh }) {
     loadBackups();
     api.get('/health').then((d) => setLlm(d.llm)).catch(() => setLlm(null));
     loadAuto();
-    if (EMBEDDED) import('../native/boot.js').then((m) => { const e = m.readEnv(); setEnv(e); savedEnv.current = JSON.stringify(e || {}); });
+    if (EMBEDDED) import('../native/boot.js').then((m) => setEnv(m.readEnv()));
   }, []);
 
   /**
@@ -63,12 +66,16 @@ export default function Settings({ onRefresh }) {
    * chạy được.
    */
   async function testAi() {
-    if (EMBEDDED && savedEnv.current !== JSON.stringify(env || {})) {
-      setAiTest({ ok: false, error: 'Cấu hình vừa sửa nhưng chưa lưu.', goi_y: 'Bấm "Lưu và tải lại" trước, xong quay lại đây bấm "Thử kết nối".' });
-      return;
-    }
     setTesting(true); setAiTest(null);
-    try { setAiTest((await api.post('/ai/test', {})).ket_qua); }
+    // Gửi ĐÚNG thứ đang hiện trên màn hình, không dựa vào cấu hình đã nạp:
+    // như vậy khỏi phải lưu và tải lại mới thử được, và kết quả luôn khớp
+    // với cái người dùng đang nhìn.
+    const body = {
+      key: env?.FINMATE_LLM_KEY || '',
+      model: env?.FINMATE_LLM_MODEL || '',
+      url: env?.FINMATE_LLM_URL || '',
+    };
+    try { setAiTest((await api.post('/ai/test', body)).ket_qua); }
     catch (e) { setAiTest({ ok: false, error: e.message }); }
     finally { setTesting(false); }
   }
@@ -172,8 +179,25 @@ export default function Settings({ onRefresh }) {
             Key chỉ lưu trên máy này và gọi thẳng tới nhà cung cấp — không qua máy chủ trung gian nào.
           </p>
           <div className="form">
-            <label className="fld full"><span>API key (Claude <code>sk-ant-…</code> hoặc OpenAI-compatible)</span>
-              <input className="inp" type="password" value={env.FINMATE_LLM_KEY || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_KEY: e.target.value })} placeholder="sk-ant-…" autoComplete="off" /></label>
+            <label className="fld full">
+              <span>
+                API key (Claude <code>sk-ant-…</code> hoặc OpenAI-compatible)
+                <button type="button" className="btn sm ghost" style={{ float: 'right', marginTop: -4 }}
+                  onClick={() => setShowKey((v) => !v)}>{showKey ? 'Ẩn' : 'Hiện'}</button>
+              </span>
+              {/* KHÔNG dùng type="password": Safari trên iPhone tự điền mật khẩu
+                  đã lưu vào ô đó mà không bắn onChange — người dùng thấy ô đầy
+                  dấu chấm còn app thì không có gì trong tay, rồi "Thử kết nối"
+                  báo "chưa có API key" một cách khó hiểu. */}
+              <input
+                className="inp" type="text" inputMode="text" name="finmate-llm-key"
+                value={showKey ? (env.FINMATE_LLM_KEY || '') : maskKey(env.FINMATE_LLM_KEY || '')}
+                onChange={(e) => setEnv({ ...env, FINMATE_LLM_KEY: e.target.value })}
+                onFocus={() => setShowKey(true)}
+                placeholder="sk-ant-…"
+                autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false}
+                style={{ fontFamily: showKey ? 'ui-monospace, monospace' : 'inherit' }}
+              /></label>
             <label className="fld"><span>Model</span>
               <input className="inp" value={env.FINMATE_LLM_MODEL || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_MODEL: e.target.value })} placeholder="claude-opus-5 / claude-sonnet-5" /></label>
             <label className="fld"><span>Độ sâu suy nghĩ (Claude)</span>
@@ -193,6 +217,7 @@ export default function Settings({ onRefresh }) {
               {aiTest.ok
                 ? <>✅ Gọi được <b>{aiTest.model}</b> ({aiTest.provider}) · {aiTest.ms}ms · model trả lời: “{aiTest.reply}”. Cố vấn AI sẵn sàng.</>
                 : <>❌ Chưa gọi được <b>{aiTest.model || 'model'}</b>{aiTest.provider ? ` (${aiTest.provider})` : ''}.
+                  {aiTest.da_luu === false && <div style={{ marginTop: 4 }}>Hiện <b>chưa có key nào được lưu</b> trên máy này.</div>}
                   <div style={{ marginTop: 4 }}><code>{aiTest.error}</code></div>
                   {aiTest.goi_y && <div style={{ marginTop: 6 }}>👉 {aiTest.goi_y}</div>}</>}
             </div>

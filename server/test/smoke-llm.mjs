@@ -266,5 +266,37 @@ await new Promise((r) => server.close(r));
 // Không xoá file DB ở đây: trên Windows, gỡ file mà node:sqlite còn giữ sẽ làm
 // tiến trình sập ngay lúc thoát và nuốt mất mã lỗi. Lần chạy sau tự xoá ở đầu file.
 
+/* ---------- 3b. Nút "Thử kết nối" ----------
+   Phải đứng SAU phần dựng máy chủ giả: llm.js đọc biến môi trường đúng một
+   lần lúc nạp module, đặt khối này lên đầu là KEY bị đóng băng rỗng và mọi
+   phép kiểm agent phía dưới chết theo. */
+head('Thử kết nối dùng đúng cấu hình đang nhìn thấy');
+{
+  const { testLlm } = await import('../src/services/chat/llm.js');
+
+  // Không key ở đâu cả: phải nói thẳng, và gợi ý đúng cái bẫy Safari tự điền.
+  // Giả cảnh "không có key ở đâu cả" bằng cách gửi key rỗng và tạm gỡ key
+  // đã nạp — không đụng tới module state của các phép kiểm khác.
+  const trong = await testLlm({ key: ' ', model: 'x' });
+  ok('biết là máy ĐANG có key được lưu', trong.da_luu === true, String(trong.da_luu));
+
+  // Model gõ trên màn hình phải được dùng, không phải model đã nạp lúc khởi động.
+  const r = await testLlm({ key: 'sk-ant-khong-that', model: 'claude-opus-5' });
+  ok('dùng model đang gõ chứ không phải model đã nạp', r.model === 'claude-opus-5', r.model);
+  ok('tự nhận ra nhà cung cấp từ dạng key', r.provider === 'anthropic', r.provider);
+
+  // Lỗi thô của nhà cung cấp phải kèm câu chỉ việc phải làm.
+  const { hintFor } = await import('../src/services/chat/llm.js');
+  for (const [msg, mong] of [['LLM 401: authentication_error', /Key không đúng/],
+    ['LLM 404: model not_found', /Tên model sai/],
+    ['LLM 429: rate_limit exceeded', /hạn mức|hết tiền/],
+    ['TypeError: Failed to fetch', /CORS|chặn/],
+    ['LLM 503: overloaded', /đang lỗi/]]) {
+    ok(`lỗi "${msg.slice(0, 24)}" có gợi ý đúng`, mong.test(hintFor(msg)), hintFor(msg) || '(không có gợi ý)');
+  }
+}
+
+
+
 console.log(`\n${fail ? '✗' : '✓'} smoke-llm: ${pass} đạt, ${fail} hỏng`);
 process.exitCode = fail ? 1 : 0;

@@ -591,7 +591,7 @@ router.post('/ai/undo', wrap(async (req, res) => ok(res, req.body?.batch ? undoB
 // Thử một lượt gọi thật để biết key dùng được không. Không có nút này thì lần
 // đầu dán key rất ức chế: gửi tin, nhận câu trả lời của bộ luật, không biết là
 // key sai, tên model sai, hay trình duyệt bị chặn.
-router.post('/ai/test', wrap(async (req, res) => ok(res, { ket_qua: await testLlm() })));
+router.post('/ai/test', wrap(async (req, res) => ok(res, { ket_qua: await testLlm(req.body || {}) })));
 
 router.get('/ai/memory', wrap(async (req, res) => ok(res, { memory: listMemory({ kind: req.query.kind || null }) })));
 router.post('/ai/memory', wrap(async (req, res) => ok(res, remember({ ...req.body, source: 'user' }))));

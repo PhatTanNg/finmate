@@ -244,25 +244,61 @@ export async function complete(messages, tools, opts = {}) {
  *
  * Cố ý gọi rẻ nhất có thể: một câu, effort thấp, trần token nhỏ.
  */
-export async function testLlm() {
-  if (!KEY) return { ok: false, error: 'Chưa có API key' };
+export async function testLlm(override = {}) {
+  // Thử ĐÚNG cấu hình đang nhìn thấy trên màn hình, không phải cấu hình đã
+  // nạp lúc khởi động. Trình duyệt (nhất là Safari trên iPhone) có thể tự
+  // điền ô key mà không bắn sự kiện cho giao diện: người dùng thấy ô đầy
+  // dấu chấm, còn app thì không có gì trong tay. Gửi thẳng giá trị đang gõ
+  // sang thì kết quả thử luôn khớp với thứ người ta đang nhìn.
+  const key = String(override.key ?? '').trim() || KEY;
+  const model = String(override.model ?? '').trim() || MODEL;
+  const rawUrl = String(override.url ?? '').trim() || RAW_URL;
+  const provider = String(override.provider ?? '').trim() || detectProvider(key, rawUrl);
   const t0 = Date.now();
-  const info = { provider: PROVIDER, model: MODEL, url: RAW_URL || undefined };
+  const info = { provider, model, url: rawUrl || undefined, da_luu: Boolean(KEY) };
+
+  if (!key) {
+    return {
+      ...info,
+      ok: false,
+      error: 'Chưa có API key',
+      goi_y: 'Ô key đang trống. Nếu bạn thấy ô có dấu chấm thì đó là trình duyệt tự điền — bấm vào ô, xoá hết rồi dán lại key bằng tay.',
+    };
+  }
+
+  const msgs = [{ role: 'user', content: 'Trả lời đúng một từ: OK' }];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
   try {
-    // Gọi thẳng callApi, KHÔNG qua call(): người đang bấm nút cần biết ngay
-    // là hỏng, chứ không phải đợi ba lần thử lại. Cũng không để lượt thử này
-    // làm nhảy cầu dao mất mạng của phiên đang dùng.
-    const r = await callApi([{ role: 'user', content: 'Trả lời đúng một từ: OK' }], { timeout: 30_000 });
-    const text = r?.msg?.content || '';
+    let text = '';
+    if (provider === 'anthropic') {
+      const body = toAnthropicRequest(msgs, null, { model, maxTokens: 64, effort: 'low' });
+      const res = await fetch(anthropicUrl(rawUrl), {
+        method: 'POST', headers: anthropicHeaders(key), body: JSON.stringify(body), signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text().catch(() => '')).slice(0, 220)}`);
+      text = fromAnthropicResponse(await res.json(), {})?.content || '';
+    } else {
+      const res = await fetch(rawUrl || URL_, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ model, messages: openaiMessages(msgs), max_tokens: 64 }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text().catch(() => '')).slice(0, 220)}`);
+      text = (await res.json())?.choices?.[0]?.message?.content || '';
+    }
     return { ...info, ok: true, ms: Date.now() - t0, reply: String(text).trim().slice(0, 60) };
   } catch (e) {
     const raw = String(e?.message || e);
     return { ...info, ok: false, ms: Date.now() - t0, error: raw.slice(0, 400), goi_y: hintFor(raw) };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 /** Đổi lỗi thô của nhà cung cấp thành câu người dùng làm được gì đó. */
-function hintFor(msg = '') {
+export function hintFor(msg = '') {
   const m = msg.toLowerCase();
   if (/401|unauthorized|invalid.*api.*key|authentication/.test(m)) return 'Key không đúng hoặc đã bị thu hồi. Kiểm tra lại chuỗi key, chú ý khoảng trắng thừa khi dán.';
   if (/403|permission|forbidden/.test(m)) return 'Key đúng nhưng không có quyền dùng model này. Thử model khác hoặc kiểm tra quyền của key.';
