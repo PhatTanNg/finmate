@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, setKey, EMBEDDED, saveBlob } from '../lib/api.js';
 import { Card, Empty, Loading, Modal, Form } from '../components/ui.jsx';
 import { InstallCard } from '../components/Install.jsx';
@@ -27,6 +27,9 @@ export default function Settings({ onRefresh }) {
   const [wipeText, setWipeText] = useState('');
   const [addCat, setAddCat] = useState(false);
   const [env, setEnv] = useState(null);      // bản điện thoại: cấu hình AI lưu trên máy
+  const [aiTest, setAiTest] = useState(null); // kết quả bấm "Thử kết nối"
+  const [testing, setTesting] = useState(false);
+  const savedEnv = useRef('');                // cấu hình ĐANG chạy, để biết ô nhập đã sửa mà chưa lưu
   const fileRef = React.useRef(null);
   const [editCat, setEditCat] = useState(null);
   const loadCats = () => api.get('/categories').then((d) => setCats(d.categories));
@@ -48,8 +51,27 @@ export default function Settings({ onRefresh }) {
     loadBackups();
     api.get('/health').then((d) => setLlm(d.llm)).catch(() => setLlm(null));
     loadAuto();
-    if (EMBEDDED) import('../native/boot.js').then((m) => setEnv(m.readEnv()));
+    if (EMBEDDED) import('../native/boot.js').then((m) => { const e = m.readEnv(); setEnv(e); savedEnv.current = JSON.stringify(e || {}); });
   }, []);
+
+  /**
+   * Thử một lượt gọi thật tới nhà cung cấp.
+   *
+   * Cấu hình AI chỉ có hiệu lực sau khi lưu và tải lại (module đọc biến môi
+   * trường một lần lúc khởi động). Nên nếu ô nhập đã sửa mà chưa lưu thì phải
+   * nói ra — không thì nó thử key CŨ rồi báo "OK", người dùng tưởng key mới
+   * chạy được.
+   */
+  async function testAi() {
+    if (EMBEDDED && savedEnv.current !== JSON.stringify(env || {})) {
+      setAiTest({ ok: false, error: 'Cấu hình vừa sửa nhưng chưa lưu.', goi_y: 'Bấm "Lưu và tải lại" trước, xong quay lại đây bấm "Thử kết nối".' });
+      return;
+    }
+    setTesting(true); setAiTest(null);
+    try { setAiTest((await api.post('/ai/test', {})).ket_qua); }
+    catch (e) { setAiTest({ ok: false, error: e.message }); }
+    finally { setTesting(false); }
+  }
 
   async function saveEnv() {
     const m = await import('../native/boot.js');
@@ -161,10 +183,20 @@ export default function Settings({ onRefresh }) {
             <label className="fld full"><span>URL API (bỏ trống nếu dùng Claude/OpenAI chính thức)</span>
               <input className="inp" value={env.FINMATE_LLM_URL || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_URL: e.target.value })} placeholder="https://…/v1/chat/completions" /></label>
           </div>
-          <div className="row" style={{ marginTop: 12, gap: 8 }}>
+          <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
             <button className="btn primary" onClick={saveEnv}>Lưu và tải lại</button>
+            <button className="btn" disabled={testing} onClick={testAi}>{testing ? 'Đang thử…' : 'Thử kết nối'}</button>
             {env.FINMATE_LLM_KEY && <button className="btn ghost" onClick={() => { setEnv({ ...env, FINMATE_LLM_KEY: '' }); }}>Gỡ key</button>}
           </div>
+          {aiTest && (
+            <div className={aiTest.ok ? 'note mini' : 'note-warn mini'} style={{ marginTop: 10 }}>
+              {aiTest.ok
+                ? <>✅ Gọi được <b>{aiTest.model}</b> ({aiTest.provider}) · {aiTest.ms}ms · model trả lời: “{aiTest.reply}”. Cố vấn AI sẵn sàng.</>
+                : <>❌ Chưa gọi được <b>{aiTest.model || 'model'}</b>{aiTest.provider ? ` (${aiTest.provider})` : ''}.
+                  <div style={{ marginTop: 4 }}><code>{aiTest.error}</code></div>
+                  {aiTest.goi_y && <div style={{ marginTop: 6 }}>👉 {aiTest.goi_y}</div>}</>}
+            </div>
+          )}
         </Card>
       )}
 

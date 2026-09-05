@@ -28,7 +28,7 @@ import { listRemittances, remittanceSummary, timingAdvice, quote as fxQuote, cos
 import { CURRENCIES, CURRENCY_CODES, normalizeCurrency } from '../util/currency.js';
 import { recomputeBaseAmounts } from '../services/ledger.js';
 import { chat, history as chatHistory, ensureWelcome, resetChat } from '../services/chat/index.js';
-import { llmEnabled, llmModel, llmStatus } from '../services/chat/llm.js';
+import { llmEnabled, llmModel, llmStatus, testLlm } from '../services/chat/llm.js';
 import { listActions, actionDetail, actionStats, undoAction, undoLast, undoBatch, pruneActions } from '../services/ai_audit.js';
 import { listMemory, remember, forget, pruneMemory } from '../services/ai_memory.js';
 import { runReview, reviewConfig, setReviewConfig, lastReview, reviewHistory } from '../services/ai_review.js';
@@ -587,6 +587,11 @@ router.get('/ai/actions/:id', wrap(async (req, res) => {
 }));
 router.post('/ai/actions/:id/undo', wrap(async (req, res) => ok(res, undoAction(Number(req.params.id)))));
 router.post('/ai/undo', wrap(async (req, res) => ok(res, req.body?.batch ? undoBatch(req.body.batch) : undoLast(req.body?.n || 1))));
+
+// Thử một lượt gọi thật để biết key dùng được không. Không có nút này thì lần
+// đầu dán key rất ức chế: gửi tin, nhận câu trả lời của bộ luật, không biết là
+// key sai, tên model sai, hay trình duyệt bị chặn.
+router.post('/ai/test', wrap(async (req, res) => ok(res, { ket_qua: await testLlm() })));
 
 router.get('/ai/memory', wrap(async (req, res) => ok(res, { memory: listMemory({ kind: req.query.kind || null }) })));
 router.post('/ai/memory', wrap(async (req, res) => ok(res, remember({ ...req.body, source: 'user' }))));

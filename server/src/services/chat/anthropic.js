@@ -34,10 +34,26 @@ export function detectProvider(key = '', url = '') {
 export const anthropicUrl = (url = '') =>
   (url && !/\/chat\/completions$/.test(url) ? url : DEFAULT_URL);
 
+/**
+ * Bản chạy trên điện thoại gọi thẳng api.anthropic.com từ trình duyệt. Mặc
+ * định Anthropic CHẶN kiểu gọi này (CORS) để người ta không vô tình nhúng key
+ * máy chủ vào trang web công khai; phải khai báo header dưới đây mới qua.
+ *
+ * Ở FinMate việc này an toàn theo đúng nghĩa tài liệu Anthropic gọi là "công
+ * cụ nội bộ, người dùng tin cậy": key là của CHÍNH chủ máy, do họ tự dán vào,
+ * chỉ nằm trong bộ nhớ máy họ và gọi thẳng tới nhà cung cấp. Không có key nào
+ * của người khác bị lộ, vì app không có máy chủ và không giữ key của ai.
+ *
+ * Bản chạy máy chủ (Node) không gửi header này — nó không cần, và gửi thừa
+ * chỉ làm rối nhật ký.
+ */
+const inBrowser = () => typeof window !== 'undefined' && typeof window.document !== 'undefined';
+
 export const anthropicHeaders = (key) => ({
   'content-type': 'application/json',
   'x-api-key': key,
   'anthropic-version': API_VERSION,
+  ...(inBrowser() ? { 'anthropic-dangerous-direct-browser-access': 'true' } : {}),
 });
 
 const CACHE = { type: 'ephemeral' };

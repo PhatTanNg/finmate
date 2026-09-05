@@ -235,6 +235,45 @@ export async function complete(messages, tools, opts = {}) {
   return call(messages, { ...opts, tools, raw: true });
 }
 
+/**
+ * Thử một lượt gọi thật để người dùng biết key có dùng được không.
+ *
+ * Không có nó thì lần đầu dán key rất ức chế: gửi tin nhắn, nhận câu trả lời
+ * của bộ luật, không biết là key sai, model gõ nhầm tên, hay trình duyệt bị
+ * CORS chặn. Ở đây gọi thẳng, hỏng thì trả nguyên văn lỗi của nhà cung cấp.
+ *
+ * Cố ý gọi rẻ nhất có thể: một câu, effort thấp, trần token nhỏ.
+ */
+export async function testLlm() {
+  if (!KEY) return { ok: false, error: 'Chưa có API key' };
+  const t0 = Date.now();
+  const info = { provider: PROVIDER, model: MODEL, url: RAW_URL || undefined };
+  try {
+    // Gọi thẳng callApi, KHÔNG qua call(): người đang bấm nút cần biết ngay
+    // là hỏng, chứ không phải đợi ba lần thử lại. Cũng không để lượt thử này
+    // làm nhảy cầu dao mất mạng của phiên đang dùng.
+    const r = await callApi([{ role: 'user', content: 'Trả lời đúng một từ: OK' }], { timeout: 30_000 });
+    const text = r?.msg?.content || '';
+    return { ...info, ok: true, ms: Date.now() - t0, reply: String(text).trim().slice(0, 60) };
+  } catch (e) {
+    const raw = String(e?.message || e);
+    return { ...info, ok: false, ms: Date.now() - t0, error: raw.slice(0, 400), goi_y: hintFor(raw) };
+  }
+}
+
+/** Đổi lỗi thô của nhà cung cấp thành câu người dùng làm được gì đó. */
+function hintFor(msg = '') {
+  const m = msg.toLowerCase();
+  if (/401|unauthorized|invalid.*api.*key|authentication/.test(m)) return 'Key không đúng hoặc đã bị thu hồi. Kiểm tra lại chuỗi key, chú ý khoảng trắng thừa khi dán.';
+  if (/403|permission|forbidden/.test(m)) return 'Key đúng nhưng không có quyền dùng model này. Thử model khác hoặc kiểm tra quyền của key.';
+  if (/404|not_found|does not exist|unknown model/.test(m)) return 'Tên model sai. Ví dụ đúng: claude-opus-5, claude-sonnet-5, claude-haiku-4-5.';
+  if (/429|rate.?limit|quota|credit|billing/.test(m)) return 'Hết hạn mức hoặc hết tiền trong tài khoản nhà cung cấp.';
+  if (/cors|failed to fetch|networkerror|load failed/.test(m)) return 'Trình duyệt bị chặn gọi thẳng tới nhà cung cấp (CORS). Với Claude thì app đã xin phép sẵn; nhà cung cấp khác có thể không cho gọi từ trình duyệt — khi đó dùng bản chạy máy chủ.';
+  if (/abort|timeout/.test(m)) return 'Gọi quá lâu không phản hồi. Mạng chậm, hoặc URL API sai.';
+  if (/5\d\d/.test(m)) return 'Nhà cung cấp đang lỗi. Thử lại sau ít phút.';
+  return '';
+}
+
 const INTENT_LIST = [
   'add_expense', 'add_income', 'add_transfer', 'query_spending', 'query_balance', 'query_networth', 'query_fire',
   'query_forecast', 'query_debt', 'query_goal', 'query_budget', 'query_investment', 'query_income', 'surplus_advice',

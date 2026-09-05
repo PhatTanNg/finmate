@@ -514,6 +514,18 @@ Trước khi phát hành, workflow chạy `web/test/pwa.mjs`: thiếu tài nguy�
 
 **Bản đóng gói native (.ipa / .apk).** Có sẵn cấu hình Capacitor (`npm run cap:init`, `cap:sync`, `cap:ios`, `cap:android`). Dựng `.ipa` **bắt buộc máy Mac có Xcode** và tài khoản Apple Developer để cài lên máy thật; `.apk` cần Android SDK. Bản PWA ở trên không cần gì cả và chạy cùng một mã.
 
+## Bật cố vấn AI trên máy của bạn
+
+Bản chạy trên điện thoại gọi **thẳng** tới nhà cung cấp, không qua máy chủ trung gian nào. Key nằm trong bộ nhớ máy bạn.
+
+1. **Cài đặt → Cố vấn AI**: dán API key (Claude `sk-ant-…`, hoặc bất kỳ API OpenAI-compatible nào — điền thêm ô URL), chọn model.
+2. Bấm **Lưu và tải lại**.
+3. Bấm **Thử kết nối** — app gọi thật một lượt rồi báo model đã trả lời, hoặc in nguyên văn lỗi kèm cách xử lý (key sai, tên model sai, hết hạn mức, bị CORS chặn…).
+
+Anthropic **chặn** trình duyệt gọi thẳng theo mặc định, để người ta không nhúng key máy chủ vào trang web công khai. FinMate khai báo header `anthropic-dangerous-direct-browser-access` để qua được — an toàn ở đây theo đúng nghĩa Anthropic gọi là "công cụ nội bộ, người dùng tin cậy": key là của chính chủ máy, do họ tự dán, chỉ nằm trên máy họ, và app không có máy chủ nên không giữ key của ai. Ai cầm được máy đã mở khoá thì đọc được key — đặt PIN cho app nếu điều đó đáng lo. Nhà cung cấp khác có thể không cho gọi từ trình duyệt; khi đó dùng bản chạy máy chủ.
+
+Có key rồi, mở **Trò chuyện**: cố vấn sẽ dẫn bạn thiết lập hồ sơ bằng một cuộc nói chuyện — hỏi từng câu một, ghi lại ngay khi biết (tài khoản, nguồn thu, nợ, mục tiêu), rồi tóm tắt bức tranh tài chính và đề xuất việc nên làm. Không có key thì luồng này vẫn chạy bằng bộ luật tiếng Việt, chỉ kém linh hoạt hơn.
+
 ## Kiểm thử
 
 ```bash

@@ -22,8 +22,28 @@ const ok = (name, cond, extra = '') => {
 const head = (t) => console.log(`\n${t}`);
 
 /* ---------- 1. Dịch xuôi: messages kiểu OpenAI -> thân request của Claude ---------- */
-const { toAnthropicRequest, fromAnthropicResponse, detectProvider, anthropicUrl } =
+const { toAnthropicRequest, fromAnthropicResponse, detectProvider, anthropicUrl, anthropicHeaders } =
   await import('../src/services/chat/anthropic.js');
+
+/* ---------- 0. Gọi thẳng từ trình duyệt (bản chạy trên điện thoại) ---------- */
+head('Header cho phép trình duyệt gọi thẳng');
+{
+  // Chạy trong Node: không cần xin phép, không gửi header thừa.
+  const inNode = anthropicHeaders('k');
+  ok('bản máy chủ không gửi header trình duyệt', !inNode['anthropic-dangerous-direct-browser-access']);
+  ok('vẫn có x-api-key và anthropic-version', inNode['x-api-key'] === 'k' && !!inNode['anthropic-version']);
+
+  // Giả lập trình duyệt: Anthropic CHẶN gọi thẳng (CORS) nếu thiếu header này,
+  // nghĩa là app cài trên iPhone dán key vào sẽ không gọi được model nào.
+  globalThis.window = { document: {} };
+  try {
+    const inBrowser = anthropicHeaders('k');
+    ok('trong trình duyệt có header xin phép gọi thẳng',
+      inBrowser['anthropic-dangerous-direct-browser-access'] === 'true',
+      JSON.stringify(Object.keys(inBrowser)));
+  } finally { delete globalThis.window; }
+  ok('bỏ giả lập thì header cũng biến mất', !anthropicHeaders('k')['anthropic-dangerous-direct-browser-access']);
+}
 
 head('Dịch xuôi sang Messages API');
 {
