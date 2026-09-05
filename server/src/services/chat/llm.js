@@ -255,7 +255,14 @@ export async function testLlm(override = {}) {
   const rawUrl = String(override.url ?? '').trim() || RAW_URL;
   const provider = String(override.provider ?? '').trim() || detectProvider(key, rawUrl);
   const t0 = Date.now();
-  const info = { provider, model, url: rawUrl || undefined, da_luu: Boolean(KEY) };
+  // dang_dung: cấu hình vừa thử có ĐÚNG là cấu hình app đang chạy không.
+  // Thử được mà chưa lưu thì chat vẫn chạy bộ luật — người dùng phải được
+  // bảo thẳng, không thì tưởng xong rồi.
+  const info = {
+    provider, model, url: rawUrl || undefined,
+    da_luu: Boolean(KEY),
+    dang_dung: Boolean(KEY) && key === KEY && model === MODEL && (rawUrl || '') === (RAW_URL || ''),
+  };
 
   if (!key) {
     return {

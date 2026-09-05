@@ -111,6 +111,7 @@ export default function Chat({ onRefresh, offline = false }) {
   const [undone, setUndone] = useState({}); // batch -> true khi đã hoàn tác
   const [props, setProps] = useState({});   // id đề xuất -> đề xuất đang chờ
   const [decided, setDecided] = useState({}); // id đề xuất -> 'done' | 'skip' | 'busy'
+  const [ai, setAi] = useState(null);        // /health.llm — đang nói với AI hay với bộ luật?
   const endRef = useRef(null);
   const taRef = useRef(null);
   const fileRef = useRef(null);
@@ -124,6 +125,14 @@ export default function Chat({ onRefresh, offline = false }) {
       if (last?.data?.quick?.length) setQuick(last.data.quick);
     }).catch(() => {}).finally(() => setLoaded(true));
   }, []);
+
+  // Người dùng phải nhìn thấy ngay mình đang nói với AI thật hay với bộ luật:
+  // hai bên trả lời khác hẳn nhau, và "chưa lưu key" là lý do số một khiến
+  // người ta tưởng AI hỏng trong khi nó chưa từng được bật. Tải lại sau mỗi
+  // lượt để lỗi gần nhất của AI (nếu có) hiện lên ngay.
+  useEffect(() => {
+    api.get('/health').then((d) => setAi(d.llm || null)).catch(() => setAi(null));
+  }, [messages.length]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, busy, quick, steps]);
 
@@ -265,6 +274,17 @@ export default function Chat({ onRefresh, offline = false }) {
         </div>
         <button className="btn sm ghost" onClick={restart} title="Bắt đầu lại cuộc trò chuyện">↻</button>
       </div>
+      {ai && !offline && (
+        <div className={`ai-mode ${ai.enabled ? (ai.trang_thai?.loi_gan_nhat ? 'warn' : 'on') : 'off'}`}>
+          {ai.enabled
+            ? (ai.trang_thai?.loi_gan_nhat
+              ? <>⚠️ AI <b>{ai.model}</b> đang lỗi: <code>{String(ai.trang_thai.loi_gan_nhat).slice(0, 110)}</code>{' '}
+                <button className="lnk" onClick={() => { location.hash = 'settings'; }}>Kiểm tra key</button></>
+              : <>🤖 Cố vấn AI đang bật · <b>{ai.model}</b></>)
+            : <>📐 Đang trả lời bằng <b>bộ luật</b> — chưa có key AI được lưu.{' '}
+              <button className="lnk" onClick={() => { location.hash = 'settings'; }}>Dán key trong Cài đặt</button></>}
+        </div>
+      )}
 
       <div className="chat-scroll">
         {loaded && messages.length === 0 && (

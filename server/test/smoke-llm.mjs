@@ -303,6 +303,12 @@ head('Thử kết nối dùng đúng cấu hình đang nhìn thấy');
   // đã nạp — không đụng tới module state của các phép kiểm khác.
   const trong = await testLlm({ key: ' ', model: 'x' });
   ok('biết là máy ĐANG có key được lưu', trong.da_luu === true, String(trong.da_luu));
+  // Thử được nhưng chưa lưu là cái bẫy số một: phải nói rõ cấu hình vừa thử
+  // có đúng là cấu hình đang chạy hay không.
+  const dung = await testLlm({ key: 'sk-ant-fake-for-test', model: 'claude-test', url: process.env.FINMATE_LLM_URL });
+  ok('cấu hình trùng cái đang chạy -> dang_dung = true', dung.dang_dung === true, JSON.stringify([dung.da_luu, dung.dang_dung]));
+  const khac = await testLlm({ key: 'sk-ant-khac', model: 'claude-test', url: process.env.FINMATE_LLM_URL });
+  ok('key khác cái đang chạy -> dang_dung = false (chưa lưu)', khac.dang_dung === false && khac.da_luu === true);
 
   // Model gõ trên màn hình phải được dùng, không phải model đã nạp lúc khởi động.
   const r = await testLlm({ key: 'sk-ant-khong-that', model: 'claude-opus-5' });

@@ -216,7 +216,16 @@ export default function Settings({ onRefresh }) {
           {aiTest && (
             <div className={aiTest.ok ? 'note mini' : 'note-warn mini'} style={{ marginTop: 10 }}>
               {aiTest.ok
-                ? <>✅ Gọi được <b>{aiTest.model}</b> ({aiTest.provider}) · {aiTest.ms}ms · model trả lời: “{aiTest.reply}”. Cố vấn AI sẵn sàng.</>
+                ? (aiTest.dang_dung
+                  ? <>✅ Gọi được <b>{aiTest.model}</b> ({aiTest.provider}) · {aiTest.ms}ms · model trả lời: “{aiTest.reply}”. Đây đúng là cấu hình đang chạy — cố vấn AI sẵn sàng.</>
+                  : <>
+                    ✅ Gọi được <b>{aiTest.model}</b> ({aiTest.provider}) · {aiTest.ms}ms.
+                    <div className="note-warn" style={{ marginTop: 8 }}>
+                      ⚠️ <b>Nhưng cấu hình này chưa được lưu</b> — Trò chuyện vẫn đang dùng bộ luật.
+                      Bấm <b>Lưu và tải lại</b> thì cố vấn AI mới thật sự chạy.
+                      <div style={{ marginTop: 8 }}><button className="btn sm primary" onClick={saveEnv}>Lưu và tải lại ngay</button></div>
+                    </div>
+                  </>)
                 : <>❌ Chưa gọi được <b>{aiTest.model || 'model'}</b>{aiTest.provider ? ` (${aiTest.provider})` : ''}.
                   {aiTest.da_luu === false && <div style={{ marginTop: 4 }}>Hiện <b>chưa có key nào được lưu</b> trên máy này.</div>}
                   <div style={{ marginTop: 4 }}><code>{aiTest.error}</code></div>
