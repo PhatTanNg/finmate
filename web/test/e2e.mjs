@@ -325,6 +325,35 @@ if (EMBEDDED) {
   await page.waitForTimeout(2000);
 }
 
+if (EMBEDDED) {
+  step('13c. Dán key AI: lưu xong là app dùng thật (không chỉ nói đã lưu)');
+  // Bản build cho trình duyệt từng thay `process.env` bằng một object rỗng
+  // tĩnh: boot ghi key vào globalThis.process.env còn mã máy chủ đọc từ object
+  // rỗng kia, nên dán key xong Trò chuyện vẫn mãi trả lời bằng bộ luật. Mọi
+  // phép kiểm chạy trong Node đều xanh vì Node có process.env thật — chỉ
+  // trình duyệt mới lộ. Đây là chốt chặn cho đúng lớp lỗi đó.
+  await go('chat');
+  const truoc = await text('.ai-mode').catch(() => '');
+  ok('chưa có key thì nói rõ đang dùng bộ luật', /bộ luật/.test(truoc), truoc.slice(0, 60));
+
+  await go('settings');
+  await page.fill('input[name="finmate-llm-key"]', 'sk-ant-api03-KHOA-KIEM-THU-E2E');
+  await page.fill('.main input.inp[placeholder*="claude-opus-5"]', 'claude-sonnet-5');
+  page.once('dialog', (d) => d.accept());
+  await page.click('.main >> text=Lưu và tải lại');
+  await page.waitForTimeout(2500);
+  await page.waitForSelector('.main', { timeout: 60000 });
+  await page.waitForTimeout(2500);
+
+  const llm = await page.evaluate(async () => (await globalThis.__engine?.dispatch?.('GET', '/api/health', {}))?.body?.llm ?? null);
+  ok('LƯU KEY XONG LÀ ENGINE THẤY NGAY', llm?.enabled === true, JSON.stringify(llm)?.slice(0, 90));
+  ok('engine dùng đúng model vừa chọn', llm?.model === 'claude-sonnet-5', llm?.model);
+
+  await go('chat');
+  const sau = await text('.ai-mode').catch(() => '');
+  ok('Trò chuyện không còn nói "chưa có key"', !/chưa có key/.test(sau), sau.slice(0, 70));
+}
+
 // ── 14. Sao lưu ────────────────────────────────────────────────────────────
 step('14. Sao lưu & xuất dữ liệu');
 await go('settings');

@@ -7,11 +7,16 @@ import './styles.css';
 const root = createRoot(document.getElementById('root'));
 
 if (import.meta.env.VITE_EMBEDDED === '1') {
+  // Phải dựng trước cả import động: từ nay mọi lần đọc cấu hình trong mã máy
+  // chủ đều trỏ về globalThis.process.env, nên nó phải tồn tại sẵn — nếu
+  // không, chunk nào chạy sớm sẽ ném "Cannot read properties of undefined".
+  globalThis.process = globalThis.process || {};
+  globalThis.process.env = globalThis.process.env || {};
   // Bản chạy ngay trên điện thoại: nạp SQLite WebAssembly + dữ liệu đã lưu rồi mới vẽ app.
   root.render(<div className="lock"><div className="lock-box"><div className="lock-logo">F</div><p className="muted">Đang mở sổ của bạn…</p></div></div>);
   Promise.all([import('./native/boot.js'), import('sql.js/dist/sql-wasm.wasm?url')])
     .then(([{ bootEmbedded }, wasm]) => bootEmbedded({ wasmUrl: wasm.default }))
-    .then((engine) => { setEngine(engine); root.render(<App />); })
+    .then((engine) => { setEngine(engine); globalThis.__engine = engine; root.render(<App />); })
     .catch((e) => {
       console.error(e);
       root.render(<div className="lock"><div className="lock-box"><div className="lock-logo">!</div><h1>Không mở được</h1><p className="muted">{String(e?.message || e)}</p><button className="btn primary" onClick={() => location.reload()}>Thử lại</button></div></div>);

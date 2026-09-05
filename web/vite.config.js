@@ -63,7 +63,18 @@ export default defineConfig(({ mode }) => {
   return {
     base: embedded ? './' : '/',
     plugins: [react(), nativePlugin(embedded), swPrecachePlugin(embedded ? 'dist-embedded' : 'dist')],
-    define: { 'import.meta.env.VITE_EMBEDDED': JSON.stringify(embedded ? '1' : '0') },
+    define: {
+      'import.meta.env.VITE_EMBEDDED': JSON.stringify(embedded ? '1' : '0'),
+      // Vite/esbuild thay `process.env` bằng một OBJECT RỖNG TĨNH khi build cho
+      // trình duyệt. Mã máy chủ dùng chung đọc cấu hình qua process.env, nên
+      // trong bản nhúng mọi lần đọc đều ra rỗng — trong khi boot.js ghi key
+      // vào globalThis.process.env (viết là `g.process.env` nên không bị thay).
+      // Đọc và ghi thành hai nơi khác nhau: dán key xong Cài đặt bảo "chưa có
+      // key được lưu", Trò chuyện mãi trả lời bằng bộ luật, và FINMATE_FX_OFFLINE,
+      // FINMATE_PRICE_PROXY, thư mục sao lưu... cũng câm luôn. Trỏ thẳng về
+      // biến toàn cục để đọc và ghi lại về chung một chỗ.
+      ...(embedded ? { 'process.env': 'globalThis.process.env' } : {}),
+    },
     server: {
       port: 5173,
       proxy: { '/api': { target: 'http://localhost:4000', changeOrigin: true } },
