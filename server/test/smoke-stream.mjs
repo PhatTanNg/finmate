@@ -92,7 +92,14 @@ head('Ảnh đi tới model đúng hình dạng');
   const req = seen[before];
   const user = req.messages[req.messages.length - 1];
   ok('lượt user gửi dạng nhiều phần: chữ + image_url', Array.isArray(user.content) && user.content.some((p) => p.type === 'image_url' && p.image_url.url === PNG) && user.content.some((p) => p.type === 'text' && /ảnh/.test(p.text)), JSON.stringify(user).slice(0, 200));
-  ok('system prompt có hướng dẫn đọc hoá đơn', /HOÁ ĐƠN/.test(req.messages[0].content));
+  // Kiểm nội dung chứ không kiểm câu chữ: prompt phải dạy agent chọn công cụ
+  // theo LOẠI ảnh. Ảnh số dư mà đem ghi_giao_dich là sai hẳn dữ liệu.
+  const sys = req.messages[0].content;
+  ok('system prompt có phần hướng dẫn đọc ảnh', /ẢNH GỬI KÈM|hoá đơn/i.test(sys));
+  ok('ảnh hoá đơn -> ghi giao dịch', /ghi_giao_dich/.test(sys));
+  ok('ảnh màn hình số dư -> cập nhật số dư, KHÔNG phải giao dịch', /capnhat_so_du/.test(sys) && /KHÔNG phải giao dịch/.test(sys));
+  ok('ảnh danh mục chứng khoán -> thêm/cập nhật đầu tư', /them_dau_tu/.test(sys) && /cap_nhat_gia/.test(sys));
+  ok('dặn đọc đúng đồng tiền trên ảnh', /đồng tiền/.test(sys));
   ok('đường OpenAI gộp hai message system thành một', req.messages.filter((m) => m.role === 'system').length === 1 && /TÌNH HÌNH/.test(req.messages[0].content));
   const saved = all("SELECT content, data FROM chat_messages WHERE role='user' ORDER BY id DESC LIMIT 1")[0];
   ok('lịch sử không lưu ảnh, chỉ ghi dấu đã gửi ảnh', /đã gửi kèm ảnh/.test(saved.content) && !saved.content.includes('base64') && JSON.parse(saved.data).image === true);

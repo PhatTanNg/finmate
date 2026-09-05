@@ -384,8 +384,13 @@ export default function Chat({ onRefresh, offline = false }) {
           </div>
         )}
         <div className="chat-in">
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={pickImage} />
-          <button className={`attach ${shot ? 'on' : ''}`} onClick={() => fileRef.current?.click()} disabled={busy} title="Chụp hoá đơn / ảnh sao kê" aria-label="Gửi ảnh">📷</button>
+          {/* KHÔNG đặt capture="environment": thuộc tính đó bảo iOS "ô này để
+              chụp", nên Safari mở thẳng camera và không hiện bảng chọn — không
+              có cách nào lấy ảnh có sẵn trong máy. Bỏ đi thì iOS hiện đủ
+              "Thư viện ảnh / Chụp ảnh / Chọn tệp", vốn là thứ người ta cần
+              nhất: ảnh chụp màn hình số dư, danh mục chứng khoán đã lưu sẵn. */}
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickImage} />
+          <button className={`attach ${shot ? 'on' : ''}`} onClick={() => fileRef.current?.click()} disabled={busy} title="Gửi ảnh: hoá đơn, sao kê, màn hình số dư, danh mục chứng khoán" aria-label="Gửi ảnh từ thư viện hoặc chụp mới">📷</button>
           <textarea
             ref={taRef}
             className="inp"

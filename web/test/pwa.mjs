@@ -44,6 +44,20 @@ ok('SQLite WebAssembly được đệm (không có nó thì không mở nổi s�
 ok('CSS được đệm', listed.some((f) => f.endsWith('.css')));
 ok('manifest được đệm (để cài như app)', listed.some((f) => f.endsWith('.webmanifest')));
 
+// Ô chọn ảnh: có capture="environment" là iOS mở thẳng camera và KHÔNG cho
+// lấy ảnh có sẵn trong máy — mất hẳn đường gửi ảnh chụp màn hình số dư,
+// danh mục chứng khoán, hoá đơn đã lưu.
+console.log('\nGửi ảnh: phải lấy được từ thư viện, không chỉ chụp mới');
+{
+  const js = built.filter((f) => f.endsWith('.js'));
+  const all = js.map((f) => fs.readFileSync(path.join(out, f.slice(2)), 'utf8')).join('\n');
+  const coCapture = /capture:\s*"(environment|user)"|capture=\\?"(environment|user)\\?"/.test(all);
+  ok('KHÔNG ép camera (không có capture) — iOS mới hiện Thư viện ảnh', !coCapture);
+  ok('ô chọn tệp nhận mọi loại ảnh', /accept:\s*"image\/\*"/.test(all));
+  // Ảnh iPhone là HEIC; canvas vẽ lại rồi xuất JPEG nên phía sau luôn nhận JPEG.
+  ok('ảnh được vẽ lại và xuất JPEG (chuẩn hoá cả HEIC của iPhone)', /image\/jpeg/.test(all));
+}
+
 console.log('\nĐiều hướng lúc mất mạng');
 ok('mất mạng thì lấy trang đã đệm thay vì báo lỗi', /\.catch\(\(\) => caches\.match\('\.\/index\.html'\)/.test(sw));
 ok('một tệp lỗi không kéo sập cả mẻ đệm', /\.map\(\(u\) => c\.add\(.*\)\.catch\(\(\) => \{\}\)\)/.test(sw));
