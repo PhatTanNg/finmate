@@ -22,6 +22,7 @@ export const SPECIFIER_ALIASES = {
 export const FILE_ALIASES = {
   [path.join(SERVER_SRC, 'db_engine.js')]: native('db_engine.browser.js'),
   [path.join(SERVER_SRC, 'db_context.js')]: native('db_context.browser.js'),
+  [path.join(SERVER_SRC, 'services', 'accounts.js')]: native('accounts.browser.js'),
 };
 
 /** Giải một import: trả đường dẫn thay thế hoặc null. */

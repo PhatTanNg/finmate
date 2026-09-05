@@ -5,6 +5,7 @@ import { applyTheme, readTheme, watchSystemTheme, NEXT_THEME, THEME_ICON, THEME_
 import CommandPalette from './components/CommandPalette.jsx';
 import { IconHome, IconChat, IconList, IconBell, IconGrid, IconSearch } from './components/icons.jsx';
 import Lock from './pages/Lock.jsx';
+import Login from './pages/Login.jsx';
 import Chat from './pages/Chat.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Transactions from './pages/Transactions.jsx';
@@ -91,6 +92,14 @@ export default function App() {
 
   const checkAuth = useCallback(async () => {
     try {
+      // /health nói máy chủ chạy chế độ nào. Nhiều người dùng thì cửa vào là
+      // tài khoản (sổ theo người, sang máy khác vẫn còn); một sổ thì cửa vào
+      // là khoá PIN của chính máy này. Hai chuyện khác hẳn nhau.
+      const h = await api.get('/health').catch(() => null);
+      if (h?.multi_user) {
+        setAuth({ multi: true, user: h.user || null, unlocked: Boolean(h.user) });
+        return;
+      }
       const s = await api.get('/auth/status');
       setAuth({ pinSet: s.pin_set, unlocked: !s.pin_set || Boolean(getKey()) });
     } catch {
@@ -171,6 +180,12 @@ export default function App() {
     return out;
   }, [theme, refresh]);
 
+  const logout = async () => {
+    try { await api.post('/account/logout', {}); } catch { /* token có thể đã hết hạn */ }
+    setKey('');
+    setAuth((a) => ({ ...a, user: null, unlocked: false }));
+  };
+
   const lock = () => {
     api.post('/auth/logout').catch(() => {});
     setKey('');
@@ -196,7 +211,7 @@ export default function App() {
       case 'ailog': return <AiLog onRefresh={refresh} />;
       case 'automation': return <Automation onRefresh={refresh} />;
       case 'settings': return <Settings onRefresh={refresh} />;
-      case 'more': return <More go={go} d={d} theme={theme} cycleTheme={cycleTheme} themeLabel={THEME_LABEL[theme]} themeIcon={THEME_ICON[theme]} canLock={auth?.pinSet} onLock={lock} alerts={alerts} />;
+      case 'more': return <More go={go} d={d} theme={theme} cycleTheme={cycleTheme} themeLabel={THEME_LABEL[theme]} themeIcon={THEME_ICON[theme]} canLock={auth?.pinSet} onLock={lock} user={auth?.user} onLogout={auth?.multi ? logout : null} alerts={alerts} />;
       default: return d ? <Dashboard d={d} go={go} onRefresh={refresh} /> : null;
     }
   };
@@ -208,7 +223,11 @@ export default function App() {
       </div>
     );
   }
-  if (!auth.unlocked) return <Lock pinSet={auth.pinSet} onUnlock={() => setAuth({ ...auth, unlocked: true })} />;
+  if (!auth.unlocked) {
+    return auth.multi
+      ? <Login onDone={(user) => setAuth({ ...auth, user, unlocked: true })} />
+      : <Lock pinSet={auth.pinSet} onUnlock={() => setAuth({ ...auth, unlocked: true })} />;
+  }
 
   return (
     <div className="app">

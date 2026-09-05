@@ -29,7 +29,7 @@ const GROUPS = [
   ] },
 ];
 
-export default function More({ go, d, theme, cycleTheme, themeLabel, themeIcon, canLock, onLock, alerts = 0 }) {
+export default function More({ go, d, theme, cycleTheme, themeLabel, themeIcon, canLock, onLock, user = null, onLogout = null, alerts = 0 }) {
   return (
     <>
       <div className="page-h"><div><h1>Thêm</h1><p>Mọi thứ khác của FinMate</p></div></div>
@@ -63,6 +63,16 @@ export default function More({ go, d, theme, cycleTheme, themeLabel, themeIcon, 
         </div>
       ))}
 
+      {onLogout && (
+        <div className="note mini" style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span style={{ flex: 1 }}>
+            Đang đăng nhập: <b>{user?.name || user?.email || 'bạn'}</b>
+            {user?.name && user?.email ? <span className="muted"> · {user.email}</span> : null}
+            <div className="muted">Sổ của bạn nằm trên tài khoản này — đăng nhập máy khác là có đủ.</div>
+          </span>
+          <button className="btn sm" onClick={onLogout}>Đăng xuất</button>
+        </div>
+      )}
       {canLock && (
         <button className="btn" style={{ width: '100%', marginTop: 4 }} onClick={onLock}>🔒 Khoá app</button>
       )}
