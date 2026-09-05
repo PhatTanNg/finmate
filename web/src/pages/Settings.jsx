@@ -199,8 +199,9 @@ export default function Settings({ onRefresh }) {
                 style={{ fontFamily: showKey ? 'ui-monospace, monospace' : 'inherit' }}
               /></label>
             <label className="fld"><span>Model</span>
-              <input className="inp" value={env.FINMATE_LLM_MODEL || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_MODEL: e.target.value })} placeholder="claude-opus-5 / claude-sonnet-5" /></label>
-            <label className="fld"><span>Độ sâu suy nghĩ (Claude)</span>
+              <input className="inp" value={env.FINMATE_LLM_MODEL || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_MODEL: e.target.value })} placeholder="claude-opus-5 / claude-sonnet-5" />
+              <small className="mini">Cố vấn phải điều khiển 74 công cụ — <code>claude-sonnet-5</code> là mức nên dùng; <code>claude-haiku-4-5</code> rẻ nhất nhưng hay bỏ bước.</small></label>
+            <label className="fld"><span>Độ sâu suy nghĩ (Claude 4.6+; Haiku bỏ qua)</span>
               <select className="inp" value={env.FINMATE_LLM_EFFORT || ''} onChange={(e) => setEnv({ ...env, FINMATE_LLM_EFFORT: e.target.value })}>
                 <option value="">Mặc định</option><option value="low">low (nhanh, rẻ)</option><option value="medium">medium</option><option value="high">high</option>
               </select></label>

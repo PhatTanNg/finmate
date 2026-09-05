@@ -124,11 +124,60 @@ function userBlocks(content) {
  * nhắc "trả lời ngay đi") không được gom lên đầu — làm vậy vừa mất vị trí vừa
  * phá bộ đệm — mà đi xuống dưới dạng lời người dùng.
  */
+/**
+ * Mỗi đời model Claude nhận một bộ tham số khác nhau, và gửi sai là API trả
+ * 400 ngay — không phải "bỏ qua cho lành". Lỗi thật đã gặp: Haiku 4.5 nhận
+ * `output_config.effort` và trả "This model does not support the effort
+ * parameter", làm người dùng không gọi được model nào dù key đúng.
+ *
+ * Quy tắc (theo tài liệu API):
+ *  - effort:   Opus 4.5 (chỉ low/medium/high); 4.6 trở lên, Sonnet 5, Opus 5,
+ *              Fable/Mythos (đủ 5 mức; riêng 4.6 chưa có xhigh).
+ *              Haiku 4.5, Sonnet 4.5 và cũ hơn: KHÔNG nhận.
+ *  - thinking adaptive: 4.6 trở lên. Đời trước dùng budget_tokens — app không
+ *              gửi gì cho đời đó, để model chạy mặc định.
+ *  - thinking disabled: 4.6-4.8, Opus 5, Sonnet 5 nhận; Fable/Mythos trả 400.
+ * Model không nhận ra (id lạ, model bên thứ ba) thì thận trọng: không gửi gì.
+ */
+export function capabilities(model = '') {
+  const m = String(model).toLowerCase().match(/claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d))?/);
+  if (!m) return { effort: false, efforts: [], adaptive: false, disabled: false, family: null, version: 0 };
+  const family = m[1];
+  const version = Number(m[2]) + (m[3] ? Number(m[3]) / 10 : 0);
+  const gen46 = version >= 4.6;
+  const alwaysThinks = family === 'fable' || family === 'mythos';
+  let efforts = [];
+  if (family === 'haiku') efforts = [];
+  else if (version >= 4.7 || family === 'fable' || family === 'mythos') efforts = ['low', 'medium', 'high', 'xhigh', 'max'];
+  else if (version >= 4.6) efforts = ['low', 'medium', 'high', 'max'];
+  else if (family === 'opus' && version >= 4.5) efforts = ['low', 'medium', 'high'];
+  return {
+    family, version,
+    effort: efforts.length > 0,
+    efforts,
+    adaptive: gen46,
+    disabled: gen46 && !alwaysThinks,
+  };
+}
+
+/** Hạ mức effort không có ở model này xuống mức cao nhất mà nó nhận. */
+function clampEffort(effort, caps) {
+  if (!effort || !caps.effort) return null;
+  if (caps.efforts.includes(effort)) return effort;
+  const order = ['low', 'medium', 'high', 'xhigh', 'max'];
+  for (let i = order.indexOf(effort); i >= 0; i -= 1) if (caps.efforts.includes(order[i])) return order[i];
+  return null;
+}
+
 export function toAnthropicRequest(messages, tools, {
   model, json = false, schema = null, maxTokens = 16000, effort = null, thinking = null, cache = true,
 } = {}) {
   const sys = [];
   const out = [];
+  const caps = capabilities(model);
+  effort = clampEffort(effort, caps);
+  if (thinking?.type === 'adaptive' && !caps.adaptive) thinking = null;
+  if (thinking?.type === 'disabled' && !caps.disabled) thinking = null;
 
   for (const m of messages) {
     if (m.role === 'system') {

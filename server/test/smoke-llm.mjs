@@ -21,6 +21,30 @@ const ok = (name, cond, extra = '') => {
 };
 const head = (t) => console.log(`\n${t}`);
 
+/* ---------- 0c. Tham số theo đời model ---------- */
+head('Không gửi tham số mà đời model không nhận');
+{
+  const { capabilities, toAnthropicRequest } = await import('../src/services/chat/anthropic.js');
+  const req = (model, o = {}) => toAnthropicRequest([{ role: 'user', content: 'hi' }], null, { model, effort: 'low', thinking: { type: 'adaptive' }, ...o });
+  // Lỗi thật đã gặp trên máy người dùng: Haiku 4.5 trả 400 "does not support the effort parameter".
+  const h = req('claude-haiku-4-5-20251001');
+  ok('Haiku 4.5: KHÔNG gửi effort', h.output_config?.effort === undefined, JSON.stringify(h.output_config));
+  ok('Haiku 4.5: KHÔNG gửi thinking adaptive', h.thinking === undefined, JSON.stringify(h.thinking));
+  ok('Sonnet 4.5: không effort, không adaptive', !req('claude-sonnet-4-5').output_config?.effort && !req('claude-sonnet-4-5').thinking);
+  ok('Opus 4.5: có effort nhưng không adaptive', req('claude-opus-4-5').output_config?.effort === 'low' && !req('claude-opus-4-5').thinking);
+  ok('Opus 4.5: xhigh hạ về high', req('claude-opus-4-5', { effort: 'xhigh' }).output_config?.effort === 'high');
+  ok('Opus 4.6: xhigh hạ về high (4.6 chưa có xhigh)', req('claude-opus-4-6', { effort: 'xhigh' }).output_config?.effort === 'high');
+  ok('Opus 4.6: max giữ nguyên', req('claude-opus-4-6', { effort: 'max' }).output_config?.effort === 'max');
+  for (const m of ['claude-opus-4-7', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5-1']) {
+    const b = req(m, { effort: 'xhigh' });
+    ok(`${m}: effort xhigh + adaptive đủ`, b.output_config?.effort === 'xhigh' && b.thinking?.type === 'adaptive');
+  }
+  ok('Fable: thinking disabled bị bỏ (API trả 400)', req('claude-fable-5-1', { thinking: { type: 'disabled' } }).thinking === undefined);
+  ok('Opus 5: thinking disabled vẫn gửi được', req('claude-opus-5', { thinking: { type: 'disabled' } }).thinking?.type === 'disabled');
+  ok('model lạ: thận trọng, không gửi gì', !req('gpt-4o').output_config && !req('gpt-4o').thinking);
+  ok('capabilities đọc được hậu tố ngày', capabilities('claude-haiku-4-5-20251001').version === 4.5);
+}
+
 /* ---------- 1. Dịch xuôi: messages kiểu OpenAI -> thân request của Claude ---------- */
 const { toAnthropicRequest, fromAnthropicResponse, detectProvider, anthropicUrl, anthropicHeaders } =
   await import('../src/services/chat/anthropic.js');
@@ -102,7 +126,7 @@ head('Dịch xuôi sang Messages API');
 }
 {
   const schema = { type: 'object', properties: { intent: { type: 'string' } }, required: ['intent'], additionalProperties: false };
-  const body = toAnthropicRequest([{ role: 'user', content: 'x' }], null, { model: 'm', json: true, schema, effort: 'low' });
+  const body = toAnthropicRequest([{ role: 'user', content: 'x' }], null, { model: 'claude-opus-5', json: true, schema, effort: 'low' });
   ok('có schema thì ép hình dạng qua output_config.format', body.output_config?.format?.type === 'json_schema' && body.output_config.format.schema === schema);
   ok('effort đi trong output_config', body.output_config.effort === 'low');
 }
@@ -133,7 +157,7 @@ head('Dịch xuôi sang Messages API');
 {
   const body = toAnthropicRequest([
     { role: 'user', content: [{ type: 'text', text: 'ghi hoá đơn này' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,/9j/AAAA' } }] },
-  ], null, { model: 'm', thinking: { type: 'adaptive' } });
+  ], null, { model: 'claude-opus-5', thinking: { type: 'adaptive' } });
   const c = body.messages[0].content;
   ok('ảnh data URL dịch sang khối image base64, đặt trước chữ', c[0].type === 'image' && c[0].source.media_type === 'image/jpeg' && c[0].source.data === '/9j/AAAA' && c[1].type === 'text');
   ok('cấu hình thinking đi kèm khi được đặt', body.thinking?.type === 'adaptive');
