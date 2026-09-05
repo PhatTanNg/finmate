@@ -79,7 +79,15 @@ const ok = (name, cond, extra = '') => {
 const step = (s) => console.log('\n▸ ' + s);
 
 let expectOffline = false; // lúc cố ý ngắt mạng thì fetch hỏng là đúng
-const b = await chromium.launch({ executablePath: exe, headless: true });
+// Site thật nằm ngoài mạng nội bộ: nếu môi trường bắt đi qua proxy thì
+// Chromium cũng phải đi qua, không thì mọi request bị reset.
+const proxyUrl = process.env.E2E_PROXY || process.env.HTTPS_PROXY || '';
+const useProxy = proxyUrl && /^https?:\/\//.test(BASE) && !/127\.0\.0\.1|localhost/.test(BASE);
+const b = await chromium.launch({
+  executablePath: exe,
+  headless: true,
+  ...(useProxy ? { proxy: { server: proxyUrl } } : {}),
+});
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'vi-VN' });
 const page = await ctx.newPage();
 page.on('pageerror', (e) => {
