@@ -47,3 +47,8 @@ temp/
 .shots/
 
 .commitmsg
+
+# Sổ riêng của từng người dùng (chế độ nhiều người dùng) và danh bạ tài khoản
+server/data/users/
+server/data/finmate-accounts.db*
+server/test/.tmp-accounts/

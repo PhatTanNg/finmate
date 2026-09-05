@@ -1,13 +1,38 @@
 import { openEngine } from './db_engine.js';
+import { currentCtx } from './db_context.js';
 
 // Engine đổi theo nơi chạy: node:sqlite trên máy chủ, SQLite WebAssembly
 // trong bản chạy ngay trên điện thoại (xem web/src/native). Mọi thứ bên dưới
 // — schema, migration, trigger nhật ký, helper — là chung.
 const engine = openEngine();
-export const db = engine.db;
 export const DB_PATH = engine.DB_PATH;
 export const ENGINE = engine.kind;
-db.exec('PRAGMA foreign_keys = ON;');
+
+/**
+ * Sổ đang dùng cho công việc hiện tại.
+ *
+ * Một sổ (máy cá nhân, bản chạy trên điện thoại): luôn là engine mặc định.
+ * Nhiều người dùng: là sổ RIÊNG của người gửi request đang xử lý — mỗi người
+ * một file SQLite, cách ly vật lý chứ không dựa vào việc nhớ viết WHERE.
+ */
+const activeDb = () => currentCtx()?.db || engine.db;
+export const activePath = () => currentCtx()?.path || engine.DB_PATH;
+
+/**
+ * `db` là proxy trỏ tới sổ đang dùng, nên những chỗ gọi thẳng db.exec /
+ * db.prepare (sao lưu, VACUUM, script reset) chạy đúng sổ mà không phải sửa.
+ * Hàm phải bind về handle thật, nếu không `this` sẽ là chính cái proxy.
+ */
+export const db = new Proxy({}, {
+  get(_t, k) {
+    const real = activeDb();
+    const v = real[k];
+    return typeof v === 'function' ? v.bind(real) : v;
+  },
+  has: (_t, k) => k in activeDb(),
+});
+
+engine.db.exec('PRAGMA foreign_keys = ON;');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS profile (
@@ -436,7 +461,7 @@ CREATE TABLE IF NOT EXISTS ai_proposals (
 );
 `;
 
-db.exec(SCHEMA);
+activeDb().exec(SCHEMA);
 
 // ---- migration: thêm cột cho DB đã tồn tại từ bản trước ------------------
 
@@ -509,22 +534,23 @@ migrate();
 const plain = (row) => (row ? { ...row } : row);
 
 export function all(sql, params = []) {
-  return db.prepare(sql).all(...params).map(plain);
+  return activeDb().prepare(sql).all(...params).map(plain);
 }
 export function get(sql, params = []) {
-  return plain(db.prepare(sql).get(...params));
+  return plain(activeDb().prepare(sql).get(...params));
 }
 export function run(sql, params = []) {
-  return db.prepare(sql).run(...params);
+  return activeDb().prepare(sql).run(...params);
 }
 export function tx(fn) {
-  db.exec('BEGIN');
+  const d = activeDb();
+  d.exec('BEGIN');
   try {
     const out = fn();
-    db.exec('COMMIT');
+    d.exec('COMMIT');
     return out;
   } catch (e) {
-    db.exec('ROLLBACK');
+    d.exec('ROLLBACK');
     throw e;
   }
 }
@@ -663,24 +689,47 @@ function installAuditTriggers() {
 
 installAuditTriggers();
 
-let auditAction = null;   // id của ai_actions đang mở
+/**
+ * Dựng đầy đủ một sổ TRỐNG thành sổ dùng được: bảng, migration, trigger nhật
+ * ký. Gọi trong ngữ cảnh của sổ đó (xem runInCtx) nên cùng một đoạn mã lo cho
+ * sổ mặc định lẫn sổ riêng của từng người — hai bên không bao giờ lệch schema.
+ */
+export function prepareLedger() {
+  activeDb().exec('PRAGMA foreign_keys = ON;');
+  activeDb().exec(SCHEMA);
+  migrate();
+  installAuditTriggers();
+}
+
+/**
+ * Phiên ghi nhật ký AI đang mở.
+ *
+ * Phải theo NGỮ CẢNH của từng người dùng, không được là một biến dùng chung:
+ * beginAudit và endAudit cách nhau nhiều lượt gọi công cụ có await, nên hai
+ * người dùng đồng thời sẽ chen vào nhau và việc của người này bị ghi vào
+ * nhật ký của người kia. Chạy một sổ thì rơi về biến cục bộ như cũ.
+ */
+let soloAudit = null;
+const auditOf = () => (currentCtx() ? currentCtx().auditAction ?? null : soloAudit);
+const setAudit = (v) => { const c = currentCtx(); if (c) c.auditAction = v; else soloAudit = v; };
 
 export function beginAudit({ tool, args, batch, source = 'chat', reason = null }) {
-  if (auditAction) abortAudit();   // phiên trước chưa đóng đúng cách
+  if (auditOf()) abortAudit();   // phiên trước chưa đóng đúng cách
   const res = run(
     'INSERT INTO ai_actions (batch, source, tool, args, reason) VALUES (?,?,?,?,?)',
     [batch || null, source, tool, JSON.stringify(args ?? {}).slice(0, 4000), reason],
   );
-  auditAction = Number(res.lastInsertRowid);
+  const id0 = Number(res.lastInsertRowid);
+  setAudit(id0);
   run('DELETE FROM ai_audit_state');
-  run('INSERT INTO ai_audit_state (action_id) VALUES (?)', [auditAction]);
-  return auditAction;
+  run('INSERT INTO ai_audit_state (action_id) VALUES (?)', [id0]);
+  return id0;
 }
 
 export function endAudit(result, ok = true) {
-  if (!auditAction) return null;
-  const id = auditAction;
-  auditAction = null;
+  if (!auditOf()) return null;
+  const id = auditOf();
+  setAudit(null);
   run('DELETE FROM ai_audit_state');
   const n = get('SELECT COUNT(*) c FROM ai_changes WHERE action_id = ?', [id])?.c || 0;
   run('UPDATE ai_actions SET result = ?, ok = ?, mutates = ? WHERE id = ?',
@@ -689,9 +738,9 @@ export function endAudit(result, ok = true) {
 }
 
 /** Huỷ phiên ghi nhật ký đang mở (dùng khi có lỗi). */
-export function abortAudit() { auditAction = null; run('DELETE FROM ai_audit_state'); }
+export function abortAudit() { setAudit(null); run('DELETE FROM ai_audit_state'); }
 
-export function auditing() { return auditAction != null; }
+export function auditing() { return auditOf() != null; }
 
 /** Insert helper: insert(table, {col: val}) -> row id */
 export function insert(table, raw) {

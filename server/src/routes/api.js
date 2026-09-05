@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import { all, get, insert, update, remove, run, setting } from '../db.js';
 import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken } from '../services/auth.js';
+import * as tk from '../services/accounts.js';
 import { BACKUP_DIR, listBackups, createBackup, snapshotToTemp, exportAll, autoBackup } from '../services/backup.js';
 import { today, monthKey, monthStart, monthEnd, lastMonths } from '../util/date.js';
 import { bootstrap } from '../bootstrap.js';
@@ -51,6 +52,60 @@ const wrap = (fn) => async (req, res) => {
 
 // ---- hệ thống -------------------------------------------------------------
 
+// ---- tài khoản người dùng (chỉ bật khi FINMATE_MULTIUSER=1) ----
+// Tiền tố /account, KHÔNG phải /auth: /auth/* đã là khoá PIN của thiết bị —
+// hai khái niệm khác hẳn nhau. Đặt trùng thì route mới che mất route cũ và
+// khoá PIN im lặng hỏng (đúng lỗi bộ smoke-auth vừa bắt được).
+// ---- tài khoản --------------------------
+
+const needMulti = (res) => {
+  res.status(404).json({ ok: false, error: 'Máy chủ này chạy chế độ một sổ, không có tài khoản' });
+  return null;
+};
+
+router.post('/account/register', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  const u = tk.register(req.body || {});
+  // Đăng ký xong đăng nhập luôn: bắt gõ lại mật khẩu vừa đặt là vô ích.
+  const s = tk.startSession(u.id, req.get('user-agent'));
+  ok(res, { user: u, ...s });
+}));
+
+router.post('/account/login', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  const ip = ipOf(req);
+  const cho = lockedFor(ip);
+  if (cho) return res.status(429).json({ ok: false, error: `Sai nhiều lần, thử lại sau ${cho}s` });
+  const u = tk.verify(req.body || {});
+  if (!u) { noteFail(ip); return res.status(401).json({ ok: false, error: 'Email hoặc mật khẩu không đúng' }); }
+  noteSuccess(ip);
+  ok(res, { user: u, ...tk.startSession(u.id, req.get('user-agent')) });
+}));
+
+router.post('/account/logout', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  tk.endSession(req.get('x-finmate-key') || (req.get('authorization') || '').replace(/^Bearer\s+/i, ''));
+  ok(res, { logged_out: true });
+}));
+
+router.get('/account/me', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  ok(res, { user: req.user || null });
+}));
+
+router.post('/account/password', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  tk.changePassword(req.user.id, req.body || {});
+  ok(res, { changed: true, note: 'Mọi thiết bị khác đã bị đăng xuất' });
+}));
+
+router.post('/account/logout-all', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  ok(res, { closed: tk.endAllSessions(req.user.id) });
+}));
+
 router.get('/health', wrap(async (req, res) => ok(res, {
   time: new Date().toISOString(),
   db: 'sqlite',
@@ -67,6 +122,9 @@ router.get('/health', wrap(async (req, res) => ok(res, {
   // Không có mạng vẫn dùng đủ: mọi việc AI làm được đều có nút làm tay, bộ
   // luật tiếng Việt trả lời chat, tỷ giá dùng bản đã lưu.
   offline_ok: true,
+  // Giao diện cần biết để hiện màn đăng nhập hay không.
+  multi_user: tk.multiUser(),
+  user: req.user || null,
 })));
 
 // ---- khoá ứng dụng bằng PIN ----------------------------------------------

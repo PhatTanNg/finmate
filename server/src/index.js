@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { router, runAutomation } from './routes/api.js';
 import { setting } from './db.js';
 import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
+import { requireAccount } from './services/account_auth.js';
+import { multiUser } from './services/accounts.js';
 import { ensureWelcome } from './services/chat/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -69,7 +71,10 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.use('/api', requireAuth);
+// Nhiều người dùng: đăng nhập bằng tài khoản, mỗi request chạy trong sổ của
+// chính người đó. Một sổ: giữ nguyên khoá PIN như trước — bản chạy trên điện
+// thoại và người dùng cá nhân không bị ép phải có tài khoản.
+app.use('/api', multiUser() ? requireAccount : requireAuth);
 app.use('/api', router);
 
 const dist = path.join(__dirname, '../../web/dist');
