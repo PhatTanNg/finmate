@@ -14,9 +14,12 @@ import { fileURLToPath } from 'node:url';
 
 export function openEngine() {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const dataDir = path.resolve(here, '..', 'data');
-  fs.mkdirSync(dataDir, { recursive: true });
-  const DB_PATH = process.env.FINMATE_DB || path.join(dataDir, 'finmate.db');
+  const DB_PATH = process.env.FINMATE_DB
+    || path.join(process.env.FINMATE_DATA_DIR || path.resolve(here, '..', 'data'), 'finmate.db');
+  // Chỉ tạo thư mục THẬT SỰ chứa sổ. Bản cũ tạo server/data vô điều kiện rồi
+  // mới xét FINMATE_DB — trên máy chủ thật, thư mục mã nguồn không ghi được nên
+  // app chết ngay lúc khởi động với EACCES dù mọi đường dẫn đã trỏ vào ổ đĩa.
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new DatabaseSync(DB_PATH);
   db.exec('PRAGMA journal_mode = WAL;');
   return { db, DB_PATH, kind: 'node' };

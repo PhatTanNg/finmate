@@ -15,9 +15,9 @@
  * Nên bộ kiểm: ghi dữ liệu → SIGTERM → chờ tiến trình tự thoát → bật lại →
  * đòi lại đúng dữ liệu đó, và soi cả đường dẫn file trên đĩa.
  */
-import { spawn } from 'node:child_process';
-import { existsSync, rmSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, rmSync, mkdirSync, readdirSync, readFileSync, cpSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
@@ -114,6 +114,29 @@ ok('FINMATE_DATA_DIR nằm trong volume được mount', mounts.some((m) => envD
 for (const bien of ['FINMATE_DB', 'FINMATE_BACKUP_DIR']) {
   const v = new RegExp(`^ENV\\s+${bien}=(\\S+)`, 'm').exec(dockerfile)?.[1];
   ok(`${bien} cũng nằm trong volume`, Boolean(v) && mounts.some((m) => v === m || v.startsWith(`${m}/`)), String(v));
+}
+
+head('Mở sổ không đụng tới thư mục mã nguồn');
+// Bản cũ của openEngine() tạo server/data VÔ ĐIỀU KIỆN rồi mới xét FINMATE_DB.
+// Trên máy của lập trình viên thì vô hại — thư mục ghi được, và sổ vẫn nằm
+// đúng chỗ nên mọi bộ kiểm đều xanh. Trên máy chủ thật thì mã nguồn nằm trong
+// image chỉ đọc: app chết ngay dòng đầu với EACCES, deploy vẫn báo xanh, người
+// dùng thấy trang trắng. Chép riêng engine ra một cây thư mục sạch rồi nạp nó,
+// thư mục 'data' cạnh mã nguồn mà xuất hiện là lỗi ấy quay lại.
+{
+  const sanh = path.join(vol, 'engine-sach');
+  const nguon = path.join(sanh, 'server', 'src');
+  mkdirSync(nguon, { recursive: true });
+  cpSync(path.join(here, '..', 'src', 'db_engine.js'), path.join(nguon, 'db_engine.js'));
+  const soRieng = path.join(sanh, 'o-dia', 'finmate.db');
+  const r = spawnSync(process.execPath,
+    ['--input-type=module', '-e',
+      `import('${pathToFileURL(path.join(nguon, 'db_engine.js')).href}').then((m) => m.openEngine());`],
+    { env: { ...process.env, FINMATE_DB: soRieng }, encoding: 'utf8' });
+  ok('mở được sổ ở nơi FINMATE_DB chỉ định', r.status === 0, (r.stderr || '').split('\n')[0]);
+  ok('sổ nằm đúng chỗ được chỉ định', existsSync(soRieng));
+  ok('KHÔNG tạo thư mục data cạnh mã nguồn', !existsSync(path.join(sanh, 'server', 'data')),
+    'openEngine() lại tạo server/data vô điều kiện — máy chủ thật sẽ chết vì EACCES');
 }
 
 head('fly.toml trỏ dữ liệu vào đúng ổ đĩa được gắn');
