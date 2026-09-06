@@ -97,7 +97,24 @@ jobs:
             ORG=$(flyctl orgs list --json | jq -r 'if type == "object" then (keys[0] // empty) else (.[0].Slug // .[0].slug // empty) end')
             ORG=${ORG:-personal}
             echo "Tạo app $APP trong tổ chức $ORG…"
-            flyctl apps create "$APP" --org "$ORG"
+            if ! out=$(flyctl apps create "$APP" --org "$ORG" 2>&1); then
+              echo "$out"
+              # Hai lời từ chối hay gặp nhất, và cách xử lý hoàn toàn khác nhau —
+              # đọc lẫn trong log thì dễ tưởng là code hỏng.
+              case "$out" in
+                *"payment information"*|*"Add a credit card"*)
+                  echo "::error::Fly đòi thông tin thanh toán trước khi tạo app. Vào https://fly.io/dashboard/$ORG/billing gắn thẻ (hoặc mua credit), rồi bấm Run workflow lại. Không phải lỗi token hay lỗi code."
+                  ;;
+                *"already"*|*"taken"*|*"unavailable"*)
+                  echo "::error::Tên app \"$APP\" đã có người lấy — tên app trên Fly là duy nhất toàn cầu. Chạy lại với một tên khác."
+                  ;;
+                *)
+                  echo "::error::Không tạo được app. Nguyên văn lời Fly nói ở ngay trên."
+                  ;;
+              esac
+              exit 1
+            fi
+            echo "$out"
           fi
 
       - name: Tạo ổ đĩa giữ dữ liệu nếu chưa có
