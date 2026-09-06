@@ -17,6 +17,7 @@
  *  - FINMATE_LLM_MAX_TOKENS  trần độ dài câu trả lời (tính cả phần suy nghĩ).
  */
 import { detectProvider, anthropicUrl, anthropicHeaders, toAnthropicRequest, fromAnthropicResponse } from './anthropic.js';
+import { setting } from '../../db.js';
 
 /**
  * Cấu hình model đọc LẠI mỗi lần dùng, không đóng băng lúc nạp module.
@@ -29,7 +30,40 @@ import { detectProvider, anthropicUrl, anthropicHeaders, toAnthropicRequest, fro
  * ngược nhau và người dùng không biết tin ai. Đọc lười thì lưu xong là dùng
  * được ngay, và mọi nơi trong app luôn thấy cùng một sự thật.
  */
-const env = (k) => String(process.env[k] || '').trim();
+/**
+ * Cấu hình model đọc theo thứ tự: SỔ ĐANG DÙNG trước, biến môi trường sau.
+ *
+ * Máy chủ nhiều người dùng mà chỉ đọc biến môi trường thì cả nhà tiêu chung một
+ * key của chủ máy chủ, và không ai mang key riêng vào được — chủ máy chủ trả
+ * tiền cho mọi người, còn người dùng thì không tự chọn được model. Cất key
+ * trong chính sổ của từng người thì mỗi người một đường dây AI, cách ly vật lý
+ * y như số liệu tài chính.
+ *
+ * Biến môi trường vẫn là bậc dưới, nên hai cách dùng cũ không đổi gì: máy cá
+ * nhân đặt key trong .env, bản chạy trên điện thoại đặt vào process.env lúc
+ * khởi động. Chủ máy chủ muốn bao cả nhà thì cứ đặt biến môi trường, ai chưa
+ * dán key riêng sẽ dùng nó.
+ */
+const KHOA_SO = {
+  FINMATE_LLM_KEY: 'llm_key',
+  FINMATE_LLM_URL: 'llm_url',
+  FINMATE_LLM_MODEL: 'llm_model',
+  FINMATE_LLM_PROVIDER: 'llm_provider',
+  FINMATE_LLM_EFFORT: 'llm_effort',
+  FINMATE_LLM_THINKING: 'llm_thinking',
+  FINMATE_LLM_MAX_TOKENS: 'llm_max_tokens',
+  FINMATE_LLM_TIMEOUT_MS: 'llm_timeout_ms',
+};
+
+const trongSo = (k) => {
+  const khoa = KHOA_SO[k];
+  if (!khoa) return '';
+  // Sổ có thể chưa dựng xong (lúc import db.js chạy schema) — đọc hỏng thì coi
+  // như chưa đặt, đừng làm hỏng cả lượt gọi.
+  try { return String(setting(khoa) || '').trim(); } catch { return ''; }
+};
+
+const env = (k) => trongSo(k) || String(process.env[k] || '').trim();
 
 const rawUrl = () => env('FINMATE_LLM_URL');
 const apiKey = () => env('FINMATE_LLM_KEY') || env('ANTHROPIC_API_KEY') || env('OPENAI_API_KEY');

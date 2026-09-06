@@ -212,6 +212,31 @@ if (INBOX) {
   ok('mở lại đường dẫn cũ thì báo hết hạn, không cho đặt lại lần nữa', /không còn dùng được/.test(await text('.lock-box')), (await text('.lock-box')).slice(0, 80));
 }
 
+// ── 7. Khoá AI của riêng mình ──────────────────────────────────────────────
+step('7. Dán khoá AI của riêng mình');
+// Bước trên kết thúc ở màn "đường dẫn đã hết hạn" — quay lại đăng nhập bằng
+// mật khẩu vừa đặt để vào app như một người dùng bình thường.
+const quayLai = await page.$('text=Quay lại đăng nhập');
+if (quayLai) await quayLai.click();
+await page.waitForSelector('input[type=email]', { timeout: 20000 });
+await page.fill('input[type=email]', 'lan@example.com');
+await page.fill('input[type=password]', 'mat-khau-hoan-toan-moi');
+await page.click('button.primary');
+await page.waitForSelector('.botnav', { timeout: 30000 });
+await page.evaluate(() => { location.hash = 'settings'; });
+await page.waitForTimeout(2000);
+const theKey = await text('.main');
+ok('có thẻ khoá AI riêng trong Cài đặt', /khoá của riêng bạn/i.test(theKey), theKey.slice(0, 100));
+ok('nói rõ hiện chưa có khoá nào', /bộ luật tiếng Việt|khoá chung của máy chủ/i.test(theKey));
+await page.fill('input[name="finmate-llm-key"]', 'sk-ant-khoa-rieng-cua-lan-123456');
+// Bấm đúng nút Lưu CỦA THẺ NÀY: trang Cài đặt có nhiều nút Lưu.
+await page.click('.card:has-text("khoá của riêng bạn") button.primary');
+await page.waitForTimeout(1500);
+const sauLuu = await page.$eval('.card:has-text("khoá của riêng bạn")', (e) => e.innerText).catch(() => '');
+ok('lưu xong báo đang dùng khoá riêng', /khoá riêng của bạn/i.test(sauLuu), sauLuu.slice(0, 160));
+ok('KHÔNG hiện lại khoá nguyên văn ở bất kỳ đâu', !sauLuu.includes('sk-ant-khoa-rieng-cua-lan-123456'), sauLuu.slice(0, 120));
+ok('chỉ hiện dạng che', /sk-ant…3456|sk-ant.*…/.test(sauLuu), (sauLuu.match(/sk-[^\s]*/) || [''])[0]);
+
 ok('không có lỗi JavaScript nào trong suốt hành trình', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
 
 await b.close();

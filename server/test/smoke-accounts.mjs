@@ -46,6 +46,7 @@ const call = async (method, p, body, token) => {
 };
 const POST = (p, b, t) => call('POST', p, b, t);
 const GET = (p, t) => call('GET', p, null, t);
+const api_del = (p, t) => call('DELETE', p, null, t);
 
 head('Đăng ký và đăng nhập');
 const an = await POST('/account/register', { email: 'An@Example.COM ', password: 'matkhau-cua-an', name: 'An' });
@@ -115,6 +116,33 @@ const moi = await POST('/account/login', { email: 'an@example.com', password: 'm
 ok('mật khẩu mới đăng nhập được', moi.status === 200);
 ok('dữ liệu còn nguyên sau khi đổi mật khẩu',
   (await GET('/accounts', moi.token)).accounts.some((a) => a.name === 'VCB của An'));
+
+head('Khoá AI của riêng từng người');
+// Máy chủ chỉ có một khoá trong biến môi trường thì chủ máy chủ trả tiền cho
+// tất cả, và không ai chọn được model của mình. Khoá phải nằm trong sổ riêng.
+process.env.FINMATE_LLM_KEY = 'sk-ant-khoa-cua-may-chu-dung-chung';
+// An vừa đổi mật khẩu ở mục trên nên mọi token cũ đã chết — dùng phiên mới.
+const anK = moi.token;
+ok('chưa dán khoá riêng thì dùng khoá của máy chủ', (await GET('/ai/key', anK)).nguon === 'cua_may_chu');
+
+const datKey = await POST('/ai/key', { key: 'sk-ant-khoa-rieng-cua-an-12345', model: 'claude-sonnet-5' }, anK);
+ok('dán được khoá riêng', datKey.nguon === 'cua_ban', JSON.stringify(datKey).slice(0, 120));
+ok('khoá riêng thắng khoá máy chủ', datKey.model === 'claude-sonnet-5', datKey.model);
+ok('KHÔNG trả khoá ra nguyên văn, chỉ hiện dạng che',
+  !JSON.stringify(datKey).includes('sk-ant-khoa-rieng-cua-an-12345') && /…/.test(datKey.key_che || ''), datKey.key_che);
+ok('/settings cũng không lộ khoá', !JSON.stringify(await GET('/settings', anK)).includes('khoa-rieng-cua-an'));
+ok('bản xuất dữ liệu cũng không kèm khoá', !JSON.stringify(await GET('/export', anK)).includes('khoa-rieng-cua-an'));
+ok('không đặt được khoá qua cửa /settings chung',
+  (await POST('/settings', { llm_key: 'len-lut' }, anK)).status !== 200);
+
+const cuaBinh = await GET('/ai/key', binh.token);
+ok('người khác KHÔNG thấy khoá của mình', cuaBinh.nguon === 'cua_may_chu' && !cuaBinh.key_che, JSON.stringify(cuaBinh).slice(0, 100));
+ok('và vẫn dùng model của máy chủ chứ không phải model An chọn', cuaBinh.model !== 'claude-sonnet-5', cuaBinh.model);
+
+const goKey = await api_del('/ai/key', anK);
+ok('gỡ khoá riêng thì quay về khoá máy chủ', goKey.nguon === 'cua_may_chu', JSON.stringify(goKey).slice(0, 100));
+delete process.env.FINMATE_LLM_KEY;
+ok('máy chủ cũng không có khoá thì nói thẳng là chưa có', (await GET('/ai/key', anK)).nguon === 'chua_co');
 
 head('Sổ riêng từng người');
 ok('mỗi người một file .db riêng', existsSync(acc.ledgerPath(an.user.id)) && existsSync(acc.ledgerPath(binh.user.id)));

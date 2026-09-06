@@ -567,7 +567,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_BACKUP_KEEP` | `14` | Số bản sao lưu giữ lại |
 | `FINMATE_FX_URL` | `https://open.er-api.com/v6/latest/EUR` | Nguồn tỷ giá (JSON có trường `rates`) |
 | `FINMATE_FX_OFFLINE` | – | Đặt `1` để tắt hẳn việc gọi mạng lấy tỷ giá |
-| `FINMATE_LLM_KEY` | – | Bật cố vấn AI (function calling). Trống = dùng bộ luật offline |
+| `FINMATE_LLM_KEY` | – | Bật cố vấn AI (function calling). Trống = dùng bộ luật offline. Ở chế độ nhiều người dùng đây là khoá **dùng chung**, ai dán khoá riêng thì khoá riêng thắng |
 | `FINMATE_LLM_URL` | OpenAI | Endpoint tương thích OpenAI. Bỏ trống khi dùng Claude |
 | `FINMATE_LLM_MODEL` | `gpt-4o-mini` / `claude-opus-5` | Model, cần hỗ trợ tool calling (đọc ảnh hoá đơn cần model có vision) |
 | `FINMATE_LLM_PROVIDER` | tự nhận diện | `openai` hoặc `anthropic`, chỉ đặt khi nhận diện sai |
@@ -597,6 +597,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 ### Những việc chỉ bạn làm được
 - **Kết nối ngân hàng tự động (Open Banking)**: ở châu Âu có PSD2 — các nhà cung cấp như GoCardless Bank Account Data (Nordigen cũ) cho phép đọc trực tiếp giao dịch từ AIB, BOI, Revolut, N26… mà không cần Shortcuts. Cần bạn tự đăng ký tài khoản nhà cung cấp và lấy khoá; sau đó nối vào `services/ingest.js`. Việt Nam chưa có Open Banking mở cho cá nhân nên vẫn phải dùng webhook tin nhắn hoặc import CSV.
 - **Nguồn giá trả phí / realtime**: giá đang lấy từ nguồn miễn phí (trễ vài phút tới cuối ngày tuỳ nguồn). Có nguồn riêng thì nối thêm một fetcher trong `services/prices.js`.
+- **Khoá AI của từng người**: ở chế độ nhiều người dùng, mỗi người tự dán khoá API của mình trong **Cài đặt → Cố vấn AI — khoá của riêng bạn**. Khoá nằm trong sổ riêng của họ (cách ly vật lý như số liệu), được ưu tiên hơn `FINMATE_LLM_KEY` của máy chủ, không bao giờ trả ra nguyên văn và không đi kèm bản xuất dữ liệu. Chủ máy chủ muốn bao cả nhà thì cứ đặt biến môi trường — ai chưa dán khoá riêng sẽ dùng khoá đó.
 - **Khoá dịch vụ gửi email**: chức năng quên mật khẩu đã có sẵn, nhưng thư phải đi qua một dịch vụ gửi thư và khoá đó chỉ bạn lấy được. [Resend](https://resend.com) miễn phí 3.000 thư/tháng, đăng ký 5 phút, không cần thẻ: lấy khoá `re_...` rồi `fly secrets set FINMATE_MAIL_KEY=re_...`. Chưa có khoá thì vẫn đặt lại được bằng tay từ máy chủ (xem mục 8).
 - **Trộn hai cuốn sổ đã lệch nhau**: đồng bộ hiện gửi/nhận NGUYÊN CẢ SỔ (xem mục 9). Hai máy cùng sửa offline thì app dừng lại và hỏi giữ bản nào, chứ không trộn từng dòng — id ở đây là số tự tăng của từng máy, trộn kiểu đó là nhân đôi hoặc nuốt mất giao dịch. Muốn trộn thật thì mỗi dòng phải có mã toàn cục và phải có nhật ký thao tác; đó là một lớp riêng, chưa làm.
 

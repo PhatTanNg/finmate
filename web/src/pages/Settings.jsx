@@ -4,6 +4,7 @@ import { Card, Empty, Loading, Modal, Form } from '../components/ui.jsx';
 import { InstallCard } from '../components/Install.jsx';
 import SyncCard from '../components/SyncCard.jsx';
 import QueueCard from '../components/QueueCard.jsx';
+import AiKeyCard from '../components/AiKeyCard.jsx';
 import { fmt, pct, toMinor, baseCurrency } from '../lib/format.js';
 
 /** Che key nhưng vẫn cho thấy đuôi, để biết đang cầm đúng key nào. */
@@ -181,6 +182,8 @@ export default function Settings({ onRefresh }) {
       </div>
 
       <div id="cai-app"><InstallCard /></div>
+
+      {!EMBEDDED && <AiKeyCard />}
 
       {EMBEDDED && env && (
         <Card title="Cố vấn AI (bản trên điện thoại)">

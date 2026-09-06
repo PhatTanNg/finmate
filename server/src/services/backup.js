@@ -92,7 +92,7 @@ export function exportAll() {
     // Bản xuất hay được gửi cho người khác xem (kế toán, người thân, hay chính
     // mình qua email). Không được kèm theo thứ mở được cửa: mã PIN đã băm, và
     // token webhook — ai có token đó là đẩy được giao dịch giả vào sổ.
-    if (t === 'settings') out[t] = out[t].filter((r) => !['app_pin', 'ingest_token'].includes(r.key));
+    if (t === 'settings') out[t] = out[t].filter((r) => !['app_pin', 'ingest_token', 'llm_key'].includes(r.key));
   }
   return out;
 }

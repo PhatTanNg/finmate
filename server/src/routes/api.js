@@ -31,7 +31,7 @@ import { listRemittances, remittanceSummary, timingAdvice, quote as fxQuote, cos
 import { CURRENCIES, CURRENCY_CODES, normalizeCurrency } from '../util/currency.js';
 import { recomputeBaseAmounts } from '../services/ledger.js';
 import { chat, history as chatHistory, ensureWelcome, resetChat } from '../services/chat/index.js';
-import { llmEnabled, llmModel, llmStatus, testLlm } from '../services/chat/llm.js';
+import { llmEnabled, llmModel, llmProvider, llmStatus, testLlm } from '../services/chat/llm.js';
 import { listActions, actionDetail, actionStats, undoAction, undoLast, undoBatch, pruneActions } from '../services/ai_audit.js';
 import { listMemory, remember, forget, pruneMemory } from '../services/ai_memory.js';
 import { runReview, reviewConfig, setReviewConfig, lastReview, reviewHistory } from '../services/ai_review.js';
@@ -420,7 +420,10 @@ router.patch('/profile', wrap(async (req, res) => {
   ok(res, { profile: get('SELECT * FROM profile WHERE id = 1') });
 }));
 
-const PRIVATE_SETTINGS = new Set(['app_pin']);
+// Không bao giờ trả ra ngoài, và không đặt được qua POST /settings chung.
+// llm_key là khoá API có thể tiêu tiền thật của người dùng: có đường riêng để
+// đặt (POST /ai/key) và chỉ hiện lại dạng che.
+const PRIVATE_SETTINGS = new Set(['app_pin', 'llm_key']);
 const publicSettings = () => all('SELECT * FROM settings').filter((s) => !PRIVATE_SETTINGS.has(s.key));
 // POST /settings nhận object nên GET cũng phải trả về được dạng object, nếu
 // không thì client (và AI agent) phải tự dựng lại map từ mảng key/value.
@@ -430,10 +433,58 @@ const settingsPayload = () => ({ settings: publicSettings(), values: { ...settin
 router.get('/settings', wrap(async (req, res) => ok(res, settingsPayload())));
 router.post('/settings', wrap(async (req, res) => {
   for (const [k, v] of Object.entries(req.body || {})) {
-    if (PRIVATE_SETTINGS.has(k)) throw new Error('Mã PIN phải đổi qua /auth/change');
+    if (k === 'app_pin') throw new Error('Mã PIN phải đổi qua /auth/change');
+    if (PRIVATE_SETTINGS.has(k)) throw new Error('Khoá API phải đặt qua /ai/key');
     setting(k, v);
   }
   ok(res, settingsPayload());
+}));
+
+/**
+ * Khoá API của RIÊNG từng người.
+ *
+ * Máy chủ nhiều người dùng mà chỉ có một khoá trong biến môi trường thì chủ máy
+ * chủ trả tiền cho tất cả, còn người dùng không tự chọn được model. Khoá đặt ở
+ * đây nằm trong chính sổ của người đó — cách ly vật lý như mọi thứ khác — và
+ * được ưu tiên hơn biến môi trường của máy chủ.
+ */
+const CHIA_KHOA = ['llm_key', 'llm_model', 'llm_url', 'llm_provider', 'llm_effort', 'llm_thinking'];
+const cheKey = (k) => (k && k.length > 8 ? `${k.slice(0, 6)}…${k.slice(-4)}` : (k ? '••••' : null));
+
+const trangThaiKey = () => {
+  const rieng = setting('llm_key');
+  return {
+    // Có đường dây AI hay không, và nhờ khoá của ai.
+    bat: llmEnabled(),
+    nguon: rieng ? 'cua_ban' : (llmEnabled() ? 'cua_may_chu' : 'chua_co'),
+    key_che: rieng ? cheKey(rieng) : null,
+    model: llmEnabled() ? llmModel() : null,
+    nha_cung_cap: llmEnabled() ? llmProvider() : null,
+    // Máy chủ có sẵn khoá chung không — để giao diện nói đúng chuyện gì xảy ra
+    // nếu người dùng gỡ khoá riêng đi.
+    may_chu_co_key: Boolean(String(process.env.FINMATE_LLM_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || '').trim()),
+    ...Object.fromEntries(CHIA_KHOA.filter((k) => k !== 'llm_key').map((k) => [k, setting(k) || null])),
+  };
+};
+
+router.get('/ai/key', wrap(async (req, res) => ok(res, trangThaiKey())));
+
+router.post('/ai/key', wrap(async (req, res) => {
+  const b = req.body || {};
+  if (b.key !== undefined) {
+    const k = String(b.key ?? '').trim();
+    if (k && k.length < 12) throw new Error('Khoá API trông không giống thật (quá ngắn)');
+    setting('llm_key', k);
+  }
+  for (const [tu, khoa] of [['model', 'llm_model'], ['url', 'llm_url'], ['provider', 'llm_provider'], ['effort', 'llm_effort'], ['thinking', 'llm_thinking']]) {
+    if (b[tu] !== undefined) setting(khoa, String(b[tu] ?? '').trim());
+  }
+  ok(res, trangThaiKey());
+}));
+
+router.delete('/ai/key', wrap(async (req, res) => {
+  for (const k of CHIA_KHOA) setting(k, '');
+  ok(res, trangThaiKey());
 }));
 
 // ---- chat -----------------------------------------------------------------
