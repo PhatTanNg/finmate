@@ -48,20 +48,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Kiểm tra đã có token Fly chưa
+      - name: Chuẩn hoá token Fly
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          RAW: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          if [ -z "$FLY_API_TOKEN" ]; then
+          if [ -z "$RAW" ]; then
             echo "::error::Chưa có secret FLY_API_TOKEN. Lấy token ở https://fly.io/user/personal_access_tokens rồi thêm vào Settings → Secrets and variables → Actions."
             exit 1
+          fi
+          # Copy token trên điện thoại gần như luôn dính thêm dấu xuống dòng hoặc
+          # khoảng trắng ở đầu/cuối. Ký tự xuống dòng thì KHÔNG đặt vào header
+          # HTTP được, nên flyctl chết với một câu chẳng liên quan gì tới token:
+          # 'net/http: invalid header field value for "Authorization"'.
+          # Cắt ở đây một lần cho xong, thay vì bắt người ta copy lại cho chuẩn.
+          #
+          # Chỉ cắt hai đầu: token Fly có dạng "FlyV1 fm2_..." — dấu cách Ở GIỮA
+          # là một phần của token, đụng vào là hỏng.
+          CLEAN=$(printf '%s' "$RAW" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+          echo "::add-mask::$CLEAN"
+          echo "FLY_API_TOKEN=$CLEAN" >> "$GITHUB_ENV"
+          if [ "$CLEAN" != "$RAW" ]; then
+            echo "Đã cắt bỏ khoảng trắng/xuống dòng thừa quanh token (${#RAW} ký tự -> ${#CLEAN})."
+          else
+            echo "Token sạch sẵn, không phải cắt gì."
           fi
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Token có thật sự dùng được không
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           # Hỏi Fly xem token này là của ai. Bước này tồn tại vì thông điệp lỗi
           # gốc của flyctl khi token hỏng ("You must be authenticated to view
@@ -85,7 +99,6 @@ jobs:
 
       - name: Tạo app nếu chưa có
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           APP: ${{ inputs.app }}
         run: |
           if flyctl status --app "$APP" >/dev/null 2>&1; then
@@ -119,7 +132,6 @@ jobs:
 
       - name: Tạo ổ đĩa giữ dữ liệu nếu chưa có
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           APP: ${{ inputs.app }}
           REGION: ${{ inputs.region }}
           GB: ${{ inputs.volume_gb }}
@@ -135,7 +147,6 @@ jobs:
 
       - name: Đặt các bí mật (chỉ đặt cái nào chưa có)
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           APP: ${{ inputs.app }}
           SIGNUP_CODE: ${{ secrets.FINMATE_SIGNUP_CODE }}
           MAIL_KEY: ${{ secrets.FINMATE_MAIL_KEY }}
@@ -170,7 +181,6 @@ jobs:
 
       - name: Deploy
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           APP: ${{ inputs.app }}
           REGION: ${{ inputs.region }}
         run: |
@@ -185,7 +195,6 @@ jobs:
 
       - name: Kiểm tra máy chủ đã sống
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           APP: ${{ inputs.app }}
         run: |
           for i in $(seq 1 30); do
