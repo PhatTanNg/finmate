@@ -137,6 +137,11 @@ jobs:
                 *"already"*|*"taken"*|*"unavailable"*)
                   echo "::error::Tên app \"$APP\" đã có người lấy — tên app trên Fly là duy nhất toàn cầu. Chạy lại với một tên khác."
                   ;;
+                *"must be authenticated"*|*"Unauthorized"*)
+                  echo "::error::Token không có quyền tạo app trong tổ chức. Hai đường đi tiếp:"
+                  echo "  (a) Tạo app bằng tay: vào https://fly.io/dashboard -> Launch/Create app, đặt tên \"$APP\", rồi chạy lại workflow này. Workflow thấy app có sẵn sẽ bỏ qua bước tạo, và deploy token của chính app đó là đủ dùng."
+                  echo "  (b) Lấy token TÀI KHOẢN mới ở https://fly.io/user/personal_access_tokens (đặt hạn dùng dài, phạm vi tổ chức personal) rồi dán lại vào secret FLY_API_TOKEN."
+                  ;;
                 *)
                   echo "::error::Không tạo được app. Nguyên văn lời Fly nói ở ngay trên."
                   ;;
