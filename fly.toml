@@ -1,0 +1,79 @@
+# Chạy FinMate trên Fly.io — máy chủ thật, có tên miền, có HTTPS.
+#
+# Vì sao Fly hợp: app này là MỘT tiến trình + MỘT thư mục file SQLite. Nó cần
+# đúng hai thứ mà nền tảng nào cũng phải có mà nhiều nơi lại không cho: một ổ
+# đĩa ghi được và giữ nguyên qua mỗi lần deploy (volume), và một tiến trình
+# sống lâu. Các nền tảng "serverless" (Vercel, Netlify, GitHub Pages) không có
+# cả hai — deploy lên đó thì mỗi request chạy trong một hộp mới, sổ sách bay hết.
+#
+# CHỈ ĐƯỢC CHẠY MỘT MÁY. SQLite cho phép duy nhất một tiến trình ghi vào file.
+# Hai máy cùng mount một volume là hỏng dữ liệu, mà Fly cũng không cho hai máy
+# dùng chung một volume. Muốn chịu tải hơn thì tăng CPU/RAM của một máy, đừng
+# tăng số máy.
+#
+# Các bước (chạy trên máy của bạn, mỗi lệnh một lần):
+#   1. cài flyctl:  curl -L https://fly.io/install.sh | sh
+#   2. fly auth signup            (hoặc fly auth login nếu đã có tài khoản)
+#   3. fly launch --no-deploy --copy-config --name TEN-APP-CUA-BAN
+#   4. fly volumes create finmate_data --size 3 --region sin
+#   5. đặt các bí mật — KHÔNG viết vào file này, file này nằm trong git:
+#        fly secrets set FINMATE_INGEST_TOKEN="$(openssl rand -hex 24)"
+#        fly secrets set FINMATE_SIGNUP_CODE="mã mời của riêng bạn"
+#        fly secrets set FINMATE_LLM_KEY="sk-ant-..."     # nếu muốn bật AI phía máy chủ
+#   6. fly deploy
+#   7. fly open       — mở app, tạo tài khoản bằng mã mời ở bước 5
+#
+# Sao lưu: `fly ssh console -C "ls /data/backups"` để xem, và
+# `fly ssh sftp get /data/backups/<ten-file>` để tải một bản về máy.
+
+app = 'finmate'            # đổi thành tên app của bạn (bước 3 sẽ tự sửa)
+primary_region = 'sin'     # Singapore — gần Việt Nam nhất. 'fra' nếu bạn ở châu Âu.
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  PORT = '4000'
+  # Bên trong máy Fly phải nghe mọi địa chỉ thì proxy của Fly mới vào được.
+  # Không phơi ra Internet trần: mọi thứ đi qua proxy có HTTPS ở dưới.
+  FINMATE_HOST = '0.0.0.0'
+  # Nhiều người dùng: cửa vào là tài khoản (email + mật khẩu), mỗi người một sổ
+  # SQLite riêng dưới /data/users. Bỏ dòng này thì máy chủ quay về chế độ một sổ
+  # khoá bằng PIN — không hợp với máy chủ đặt trên Internet.
+  FINMATE_MULTIUSER = '1'
+  # Trần số tài khoản: volume 3GB, mỗi sổ vài MB. Đặt trần để một ngày nào đó
+  # cửa đăng ký bị dò ra thì đĩa không bị lấp đầy.
+  FINMATE_MAX_USERS = '50'
+
+[http_service]
+  internal_port = 4000
+  force_https = true         # mật khẩu và khoá API không được đi qua HTTP trần
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  # 0 = máy ngủ khi không ai dùng, tự dậy khi có người vào (mất ~1-2 giây cho
+  # lần mở đầu tiên). Dữ liệu nằm trên volume nên ngủ dậy vẫn còn nguyên, và
+  # app đóng sổ tử tế khi nhận SIGTERM lúc ngủ. Đặt 1 nếu muốn vào là có ngay.
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = 'requests'
+    soft_limit = 40
+    hard_limit = 80
+
+# Fly hỏi sức khoẻ đúng đường mà app tự kiểm: /api/health chạm cả vào DB.
+[[http_service.checks]]
+  interval = '30s'
+  timeout = '5s'
+  grace_period = '10s'
+  method = 'GET'
+  path = '/api/health'
+
+# Ổ đĩa giữ dữ liệu qua mỗi lần deploy. Khớp với ENV FINMATE_DATA_DIR=/data
+# trong Dockerfile — sổ danh bạ, sổ riêng từng người và bản sao lưu đều nằm đây.
+[mounts]
+  source = 'finmate_data'
+  destination = '/data'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'           # Node + SQLite: 256mb đủ chạy nhưng dễ chết khi xuất dữ liệu

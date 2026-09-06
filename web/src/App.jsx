@@ -97,7 +97,7 @@ export default function App() {
       // là khoá PIN của chính máy này. Hai chuyện khác hẳn nhau.
       const h = await api.get('/health').catch(() => null);
       if (h?.multi_user) {
-        setAuth({ multi: true, user: h.user || null, unlocked: Boolean(h.user) });
+        setAuth({ multi: true, user: h.user || null, unlocked: Boolean(h.user), canMoi: Boolean(h.signup_code_required) });
         return;
       }
       const s = await api.get('/auth/status');
@@ -225,7 +225,7 @@ export default function App() {
   }
   if (!auth.unlocked) {
     return auth.multi
-      ? <Login onDone={(user) => setAuth({ ...auth, user, unlocked: true })} />
+      ? <Login canMoi={auth.canMoi} onDone={(user) => setAuth({ ...auth, user, unlocked: true })} />
       : <Lock pinSet={auth.pinSet} onUnlock={() => setAuth({ ...auth, unlocked: true })} />;
   }
 

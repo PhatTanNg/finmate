@@ -17,8 +17,15 @@ services:
       # giao dịch giả vào sổ của bạn.
       # node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
       FINMATE_INGEST_TOKEN: ${FINMATE_INGEST_TOKEN:?can dat FINMATE_INGEST_TOKEN truoc khi deploy}
-      # Domain thật của bạn, để trình duyệt khác không gọi được API.
+      # Domain thật của bạn, để trình duyệt khác không gọi được API. Giao diện
+      # do chính máy chủ này phục vụ thì luôn được phép, không cần khai ở đây.
       FINMATE_ORIGINS: ${FINMATE_ORIGINS:-}
+      # Nhiều người dùng: đặt 1 thì cửa vào là tài khoản (email + mật khẩu),
+      # mỗi người một sổ riêng dưới /data/users. Trống = một sổ, khoá bằng PIN.
+      FINMATE_MULTIUSER: ${FINMATE_MULTIUSER:-}
+      # Mã mời — bắt buộc trên thực tế nếu máy chủ chạm được từ Internet.
+      FINMATE_SIGNUP_CODE: ${FINMATE_SIGNUP_CODE:-}
+      FINMATE_MAX_USERS: ${FINMATE_MAX_USERS:-}
       # Tuỳ chọn — bật cố vấn AI thật.
       # Bỏ trống MODEL thì app tự chọn: claude-opus-5 với key Claude, gpt-4o-mini với key OpenAI.
       FINMATE_LLM_KEY: ${FINMATE_LLM_KEY:-}

@@ -6,10 +6,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { router, runAutomation } from './routes/api.js';
-import { setting } from './db.js';
+import { setting, closeMainDb } from './db.js';
 import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
 import { requireAccount } from './services/account_auth.js';
-import { multiUser } from './services/accounts.js';
+import { closeAll, withLedger } from './services/ledgers.js';
+import { multiUser, closeControl, allUserIds } from './services/accounts.js';
 import { ensureWelcome } from './services/chat/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,14 +29,21 @@ const allowedOrigins = (process.env.FINMATE_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+const sameHost = (origin, req) => {
+  try { return new URL(origin).host === req.headers.host; } catch { return false; }
+};
 app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin) return cb(null, true); // app gọi cùng origin, curl, webhook
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) return cb(null, true);
-      return cb(new Error('Origin không được phép'));
-    },
+  cors((req, cb) => {
+    const origin = req.headers.origin;
+    if (!origin) return cb(null, { origin: true }); // curl, webhook, GET cùng origin
+    // Chính giao diện của app gọi về máy chủ đang phục vụ nó. Trình duyệt gửi
+    // kèm Origin cả khi cùng origin (mọi POST), nên thiếu nhánh này thì bản
+    // deploy lên tên miền thật sẽ tự chặn chính mình: mở trang được nhưng
+    // đăng nhập, ghi giao dịch — mọi thứ POST — đều 403.
+    if (sameHost(origin, req)) return cb(null, { origin: true });
+    if (allowedOrigins.includes(origin)) return cb(null, { origin: true });
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) return cb(null, { origin: true });
+    return cb(new Error('Origin không được phép'));
   })
 );
 app.use(express.json({ limit: '10mb' }));
@@ -94,21 +102,55 @@ app.use((err, req, res, next) => {
   res.status(500).json({ ok: false, error: err.message });
 });
 
-const boot = runAutomation();
-ensureWelcome();
-console.log(`[finmate] tự động hoá khởi động: ${boot.posted.length} giao dịch định kỳ, ${boot.interest.length} bút toán lãi, ${boot.insights} cảnh báo`);
+/**
+ * Tự động hoá (đăng giao dịch định kỳ, tính lãi, chụp số dư, sinh cảnh báo,
+ * sao lưu) chạy TRÊN TỪNG SỔ.
+ *
+ * Ở chế độ nhiều người dùng phải lặp qua từng người: mỗi người một file SQLite
+ * riêng, nên gọi một lần ở ngoài chỉ chạm vào sổ mặc định — nghĩa là tiền nhà
+ * hàng tháng của mọi người dùng sẽ không bao giờ được đăng, lãi tiết kiệm không
+ * bao giờ được cộng, và chẳng ai có bản sao lưu nào.
+ */
+function tuDongHoa(nhan) {
+  if (!multiUser()) {
+    const r = runAutomation();
+    console.log(`[finmate] tự động hoá ${nhan}: ${r.posted.length} giao dịch định kỳ, ${r.interest.length} bút toán lãi, ${r.insights} cảnh báo`);
+    return;
+  }
+  let posted = 0; let interest = 0; let loi = 0;
+  const ids = allUserIds();
+  for (const id of ids) {
+    // Sổ của một người hỏng thì chỉ người đó không được tự động hoá lần này —
+    // không được để nó chặn những người còn lại.
+    try {
+      withLedger(id, () => {
+        const r = runAutomation();
+        posted += r.posted.length;
+        interest += r.interest.length;
+      });
+    } catch (e) {
+      loi += 1;
+      console.error(`[finmate] tự động hoá lỗi ở sổ #${id}:`, e.message);
+    }
+  }
+  console.log(`[finmate] tự động hoá ${nhan}: ${ids.length} sổ, ${posted} giao dịch định kỳ, ${interest} bút toán lãi${loi ? `, ${loi} sổ lỗi` : ''}`);
+}
 
-// Chạy lại engine mỗi giờ (đăng giao dịch định kỳ, tính lãi, snapshot, sinh cảnh báo)
+tuDongHoa('khởi động');
+// Lời chào mở đầu: bản một sổ chào ngay, bản nhiều người dùng chào từng người
+// lúc sổ của họ được tạo (xem services/ledgers.js).
+if (!multiUser()) ensureWelcome();
+
+// Chạy lại mỗi giờ.
 setInterval(() => {
   try {
-    const r = runAutomation();
-    if (r.posted.length || r.interest.length) console.log('[finmate] tự động hoá:', r.posted.length, 'định kỳ,', r.interest.length, 'lãi');
+    tuDongHoa('định kỳ');
   } catch (e) {
     console.error('[finmate] lỗi tự động hoá', e.message);
   }
 }, 60 * 60 * 1000).unref?.();
 
-app.listen(PORT, HOST, () => {
+const srv = app.listen(PORT, HOST, () => {
   console.log(`[finmate] server chạy tại http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   if (HOST === '0.0.0.0') {
     const ips = Object.values(os.networkInterfaces())
@@ -119,3 +161,33 @@ app.listen(PORT, HOST, () => {
     if (!pinIsSet()) console.warn('[finmate] ⚠ CẢNH BÁO: đang mở ra mạng LAN mà chưa đặt mã PIN. Hãy đặt PIN trong tab Cài đặt.');
   }
 });
+
+// Tắt êm: đóng mọi sổ để SQLite gộp nốt file -wal vào file chính trước khi
+// tiến trình biến mất. Nền tảng nào cũng gửi SIGTERM rồi mới cưỡng bức giết
+// sau ít giây, nên đây là khoảng thời gian duy nhất còn kịp dọn sạch; không
+// dọn thì lần khởi động sau phải phục hồi từ WAL và một bản sao lưu chép
+// đúng lúc đó sẽ thiếu phần còn nằm trong WAL.
+let dangTat = false;
+function tatEm(sig) {
+  if (dangTat) return;   // SIGTERM rồi SIGINT thì cũng chỉ dọn một lần
+  dangTat = true;
+  console.log(`[finmate] nhận ${sig}, đang đóng sổ…`);
+  // Ngừng nhận request mới; các request đang dở vẫn chạy nốt.
+  srv.close(() => {
+    const n = closeAll();
+    closeControl();
+    closeMainDb();
+    console.log(`[finmate] đã đóng ${n} sổ người dùng, tạm biệt`);
+    process.exit(0);
+  });
+  // Kết nối keep-alive có thể giữ srv.close() treo vô hạn. Dữ liệu quan trọng
+  // hơn vài request dở, nên hết giờ là đóng sổ và đi.
+  setTimeout(() => {
+    closeAll();
+    closeControl();
+    closeMainDb();
+    console.warn('[finmate] hết giờ chờ, đóng sổ và thoát');
+    process.exit(0);
+  }, Number(process.env.FINMATE_SHUTDOWN_MS) || 8000).unref();
+}
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => tatEm(sig));

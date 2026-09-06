@@ -122,6 +122,36 @@ ok('chỉ mở đúng số sổ đang dùng', openCount() === 2, String(openCoun
 ok('sổ mới được gieo sẵn danh mục/quỹ mặc định',
   (await GET('/categories', binh.token)).categories?.length > 0);
 
+head('/health nhận ra mình khi mở lại app');
+// Giao diện hỏi /health lúc mở trang để biết còn đăng nhập không. /health không
+// đòi token (phải trả lời được cả khi chưa đăng nhập), nhưng CÓ token hợp lệ
+// thì phải nói ra là ai — không thì mỗi lần tải lại trang là bị đá ra ngoài.
+const hCoToken = await GET('/health', moi.token);
+ok('có token thì /health nói rõ đang là ai', hCoToken.user?.id === an.user.id, JSON.stringify(hCoToken.user));
+const hKhong = await GET('/health');
+ok('không token thì /health vẫn trả lời, và không nhận vơ là ai cả', hKhong.status === 200 && !hKhong.user);
+ok('token bậy cũng không được nhận là ai', !(await GET('/health', 'token-bay-ba')).user);
+
+head('Khoá cửa đăng ký cho máy chủ đặt công khai');
+// Máy chủ mở ra Internet mà ai cũng đăng ký được thì người lạ tạo tài khoản
+// vô hạn, mỗi tài khoản một file sổ, đến lúc đầy đĩa thì cả nhà cùng mất dùng.
+process.env.FINMATE_SIGNUP_CODE = 'ma-moi-cua-nha-minh';
+const thieuMa = await POST('/account/register', { email: 'nguoila@example.com', password: 'mat-khau-dai-dai' });
+ok('không có mã mời thì không đăng ký được', thieuMa.status !== 200 && /mã mời/i.test(thieuMa.error || ''), JSON.stringify(thieuMa).slice(0, 100));
+const saiMa = await POST('/account/register', { email: 'nguoila@example.com', password: 'mat-khau-dai-dai', code: 'doan-bua' });
+ok('mã sai cũng không vào được', saiMa.status !== 200);
+ok('người lạ không hề được tạo tài khoản', acc.countUsers() === 2, String(acc.countUsers()));
+const dungMa = await POST('/account/register', { email: 'chi@example.com', password: 'mat-khau-cua-chi', code: 'ma-moi-cua-nha-minh' });
+ok('đúng mã thì đăng ký bình thường', dungMa.status === 200 && dungMa.user?.id > 0, JSON.stringify(dungMa).slice(0, 100));
+ok('/health báo cho giao diện biết phải hỏi mã mời', (await GET('/health')).signup_code_required === true);
+delete process.env.FINMATE_SIGNUP_CODE;
+ok('bỏ mã thì cửa mở lại như cũ (chạy trong nhà)', (await GET('/health')).signup_code_required === false);
+
+process.env.FINMATE_MAX_USERS = '3';
+const qua = await POST('/account/register', { email: 'nguoithu4@example.com', password: 'mat-khau-dai-dai' });
+ok('chạm trần số tài khoản thì dừng nhận thêm', qua.status !== 200 && /đủ số tài khoản/i.test(qua.error || ''), JSON.stringify(qua).slice(0, 100));
+delete process.env.FINMATE_MAX_USERS;
+
 srv.close();
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${fail ? '✗' : '✓'} smoke-accounts: ${pass} đạt, ${fail} hỏng`);

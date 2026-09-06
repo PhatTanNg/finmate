@@ -63,9 +63,44 @@ const needMulti = (res) => {
   return null;
 };
 
+// Chặn đăng ký hàng loạt: mỗi tài khoản đẻ một file sổ, một máy chủ nhỏ bị gọi
+// liên tục sẽ đầy đĩa trước khi ai kịp nhận ra. Chỉ đếm những lần TẠO ĐƯỢC
+// tài khoản — gõ nhầm mã mời hay trùng email không tạo ra gì, tính vào hạn mức
+// thì người dùng thật bị khoá cửa vì lỗi đánh máy. Việc dò mã mời đã có bộ đếm
+// sai chung với đăng nhập lo (khoá tạm sau nhiều lần sai).
+const SIGNUP_MAX = Number(process.env.FINMATE_SIGNUP_PER_HOUR) || 5;
+const signupHits = new Map();
+const recentSignups = (ip) => {
+  const now = Date.now();
+  const h = (signupHits.get(ip) || []).filter((t) => now - t < 3600_000);
+  if (h.length) signupHits.set(ip, h); else signupHits.delete(ip);
+  return h;
+};
+function noteSignup(ip) {
+  const h = recentSignups(ip);
+  h.push(Date.now());
+  signupHits.set(ip, h);
+  if (signupHits.size > 5000) for (const k of [...signupHits.keys()]) recentSignups(k);
+}
+
 router.post('/account/register', wrap(async (req, res) => {
   if (!tk.multiUser()) return needMulti(res);
-  const u = tk.register(req.body || {});
+  const ip = ipOf(req);
+  const cho = lockedFor(ip);
+  if (cho) return res.status(429).json({ ok: false, error: `Sai nhiều lần, thử lại sau ${cho}s` });
+  if (recentSignups(ip).length >= SIGNUP_MAX) {
+    return res.status(429).json({ ok: false, error: 'Tạo quá nhiều tài khoản từ máy này, thử lại sau một giờ' });
+  }
+  let u;
+  try {
+    u = tk.register(req.body || {});
+  } catch (e) {
+    // Dò mã mời thì bị khoá tạm như dò mật khẩu. Các lỗi khác (email sai định
+    // dạng, mật khẩu ngắn, email đã có) là người dùng thật gõ nhầm — không phạt.
+    if (/mã mời/i.test(e.message)) noteFail(ip);
+    throw e;
+  }
+  noteSignup(ip);
   // Đăng ký xong đăng nhập luôn: bắt gõ lại mật khẩu vừa đặt là vô ích.
   const s = tk.startSession(u.id, req.get('user-agent'));
   ok(res, { user: u, ...s });
@@ -122,8 +157,9 @@ router.get('/health', wrap(async (req, res) => ok(res, {
   // Không có mạng vẫn dùng đủ: mọi việc AI làm được đều có nút làm tay, bộ
   // luật tiếng Việt trả lời chat, tỷ giá dùng bản đã lưu.
   offline_ok: true,
-  // Giao diện cần biết để hiện màn đăng nhập hay không.
+  // Giao diện cần biết để hiện màn đăng nhập hay không, và có phải hỏi mã mời.
   multi_user: tk.multiUser(),
+  signup_code_required: tk.multiUser() && tk.signupCodeRequired(),
   user: req.user || null,
 })));
 

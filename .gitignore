@@ -52,3 +52,4 @@ temp/
 server/data/users/
 server/data/finmate-accounts.db*
 server/test/.tmp-accounts/
+server/test/.tmp-deploy/

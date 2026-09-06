@@ -451,6 +451,43 @@ Vài điểm cần nhớ:
 - `FINMATE_INGEST_TOKEN` là **bắt buộc**, compose sẽ từ chối chạy nếu thiếu. Không có token thì bất kỳ ai gọi được `/api/ingest` cũng đẩy giao dịch giả vào sổ của bạn.
 - Image dùng `node:22-alpine` vì app cần `node:sqlite` (Node ≥ 22.5) — không cài driver SQLite ngoài nào.
 
+### 8. Máy chủ thật trên Internet (nhiều người dùng, mỗi người một sổ)
+
+Đây là cách dùng app từ điện thoại lẫn máy tính mà dữ liệu vẫn là một: sổ nằm trên máy chủ, đăng nhập ở đâu cũng thấy đúng sổ của mình.
+
+Bật bằng **một biến môi trường**:
+
+```bash
+FINMATE_MULTIUSER=1
+```
+
+Khi bật:
+
+- Cửa vào là **email + mật khẩu** thay cho mã PIN. PIN chỉ khoá app trên một máy; tài khoản mới là thứ mang sổ đi theo người.
+- **Mỗi người một file SQLite riêng** ở `$FINMATE_DATA_DIR/users/<id>.db`. Cách ly là vật lý: không câu SQL nào với sang sổ người khác được, kể cả khi ai đó viết thiếu mệnh đề `WHERE`. Danh bạ tài khoản nằm riêng ở `finmate-accounts.db`, không lẫn với sổ tài chính của ai.
+- Tự động hoá (giao dịch định kỳ, tính lãi, sao lưu, cảnh báo) chạy **trên từng sổ**, mỗi giờ một lượt.
+- Mật khẩu băm bằng scrypt có muối; sai nhiều lần thì khoá tạm 5 phút. Đổi mật khẩu sẽ đăng xuất mọi thiết bị khác.
+
+Deploy lên **Fly.io** (đã có sẵn `fly.toml` với đầy đủ chú thích từng dòng):
+
+```bash
+curl -L https://fly.io/install.sh | sh          # 1. cài flyctl
+fly auth signup                                  # 2. tài khoản Fly (bạn tự làm — mình không thay bạn đăng ký được)
+fly launch --no-deploy --copy-config --name ten-app-cua-ban
+fly volumes create finmate_data --size 3 --region sin   # 3. ổ đĩa giữ dữ liệu
+fly secrets set FINMATE_INGEST_TOKEN="$(openssl rand -hex 24)"                 FINMATE_SIGNUP_CODE="mã mời của riêng bạn"
+fly deploy && fly open
+```
+
+Vài điều quyết định app sống hay chết trên máy chủ:
+
+- **`FINMATE_DATA_DIR` phải trỏ vào volume.** Dockerfile đã đặt sẵn `/data`. Quên biến này là lỗi nguy hiểm nhất: `finmate.db` vẫn nằm đúng chỗ nên nhìn qua tưởng ổn, còn sổ của mọi người dùng thì bay sạch sau mỗi lần deploy. `test/smoke-deploy.mjs` canh đúng chuyện này.
+- **Chỉ chạy một máy.** SQLite cho một tiến trình ghi. Cần khoẻ hơn thì tăng CPU/RAM, đừng tăng số máy (`fly scale count 1`).
+- **Luôn đặt `FINMATE_SIGNUP_CODE`.** Cửa đăng ký là cửa duy nhất ai cũng gọi được; không có mã mời thì người lạ tạo tài khoản đến khi đầy đĩa. Kèm theo còn có trần `FINMATE_MAX_USERS` và giới hạn số lần đăng ký mỗi giờ theo IP.
+- **Sao lưu vẫn là việc của bạn.** Volume của Fly có snapshot hằng ngày, nhưng snapshot không thay được bản sao lưu bạn giữ trong tay: `fly ssh sftp get /data/backups/<tên-file>`.
+
+Tắt máy chủ (deploy lại, máy ngủ, `fly scale`) đều đi qua SIGTERM: app ngừng nhận request mới, đóng mọi sổ để SQLite gộp nốt WAL vào file chính rồi mới thoát. Không làm vậy thì một bản sao lưu chép đúng lúc đó sẽ thiếu phần vừa ghi.
+
 ### Biến môi trường
 
 Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động. Sửa xong phải **khởi động lại** — biến môi trường chỉ đọc một lần lúc chạy.
@@ -474,11 +511,20 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_LLM_MAX_TOKENS` | `16000` (Claude) / `4096` | Trần độ dài câu trả lời, tính cả phần suy nghĩ |
 | `FINMATE_LLM_TIMEOUT_MS` | `90000` | Chờ tối đa cho một lượt gọi model |
 | `FINMATE_AGENT` | – | Đặt `off` để tắt agent dù đã có key |
+| `FINMATE_MULTIUSER` | – | `1` để bật chế độ nhiều người dùng (đăng nhập bằng tài khoản, mỗi người một sổ) |
+| `FINMATE_DATA_DIR` | `server/data` | Thư mục dữ liệu: danh bạ tài khoản, sổ riêng từng người. Phải là volume khi chạy Docker |
+| `FINMATE_SIGNUP_CODE` | – | Mã mời bắt buộc khi đăng ký. Máy chủ chạm được từ Internet thì luôn nên đặt |
+| `FINMATE_MAX_USERS` | – | Trần số tài khoản (0/trống = không giới hạn) |
+| `FINMATE_SIGNUP_PER_HOUR` | `5` | Số tài khoản tạo được mỗi giờ từ một IP |
+| `FINMATE_SESSION_DAYS` | `30` | Phiên đăng nhập sống bao lâu |
+| `FINMATE_MAX_OPEN_LEDGERS` | `200` | Số sổ giữ mở cùng lúc trong bộ nhớ |
+| `FINMATE_SHUTDOWN_MS` | `8000` | Chờ request đang dở bao lâu khi nhận SIGTERM trước khi đóng sổ |
 
 ### Những việc chỉ bạn làm được
 - **Kết nối ngân hàng tự động (Open Banking)**: ở châu Âu có PSD2 — các nhà cung cấp như GoCardless Bank Account Data (Nordigen cũ) cho phép đọc trực tiếp giao dịch từ AIB, BOI, Revolut, N26… mà không cần Shortcuts. Cần bạn tự đăng ký tài khoản nhà cung cấp và lấy khoá; sau đó nối vào `services/ingest.js`. Việt Nam chưa có Open Banking mở cho cá nhân nên vẫn phải dùng webhook tin nhắn hoặc import CSV.
 - **Nguồn giá trả phí / realtime**: giá đang lấy từ nguồn miễn phí (trễ vài phút tới cuối ngày tuỳ nguồn). Có nguồn riêng thì nối thêm một fetcher trong `services/prices.js`.
-- **Nhiều người dùng**: app thiết kế cho một người. Muốn dùng chung cho gia đình thì cần thêm bảng `users` và tách dữ liệu theo `user_id`.
+- **Đặt lại mật khẩu qua email**: chưa có. Máy chủ không gửi email nào, nên quên mật khẩu là phải vào `fly ssh console` xoá tài khoản rồi tạo lại (sổ vẫn còn ở `/data/users/<id>.db`). Muốn có thì cần một dịch vụ gửi mail (Resend, SES…) và bạn tự đăng ký lấy khoá.
+- **Đồng bộ khi mất mạng ở chế độ tài khoản**: bản dùng máy chủ cần mạng để đọc/ghi. Bản chạy thẳng trên điện thoại thì offline hoàn toàn nhưng dữ liệu nằm ở máy đó. Nối hai thứ lại (ghi offline rồi đồng bộ lên) là việc còn để ngỏ.
 
 ---
 
@@ -530,9 +576,9 @@ Có key rồi, mở **Trò chuyện**: cố vấn sẽ dẫn bạn thiết lập
 
 ```bash
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
-npm run test:smoke                # chạy liền 16 bộ smoke bên dưới
+npm run test:smoke                # chạy liền 18 bộ smoke bên dưới
 npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
-npm run test:e2e                  # 2 hành trình đầu-cuối trên trình duyệt thật (mobile 390x844)
+npm run test:e2e                  # 3 hành trình đầu-cuối trên trình duyệt thật (mobile 390x844)
 npm run test:all                  # tất cả: unit + smoke + mô phỏng + bản điện thoại + đầu-cuối
 
 cd server && node test/smoke-auth.mjs        # PIN, phiên, sao lưu, xuất dữ liệu
@@ -549,6 +595,8 @@ cd server && node test/smoke-stream.mjs      # chat dạng luồng SSE, ảnh ho
 cd server && node test/smoke-autopilot.mjs   # đề xuất chờ gật, chế độ tự lái, bản tin sáng, phản hồi tin ngân hàng, "ừ"/"thôi" trong chat
 cd server && node test/smoke-manual.mjs      # làm tay không cần AI: trả nợ, cân bằng quỹ, gộp trùng, xoá sạch có chốt; cầu dao mất mạng, cờ offline
 cd server && node test/smoke-onboarding.mjs  # lúc thiết lập: câu ghi sổ thật, câu khai báo và câu hỏi không được lẫn vào nhau
+cd server && node test/smoke-accounts.mjs    # nhiều người dùng: đăng nhập, mã mời, và trên hết là CÁCH LY sổ giữa người này với người kia
+cd server && node test/smoke-deploy.mjs      # máy chủ thật: chạy đúng tiến trình server, SIGTERM, bật lại — dữ liệu phải còn nguyên
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
@@ -563,7 +611,7 @@ cd web    && npm run test:e2e                # hành trình thật trên Chromiu
                                              # ngân sách, chat, quỹ, rút wifi, mở lại app, sao lưu, cỡ vùng chạm 44px
 ```
 
-`test:e2e` mở Chromium ở khổ điện thoại (390×844) và đi trọn một ngày dùng app — trên **cả hai bản**: bản gọi máy chủ (`dist`) và bản chạy thẳng trên máy (`dist-embedded`). Nó bắt đúng những lỗi mà test chạy trong Node không thấy được: nút quá nhỏ để chạm, bố cục tràn ngang, lỗi JavaScript lúc chạy thật, và quan trọng nhất — **rút wifi rồi mở lại app có ra trang trắng không**. Cần `playwright-core` và một bản Chromium (tự tìm qua `PLAYWRIGHT_BROWSERS_PATH`, hoặc chỉ định bằng `E2E_CHROME`); thiếu thì bộ test tự bỏ qua chứ không báo hỏng.
+`test:e2e` mở Chromium ở khổ điện thoại (390×844) và đi trọn một ngày dùng app — trên **cả hai bản**: bản gọi máy chủ (`dist`) và bản chạy thẳng trên máy (`dist-embedded`) — rồi thêm một hành trình thứ ba cho **máy chủ nhiều người dùng**: đăng ký bằng mã mời, ghi dữ liệu, tải lại trang, đăng xuất, đăng nhập lại (`test/e2e-account.mjs`; chính nó bắt được lỗi tải lại trang là bị đá về màn đăng nhập). Nó bắt đúng những lỗi mà test chạy trong Node không thấy được: nút quá nhỏ để chạm, bố cục tràn ngang, lỗi JavaScript lúc chạy thật, và quan trọng nhất — **rút wifi rồi mở lại app có ra trang trắng không**. Cần `playwright-core` và một bản Chromium (tự tìm qua `PLAYWRIGHT_BROWSERS_PATH`, hoặc chỉ định bằng `E2E_CHROME`); thiếu thì bộ test tự bỏ qua chứ không báo hỏng.
 
 ### Chạy tự động trên GitHub
 
@@ -572,7 +620,7 @@ cd web    && npm run test:e2e                # hành trình thật trên Chromiu
 | Việc | Nội dung |
 |---|---|
 | `test` | unit → dựng API trên DB tạm **có dữ liệu mẫu** → smoke → mô phỏng → render 18 trang → bản nhúng + PWA |
-| `e2e` | cài Chromium → build cả hai bản → hai hành trình người dùng thật; hỏng thì tự lưu ảnh chụp màn hình làm artifact |
+| `e2e` | cài Chromium → build cả hai bản → ba hành trình người dùng thật (máy chủ, bản nhúng, tài khoản nhiều người dùng); hỏng thì tự lưu ảnh chụp màn hình làm artifact |
 
 Không bước nào cần khoá API: mọi bộ test hoặc tự dựng DB tạm, hoặc dùng LLM giả lập. `FINMATE_FX_OFFLINE=1` chặn mọi lời gọi ra mạng ngoài để CI không phụ thuộc nguồn tỷ giá/giá cổ phiếu của bên thứ ba. Trên CI, `E2E_REQUIRED=1` biến "thiếu trình duyệt → bỏ qua" thành **báo hỏng** — một bộ test âm thầm bỏ qua trên CI còn tệ hơn là không có nó.
 

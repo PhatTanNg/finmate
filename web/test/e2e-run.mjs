@@ -19,8 +19,8 @@ process.on('exit', stop); process.on('SIGINT', () => { stop(); process.exit(1); 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const up = async (url) => { for (let i = 0; i < 40; i += 1) { try { await fetch(url); return true; } catch { await wait(500); } } return false; };
 
-const run = (env) => new Promise((res) => {
-  const p = spawn(process.execPath, [path.join(here, 'e2e.mjs')], { stdio: 'inherit', env: { ...process.env, ...env } });
+const run = (env, file = 'e2e.mjs') => new Promise((res) => {
+  const p = spawn(process.execPath, [path.join(here, file)], { stdio: 'inherit', env: { ...process.env, ...env } });
   p.on('exit', (c) => res(c || 0));
 });
 
@@ -41,6 +41,32 @@ if (fs.existsSync(path.join(web, 'dist-embedded', 'index.html'))) {
   bad += await run({ E2E_BASE: 'http://127.0.0.1:4100', E2E_LABEL: 'bản chạy trên máy (nhúng)', E2E_EMBEDDED: '1' });
 } else if (process.env.E2E_REQUIRED === '1') { console.error('✗ chưa build dist-embedded (npm run build:app -w web)'); process.exit(1); }
 else console.log('⚠ chưa build dist-embedded — bỏ qua hành trình bản nhúng');
+
+// Hành trình thứ ba: máy chủ chạy chế độ nhiều người dùng. Dùng lại bản dist
+// của bản máy chủ, chỉ khác máy chủ phía sau — cửa vào là tài khoản chứ không
+// phải mã PIN, nên phải kiểm riêng.
+if (fs.existsSync(path.join(web, 'dist', 'index.html'))) {
+  const DATA = path.join(os.tmpdir(), 'finmate-e2e-account');
+  fs.rmSync(DATA, { recursive: true, force: true });
+  fs.mkdirSync(DATA, { recursive: true });
+  spawnBg(process.execPath, ['src/index.js'], {
+    cwd: server,
+    env: {
+      ...process.env,
+      PORT: '4002',
+      FINMATE_FX_OFFLINE: '1',
+      FINMATE_MULTIUSER: '1',
+      FINMATE_DATA_DIR: DATA,
+      FINMATE_DB: path.join(DATA, 'default.db'),
+      FINMATE_BACKUP_DIR: path.join(DATA, 'backups'),
+      FINMATE_SIGNUP_CODE: 'ma-moi-e2e',
+    },
+  });
+  spawnBg(process.execPath, [path.join(here, 'serve-static.mjs')], { env: { ...process.env, E2E_ROOT: path.join(web, 'dist'), E2E_API: 'http://127.0.0.1:4002', E2E_PORT: '4300' } });
+  await up('http://127.0.0.1:4300/');
+  bad += await run({ E2E_BASE: 'http://127.0.0.1:4300', E2E_SIGNUP_CODE: 'ma-moi-e2e' }, 'e2e-account.mjs');
+  fs.rmSync(DATA, { recursive: true, force: true });
+}
 
 stop();
 process.exit(bad ? 1 : 0);

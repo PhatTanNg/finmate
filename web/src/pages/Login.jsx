@@ -8,11 +8,12 @@ import { api, setKey } from '../lib/api.js';
  * sổ của bạn theo bạn sang máy khác. Bản chạy thẳng trên điện thoại không có
  * máy chủ nên không bao giờ thấy màn này.
  */
-export default function Login({ onDone }) {
+export default function Login({ onDone, canMoi = false }) {
   const [dangKy, setDangKy] = useState(false);
   const [email, setEmail] = useState('');
   const [matKhau, setMatKhau] = useState('');
   const [ten, setTen] = useState('');
+  const [maMoi, setMaMoi] = useState('');
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -22,7 +23,7 @@ export default function Login({ onDone }) {
     setBusy(true);
     try {
       const r = dangKy
-        ? await api.post('/account/register', { email, password: matKhau, name: ten })
+        ? await api.post('/account/register', { email, password: matKhau, name: ten, ...(canMoi ? { code: maMoi } : {}) })
         : await api.post('/account/login', { email, password: matKhau });
       setKey(r.token);
       onDone(r.user);
@@ -67,8 +68,17 @@ export default function Login({ onDone }) {
           enterKeyHint="go" required
         />
 
+        {dangKy && canMoi && (
+          <input
+            className="lock-input" style={{ letterSpacing: 0, fontSize: 16, textAlign: 'left' }}
+            placeholder="Mã mời" value={maMoi} onChange={(e) => setMaMoi(e.target.value)}
+            autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+            enterKeyHint="go" required
+          />
+        )}
+
         {err && <p className="lock-err">{err}</p>}
-        <button className="btn primary" disabled={busy || !email || !matKhau}>
+        <button className="btn primary" disabled={busy || !email || !matKhau || (dangKy && canMoi && !maMoi)}>
           {busy ? 'Đang xử lý…' : dangKy ? 'Tạo tài khoản' : 'Đăng nhập'}
         </button>
         <button

@@ -29,6 +29,12 @@ COPY server/src server/src
 COPY --from=build /app/web/dist web/dist
 
 # Dữ liệu phải nằm trên volume, nếu không container chết là mất sạch sổ sách.
+#
+# FINMATE_DATA_DIR là thứ dễ quên nhất và hậu quả nặng nhất: danh bạ tài khoản
+# và sổ RIÊNG của từng người dùng nằm dưới thư mục này. Không đặt thì chúng rơi
+# vào /app/server/data ngay trong container — mỗi lần deploy lại là mọi người
+# dùng mất sạch sổ, trong khi /data/finmate.db vẫn còn nên nhìn qua tưởng ổn.
+ENV FINMATE_DATA_DIR=/data
 ENV FINMATE_DB=/data/finmate.db
 ENV FINMATE_BACKUP_DIR=/data/backups
 ENV FINMATE_HOST=0.0.0.0

@@ -11,6 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { runInCtx } from '../db_context.js';
 import { prepareLedger } from '../db.js';
 import { bootstrap } from '../bootstrap.js';
+import { ensureWelcome } from './chat/index.js';
 import { ledgerPath } from './accounts.js';
 
 const MAX_OPEN = Number(process.env.FINMATE_MAX_OPEN_LEDGERS) || 200;
@@ -24,7 +25,9 @@ function openLedger(userId) {
   const ctx = { db, path: p, userId: Number(userId) };
   // Sổ mới thì dựng bảng và gieo danh mục/quỹ mặc định — chạy TRONG ngữ cảnh
   // của chính sổ đó, dùng đúng đoạn mã đã dựng sổ mặc định.
-  runInCtx(ctx, () => { prepareLedger(); bootstrap(); });
+  // Sổ mới cũng cần lời chào mở đầu như bản một người dùng — người mới đăng ký
+  // mở app ra thấy màn chat trống trơn thì không biết bắt đầu từ đâu.
+  runInCtx(ctx, () => { prepareLedger(); bootstrap(); ensureWelcome(); });
   if (moi) console.info(`[finmate] tạo sổ mới cho người dùng #${userId}`);
   return ctx;
 }
@@ -61,3 +64,17 @@ export function closeLedger(userId) {
 }
 
 export const openCount = () => open.size;
+
+/**
+ * Đóng mọi sổ đang mở. Gọi lúc tắt máy chủ để SQLite gộp nốt file -wal vào
+ * file chính; không làm thì lần khởi động sau phải phục hồi từ WAL, và một
+ * bản sao lưu chép đúng lúc đó sẽ thiếu những gì còn nằm trong WAL.
+ */
+export function closeAll() {
+  let n = 0;
+  for (const [id, ctx] of open) {
+    try { ctx.db.close(); n += 1; } catch { /* đang bận */ }
+    open.delete(id);
+  }
+  return n;
+}

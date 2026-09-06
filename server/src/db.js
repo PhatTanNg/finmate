@@ -34,6 +34,11 @@ export const db = new Proxy({}, {
 
 engine.db.exec('PRAGMA foreign_keys = ON;');
 
+/** Đóng sổ mặc định (sổ một-người-dùng). Dùng lúc tắt máy chủ. */
+export function closeMainDb() {
+  try { engine.db.close?.(); } catch { /* đã đóng hoặc đang bận */ }
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS profile (
   id INTEGER PRIMARY KEY CHECK (id = 1),

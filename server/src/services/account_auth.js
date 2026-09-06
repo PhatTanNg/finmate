@@ -25,7 +25,15 @@ const tokenOf = (req) =>
 
 export function requireAccount(req, res, next) {
   if (!multiUser()) return next();
-  if (OPEN.some((re) => re.test(req.path))) return next();
+  if (OPEN.some((re) => re.test(req.path))) {
+    // /health vẫn nhận diện người gửi nếu có token hợp lệ (không có thì thôi).
+    // Giao diện hỏi /health lúc mở trang để biết còn đăng nhập hay không —
+    // không trả lời câu đó thì mỗi lần tải lại trang là bị đá về màn đăng nhập
+    // dù token trong máy vẫn còn tốt.
+    const ai = userForToken(tokenOf(req));
+    if (ai) req.user = ai;
+    return next();
+  }
 
   const user = userForToken(tokenOf(req));
   if (!user) {

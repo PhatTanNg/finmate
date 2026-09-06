@@ -74,12 +74,39 @@ export const ledgerPath = (userId) => path.join(USERS_DIR, `${Number(userId)}.db
 
 const publicUser = (u) => (u ? { id: u.id, email: u.email, name: u.name || null, created_at: u.created_at } : null);
 
-export function register({ email, password, name }) {
+/**
+ * Mã mời. Máy chủ đặt công khai trên Internet thì cửa đăng ký là cửa duy nhất
+ * ai cũng gọi được: không khoá thì người lạ tạo tài khoản thoải mái, mỗi tài
+ * khoản đẻ thêm một file sổ và ăn hết dung lượng ổ đĩa. Đặt FINMATE_SIGNUP_CODE
+ * là chỉ người biết mã mới đăng ký được — đủ cho một máy chủ dùng riêng trong
+ * nhà. Không đặt thì cửa mở như cũ (chạy trong LAN, hoặc cố tình mở cho mọi người).
+ */
+export const signupCodeRequired = () => Boolean(process.env.FINMATE_SIGNUP_CODE);
+
+/** Trần số tài khoản, để một máy chủ nhỏ không bị đăng ký tràn cho tới hết đĩa. */
+const maxUsers = () => Number(process.env.FINMATE_MAX_USERS) || 0;
+
+const codeOk = (given) => {
+  const want = String(process.env.FINMATE_SIGNUP_CODE || '');
+  if (!want) return true;
+  const a = Buffer.from(String(given ?? ''));
+  const b = Buffer.from(want);
+  // So sánh hằng thời gian, và độ dài phải khớp trước — timingSafeEqual ném lỗi
+  // nếu hai buffer khác độ dài.
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
+export function register({ email, password, name, code }) {
+  if (!codeOk(code)) throw new Error('Mã mời không đúng');
   const mail = normEmail(email);
   if (!validEmail(mail)) throw new Error('Email không hợp lệ');
   const pass = String(password ?? '');
   if (pass.length < 8) throw new Error('Mật khẩu phải có ít nhất 8 ký tự');
   const c = control();
+  const tran = maxUsers();
+  if (tran && c.prepare('SELECT COUNT(*) n FROM users').get().n >= tran) {
+    throw new Error('Máy chủ này đã đủ số tài khoản cho phép');
+  }
   if (c.prepare('SELECT id FROM users WHERE email = ?').get(mail)) {
     throw new Error('Email này đã có tài khoản');
   }
@@ -142,8 +169,17 @@ export function changePassword(userId, { current, next }) {
 
 export const countUsers = () => control().prepare('SELECT COUNT(*) c FROM users').get().c;
 
-/** Chỉ dùng cho test: đóng và quên sổ danh bạ. */
-export function _resetForTests() {
-  try { ctl?.close(); } catch { /* đã đóng */ }
+/** Id của mọi người dùng — để chạy tự động hoá trên sổ của từng người. */
+export const allUserIds = () => control().prepare('SELECT id FROM users ORDER BY id').all().map((r) => Number(r.id));
+
+/**
+ * Đóng sổ danh bạ. Gọi lúc tắt máy chủ (để SQLite gộp nốt WAL) và trong test.
+ * Lần gọi sau sẽ tự mở lại, nên đóng nhầm cũng không hỏng gì.
+ */
+export function closeControl() {
+  try { ctl?.close(); } catch { /* đã đóng hoặc đang bận */ }
   ctl = null;
 }
+
+/** Chỉ dùng cho test: đóng và quên sổ danh bạ. */
+export const _resetForTests = closeControl;
