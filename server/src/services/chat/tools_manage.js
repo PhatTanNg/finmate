@@ -14,7 +14,7 @@
  *    không im lặng làm hỏng sổ.
  *  - Việc nguy hiểm (xoá sạch) đòi mật khẩu miệng, không nhận "ok" cho qua.
  */
-import { all, get, update, run, db, DB_PATH } from '../../db.js';
+import { all, get, update, run, db } from '../../db.js';
 import { normalizeCurrency } from '../../util/currency.js';
 import { baseCurrency } from '../fx.js';
 import { toMinor } from '../../util/currency.js';
@@ -23,6 +23,7 @@ import { startOnboarding } from './onboarding.js';
 import { learnRule } from '../categorize.js';
 import fs from 'node:fs';
 import nodePath from 'node:path';
+import { backupDir } from '../backup.js';
 
 /**
  * Chụp nguyên trạng cơ sở dữ liệu ra một file riêng trước khi làm việc nguy hiểm.
@@ -30,7 +31,9 @@ import nodePath from 'node:path';
  * mốc "đã sao lưu hôm nay" — bản chụp cứu hộ thì không được phép bị dọn.
  */
 function snapshotDb(nhan) {
-  const dir = process.env.FINMATE_BACKUP_DIR || nodePath.join(nodePath.dirname(DB_PATH), 'backups');
+  // Phải là thư mục sao lưu của CHÍNH sổ đang dùng: nhiều người dùng thì bản
+  // chụp cứu hộ của người này không được rơi vào thư mục người kia.
+  const dir = backupDir();
   fs.mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23);
   // VACUUM INTO từ chối ghi đè file có sẵn. Hai lần chụp sát nhau mà trùng tên

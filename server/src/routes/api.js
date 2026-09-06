@@ -4,7 +4,8 @@ import { all, get, insert, update, remove, run, setting } from '../db.js';
 import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken } from '../services/auth.js';
 import * as tk from '../services/accounts.js';
 import { mailEnabled, sendMail, resetMail } from '../services/mailer.js';
-import { BACKUP_DIR, listBackups, createBackup, snapshotToTemp, exportAll, autoBackup } from '../services/backup.js';
+import { rev as syncRev, syncInfo, checkLedgerBytes, backupBeforeReplace, replaceLedger } from '../services/sync.js';
+import { backupDir, listBackups, createBackup, snapshotToTemp, exportAll, autoBackup } from '../services/backup.js';
 import { today, monthKey, monthStart, monthEnd, lastMonths } from '../util/date.js';
 import { bootstrap } from '../bootstrap.js';
 import { createTransaction, updateTransaction, deleteTransaction, listTransactions, getTransaction, rebuildBalances } from '../services/ledger.js';
@@ -187,6 +188,66 @@ router.post('/account/reset', wrap(async (req, res) => {
   ok(res, { user: u, ...tk.startSession(u.id, req.get('user-agent')), note: 'Mọi thiết bị khác đã bị đăng xuất' });
 }));
 
+// ── Đồng bộ cả sổ giữa máy và tài khoản ───────────────────────────────────
+//
+// Bản chạy thẳng trên máy giữ sổ trong chính máy đó. Hai đường dưới đây là cách
+// mang nguyên cuốn sổ ấy lên tài khoản (để mở ở máy khác) và mang về.
+//
+// Số hiệu bản (rev) là thứ giữ cho việc này không nuốt mất dữ liệu: máy gửi lên
+// phải khai mình dựa trên bản nào. Máy chủ đã nhích sang bản khác — vì thiết bị
+// khác vừa gửi, hoặc vì có người ghi qua giao diện web — thì trả 409 kèm thông
+// tin để người dùng tự chọn, chứ không tự ghi đè.
+
+const GIOI_HAN_SO = process.env.FINMATE_LEDGER_LIMIT || '100mb';
+
+router.get('/account/ledger', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  const file = snapshotToTemp();   // VACUUM INTO: bản nhất quán kể cả khi đang có người ghi
+  res.setHeader('x-finmate-rev', String(syncRev()));
+  res.setHeader('x-finmate-sync-at', syncInfo().at || '');
+  res.download(file, `finmate-${today()}.db`, () => fs.rmSync(file, { force: true }));
+}));
+
+router.get('/account/ledger/info', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  // "Sổ còn trắng" là thông tin quyết định lần đồng bộ ĐẦU TIÊN êm hay phiền:
+  // tài khoản mới tinh thì cứ nhận sổ từ máy lên, không có gì để mà lệch. Sổ
+  // đã có giao dịch thật thì đó là hai cuốn sổ khác nhau — phải hỏi người dùng.
+  const soGd = get('SELECT COUNT(*) c FROM transactions').c;
+  ok(res, { sync: syncInfo(), trong: Number(soGd) === 0, transactions: Number(soGd) });
+}));
+
+router.put('/account/ledger', express.raw({ type: () => true, limit: GIOI_HAN_SO }), wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  const buf = Buffer.isBuffer(req.body) ? req.body : null;
+  if (!buf) return res.status(400).json({ ok: false, error: 'Cần gửi nguyên file .db (application/octet-stream)' });
+
+  const hienTai = syncInfo();
+  const goc = req.query.base_rev === undefined ? null : Number(req.query.base_rev);
+  const ep = /^(1|true|yes)$/i.test(String(req.query.force || ''));
+  // Chưa từng đồng bộ (rev 0, sổ mới tinh) thì không có gì để lệch.
+  if (!ep && goc !== null && goc !== hienTai.rev) {
+    return res.status(409).json({
+      ok: false,
+      error: 'Sổ trên máy chủ đã thay đổi kể từ lần bạn tải về',
+      conflict: true,
+      sync: hienTai,
+      base_rev: goc,
+    });
+  }
+
+  // Soi file TRƯỚC khi động vào sổ đang có: gửi nhầm file thì phải hỏng ở đây,
+  // lúc sổ thật vẫn còn nguyên.
+  const soi = checkLedgerBytes(buf);
+  const saoLuu = backupBeforeReplace(req.user.id, 'nhan-tu-may');
+  const kq = replaceLedger(req.user.id, buf, { device: req.get('user-agent') });
+  console.info(`[finmate] người dùng #${req.user.id} gửi sổ lên: ${soi.transactions} giao dịch, bản ${kq.rev}`);
+  ok(res, { rev: kq.rev, transactions: soi.transactions, backup: saoLuu, forced: ep });
+}));
+
 router.post('/account/logout', wrap(async (req, res) => {
   if (!tk.multiUser()) return needMulti(res);
   tk.endSession(req.get('x-finmate-key') || (req.get('authorization') || '').replace(/^Bearer\s+/i, ''));
@@ -280,7 +341,7 @@ router.post('/auth/logout', wrap(async (req, res) => {
 
 // ---- sao lưu & xuất dữ liệu ----------------------------------------------
 
-router.get('/backup/list', wrap(async (req, res) => ok(res, { backups: listBackups(), dir: BACKUP_DIR })));
+router.get('/backup/list', wrap(async (req, res) => ok(res, { backups: listBackups(), dir: backupDir() })));
 
 router.post('/backup/run', wrap(async (req, res) => ok(res, { backup: createBackup() })));
 

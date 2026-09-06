@@ -10,6 +10,7 @@ import { setting, closeMainDb } from './db.js';
 import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
 import { requireAccount } from './services/account_auth.js';
 import { closeAll, withLedger } from './services/ledgers.js';
+import { deviceOwned } from './services/sync.js';
 import { multiUser, closeControl, allUserIds, pruneResets } from './services/accounts.js';
 import { ensureWelcome } from './services/chat/index.js';
 
@@ -32,17 +33,21 @@ const allowedOrigins = (process.env.FINMATE_ORIGINS || '')
 const sameHost = (origin, req) => {
   try { return new URL(origin).host === req.headers.host; } catch { return false; }
 };
+// Bản chạy trên máy (ở một tên miền khác) cần đọc số hiệu bản sổ từ header khi
+// đồng bộ. Không khai ở đây thì trình duyệt giấu header đó đi và mọi lần gửi
+// sổ lên đều tưởng mình đang dựa trên bản 0.
+const LO_HEADER = ['x-finmate-rev', 'x-finmate-sync-at'];
 app.use(
   cors((req, cb) => {
     const origin = req.headers.origin;
-    if (!origin) return cb(null, { origin: true }); // curl, webhook, GET cùng origin
+    if (!origin) return cb(null, { origin: true, exposedHeaders: LO_HEADER }); // curl, webhook, GET cùng origin
     // Chính giao diện của app gọi về máy chủ đang phục vụ nó. Trình duyệt gửi
     // kèm Origin cả khi cùng origin (mọi POST), nên thiếu nhánh này thì bản
     // deploy lên tên miền thật sẽ tự chặn chính mình: mở trang được nhưng
     // đăng nhập, ghi giao dịch — mọi thứ POST — đều 403.
-    if (sameHost(origin, req)) return cb(null, { origin: true });
-    if (allowedOrigins.includes(origin)) return cb(null, { origin: true });
-    if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) return cb(null, { origin: true });
+    if (sameHost(origin, req)) return cb(null, { origin: true, exposedHeaders: LO_HEADER });
+    if (allowedOrigins.includes(origin)) return cb(null, { origin: true, exposedHeaders: LO_HEADER });
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) return cb(null, { origin: true, exposedHeaders: LO_HEADER });
     return cb(new Error('Origin không được phép'));
   })
 );
@@ -119,13 +124,18 @@ function tuDongHoa(nhan) {
   }
   // Vé đặt lại mật khẩu đã hết hạn thì dọn đi, đừng để tích trong sổ danh bạ.
   try { pruneResets(); } catch (e) { console.warn('[finmate] dọn vé đặt lại mật khẩu lỗi:', e.message); }
-  let posted = 0; let interest = 0; let loi = 0;
+  let posted = 0; let interest = 0; let loi = 0; let boQua = 0;
   const ids = allUserIds();
   for (const id of ids) {
     // Sổ của một người hỏng thì chỉ người đó không được tự động hoá lần này —
     // không được để nó chặn những người còn lại.
     try {
       withLedger(id, () => {
+        // Sổ đang do một thiết bị giữ (đã gửi lên bằng chức năng đồng bộ): máy
+        // chủ chỉ là nơi cất giữ. Tự động hoá ở đây sẽ sửa sổ sau lưng thiết bị
+        // và lần gửi lên nào cũng báo lệch — chính thiết bị đó tự chạy tự động
+        // hoá mỗi lần mở app rồi.
+        if (deviceOwned()) { boQua += 1; return; }
         const r = runAutomation();
         posted += r.posted.length;
         interest += r.interest.length;
@@ -135,7 +145,7 @@ function tuDongHoa(nhan) {
       console.error(`[finmate] tự động hoá lỗi ở sổ #${id}:`, e.message);
     }
   }
-  console.log(`[finmate] tự động hoá ${nhan}: ${ids.length} sổ, ${posted} giao dịch định kỳ, ${interest} bút toán lãi${loi ? `, ${loi} sổ lỗi` : ''}`);
+  console.log(`[finmate] tự động hoá ${nhan}: ${ids.length} sổ, ${posted} giao dịch định kỳ, ${interest} bút toán lãi${boQua ? `, ${boQua} sổ do thiết bị giữ (bỏ qua)` : ''}${loi ? `, ${loi} sổ lỗi` : ''}`);
 }
 
 tuDongHoa('khởi động');

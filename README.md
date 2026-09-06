@@ -508,6 +508,26 @@ Vài điều quyết định app sống hay chết trên máy chủ:
 
 Tắt máy chủ (deploy lại, máy ngủ, `fly scale`) đều đi qua SIGTERM: app ngừng nhận request mới, đóng mọi sổ để SQLite gộp nốt WAL vào file chính rồi mới thoát. Không làm vậy thì một bản sao lưu chép đúng lúc đó sẽ thiếu phần vừa ghi.
 
+### 9. Dùng offline trên điện thoại mà vẫn có sổ trên máy chủ
+
+Bản chạy thẳng trên máy (`dist-embedded`) giữ sổ ngay trong máy: mất mạng vẫn ghi chép, vẫn xem báo cáo, vẫn có cố vấn bằng bộ luật. Nối nó vào một tài khoản trên máy chủ thì cuốn sổ ấy theo bạn sang máy khác.
+
+**Cài đặt → Đồng bộ với tài khoản trên máy chủ**: điền địa chỉ máy chủ, email, mật khẩu. Từ đó:
+
+| Tình huống | App làm gì |
+|---|---|
+| Máy chủ có bản mới hơn, máy này chưa sửa gì | Tự lấy về ngay lúc mở app (sao lưu bản cũ trước) |
+| Máy này có thay đổi, máy chủ vẫn ở bản cũ | Tự gửi lên |
+| **Cả hai cùng đổi** | **Dừng lại và hỏi** — bạn chọn giữ bản nào, bên kia được sao lưu |
+
+Vài điều đáng biết:
+
+- **Gửi/nhận nguyên cả sổ**, không trộn từng dòng. Máy chủ giữ một *số hiệu bản*; máy gửi lên phải khai mình dựa trên bản nào, lệch thì bị chặn (409). Bên nào bị ghi đè cũng có bản sao lưu trong `/data/backups/users/<id>/`.
+- Việc lấy về xảy ra **trước khi** tự động hoá chạy. Thứ tự này là cố ý: tự động hoá cũng ghi vào sổ, chạy trước thì lần mở app nào máy cũng "có thay đổi" và mọi sửa đổi bên kia đều hoá thành xung đột.
+- Sổ đã do một thiết bị giữ thì **máy chủ ngừng chạy tự động hoá** trên sổ đó — chính thiết bị lo việc ấy mỗi lần mở app. Không tách ra thì hai bên cùng sửa, lần gửi nào cũng báo lệch.
+- Máy chủ đặt ở tên miền khác với trang chạy app (ví dụ app trên GitHub Pages, máy chủ trên Fly) thì khai origin của trang cho máy chủ: `FINMATE_ORIGINS=https://ten-cua-ban.github.io`.
+- Bản dùng máy chủ (`dist`) thì khác: nó đọc/ghi thẳng vào sổ trên máy chủ nên cần mạng. Muốn "offline được mà vẫn có tài khoản" thì dùng bản chạy trên máy + đồng bộ như trên.
+
 ### Biến môi trường
 
 Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động. Sửa xong phải **khởi động lại** — biến môi trường chỉ đọc một lần lúc chạy.
@@ -545,12 +565,13 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_PUBLIC_URL` | tự đoán theo request | Địa chỉ app nhìn từ ngoài, để dán vào đường dẫn trong thư |
 | `FINMATE_RESET_MINUTES` | `60` | Đường dẫn đặt lại mật khẩu sống bao lâu |
 | `FINMATE_FORGOT_PER_HOUR` | `8` | Số lần xin đặt lại mật khẩu mỗi giờ từ một IP |
+| `FINMATE_LEDGER_LIMIT` | `100mb` | Trần dung lượng một lần gửi sổ lên |
 
 ### Những việc chỉ bạn làm được
 - **Kết nối ngân hàng tự động (Open Banking)**: ở châu Âu có PSD2 — các nhà cung cấp như GoCardless Bank Account Data (Nordigen cũ) cho phép đọc trực tiếp giao dịch từ AIB, BOI, Revolut, N26… mà không cần Shortcuts. Cần bạn tự đăng ký tài khoản nhà cung cấp và lấy khoá; sau đó nối vào `services/ingest.js`. Việt Nam chưa có Open Banking mở cho cá nhân nên vẫn phải dùng webhook tin nhắn hoặc import CSV.
 - **Nguồn giá trả phí / realtime**: giá đang lấy từ nguồn miễn phí (trễ vài phút tới cuối ngày tuỳ nguồn). Có nguồn riêng thì nối thêm một fetcher trong `services/prices.js`.
 - **Khoá dịch vụ gửi email**: chức năng quên mật khẩu đã có sẵn, nhưng thư phải đi qua một dịch vụ gửi thư và khoá đó chỉ bạn lấy được. [Resend](https://resend.com) miễn phí 3.000 thư/tháng, đăng ký 5 phút, không cần thẻ: lấy khoá `re_...` rồi `fly secrets set FINMATE_MAIL_KEY=re_...`. Chưa có khoá thì vẫn đặt lại được bằng tay từ máy chủ (xem mục 8).
-- **Đồng bộ khi mất mạng ở chế độ tài khoản**: bản dùng máy chủ cần mạng để đọc/ghi. Bản chạy thẳng trên điện thoại thì offline hoàn toàn nhưng dữ liệu nằm ở máy đó. Nối hai thứ lại (ghi offline rồi đồng bộ lên) là việc còn để ngỏ.
+- **Trộn hai cuốn sổ đã lệch nhau**: đồng bộ hiện gửi/nhận NGUYÊN CẢ SỔ (xem mục 9). Hai máy cùng sửa offline thì app dừng lại và hỏi giữ bản nào, chứ không trộn từng dòng — id ở đây là số tự tăng của từng máy, trộn kiểu đó là nhân đôi hoặc nuốt mất giao dịch. Muốn trộn thật thì mỗi dòng phải có mã toàn cục và phải có nhật ký thao tác; đó là một lớp riêng, chưa làm.
 
 ---
 
@@ -602,9 +623,9 @@ Có key rồi, mở **Trò chuyện**: cố vấn sẽ dẫn bạn thiết lập
 
 ```bash
 npm test                          # unit test (node --test): tiền tệ, tỷ giá, thuế VN + IE, NLU, SMS
-npm run test:smoke                # chạy liền 18 bộ smoke bên dưới
+npm run test:smoke                # chạy liền 19 bộ smoke bên dưới
 npm run test:sim                  # 4 bộ mô phỏng dài (kịch bản, 5 năm, trọn đời, chân dung)
-npm run test:e2e                  # 3 hành trình đầu-cuối trên trình duyệt thật (mobile 390x844)
+npm run test:e2e                  # 4 hành trình đầu-cuối trên trình duyệt thật (mobile 390x844)
 npm run test:all                  # tất cả: unit + smoke + mô phỏng + bản điện thoại + đầu-cuối
 
 cd server && node test/smoke-auth.mjs        # PIN, phiên, sao lưu, xuất dữ liệu
@@ -624,6 +645,7 @@ cd server && node test/smoke-onboarding.mjs  # lúc thiết lập: câu ghi sổ
 cd server && node test/smoke-accounts.mjs    # nhiều người dùng: đăng nhập, mã mời, quên mật khẩu (thư đi qua máy chủ thư giả),
                                              # và trên hết là CÁCH LY sổ giữa người này với người kia
 cd server && node test/smoke-deploy.mjs      # máy chủ thật: chạy đúng tiến trình server, SIGTERM, bật lại — dữ liệu phải còn nguyên
+cd server && node test/smoke-sync.mjs        # đồng bộ cả sổ: số hiệu bản, chặn khi lệch, ép ghi đè, sao lưu, không đụng sổ người khác
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng
@@ -638,6 +660,8 @@ cd web    && npm run test:e2e                # hành trình thật trên Chromiu
                                              # ngân sách, chat, quỹ, rút wifi, mở lại app, sao lưu, cỡ vùng chạm 44px
 ```
 
+`test:e2e` còn một hành trình thứ tư (`test/e2e-sync.mjs`) chứng minh lời hứa "ghi offline trên điện thoại, mở laptop vẫn thấy đúng sổ đó": bản nhúng ở cổng 4100 ghi sổ khi chưa nối mạng gì, nối vào máy chủ ở cổng 4002, gửi sổ lên, rồi nhận lại thay đổi ghi từ "máy khác" — và khi cả hai bên cùng đổi thì phải dừng lại hỏi. Chính nó bắt được lỗi bản nhúng lưu sổ xuống IndexedDB lặp vô tận mỗi 700ms.
+
 `test:e2e` mở Chromium ở khổ điện thoại (390×844) và đi trọn một ngày dùng app — trên **cả hai bản**: bản gọi máy chủ (`dist`) và bản chạy thẳng trên máy (`dist-embedded`) — rồi thêm một hành trình thứ ba cho **máy chủ nhiều người dùng**: đăng ký bằng mã mời, ghi dữ liệu, tải lại trang, đăng xuất, đăng nhập lại (`test/e2e-account.mjs`; chính nó bắt được lỗi tải lại trang là bị đá về màn đăng nhập). Nó bắt đúng những lỗi mà test chạy trong Node không thấy được: nút quá nhỏ để chạm, bố cục tràn ngang, lỗi JavaScript lúc chạy thật, và quan trọng nhất — **rút wifi rồi mở lại app có ra trang trắng không**. Cần `playwright-core` và một bản Chromium (tự tìm qua `PLAYWRIGHT_BROWSERS_PATH`, hoặc chỉ định bằng `E2E_CHROME`); thiếu thì bộ test tự bỏ qua chứ không báo hỏng.
 
 ### Chạy tự động trên GitHub
@@ -647,7 +671,7 @@ cd web    && npm run test:e2e                # hành trình thật trên Chromiu
 | Việc | Nội dung |
 |---|---|
 | `test` | unit → dựng API trên DB tạm **có dữ liệu mẫu** → smoke → mô phỏng → render 18 trang → bản nhúng + PWA |
-| `e2e` | cài Chromium → build cả hai bản → ba hành trình người dùng thật (máy chủ, bản nhúng, tài khoản nhiều người dùng); hỏng thì tự lưu ảnh chụp màn hình làm artifact |
+| `e2e` | cài Chromium → build cả hai bản → bốn hành trình người dùng thật (máy chủ, bản nhúng, tài khoản, đồng bộ máy↔tài khoản); hỏng thì tự lưu ảnh chụp màn hình làm artifact |
 
 Không bước nào cần khoá API: mọi bộ test hoặc tự dựng DB tạm, hoặc dùng LLM giả lập. `FINMATE_FX_OFFLINE=1` chặn mọi lời gọi ra mạng ngoài để CI không phụ thuộc nguồn tỷ giá/giá cổ phiếu của bên thứ ba. Trên CI, `E2E_REQUIRED=1` biến "thiếu trình duyệt → bỏ qua" thành **báo hỏng** — một bộ test âm thầm bỏ qua trên CI còn tệ hơn là không có nó.
 

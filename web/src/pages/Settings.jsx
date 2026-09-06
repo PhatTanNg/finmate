@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api, setKey, EMBEDDED, saveBlob } from '../lib/api.js';
 import { Card, Empty, Loading, Modal, Form } from '../components/ui.jsx';
 import { InstallCard } from '../components/Install.jsx';
+import SyncCard from '../components/SyncCard.jsx';
 import { fmt, pct, toMinor, baseCurrency } from '../lib/format.js';
 
 /** Che key nhưng vẫn cho thấy đuôi, để biết đang cầm đúng key nào. */
@@ -242,6 +243,8 @@ export default function Settings({ onRefresh }) {
           )}
         </Card>
       )}
+
+      {EMBEDDED && <SyncCard />}
 
       {EMBEDDED && (
         <Card title="Dữ liệu trên máy này">

@@ -12,6 +12,7 @@ import { attachStore, loadAll as loadVfs, vfs } from './vfs.js';
 import { indexedDbStorage, memoryStorage } from './storage.js';
 import { mountRouter, useMiddleware, dispatch } from './router.js';
 import { Bytes } from './shims/crypto.js';
+import * as sync from '../lib/sync.js';
 
 export const ENV_KEY = 'finmate.env';
 
@@ -46,6 +47,12 @@ export async function bootEmbedded({ storage = null, wasmUrl = null, env = null 
   g.process.env = { ...(g.process.env || {}), FINMATE_EMBEDDED: '1', ...(env || readEnv()) };
   if (!g.Buffer) g.Buffer = Bytes;
 
+  // Chụp lại "máy này có thay đổi chưa gửi hay không" NGAY BÂY GIỜ, trước khi
+  // import db.js — vì chính việc dựng schema và chạy migration lúc import cũng
+  // ghi vào sổ và sẽ làm dấu này bẩn. Không chụp trước thì lần mở app nào cũng
+  // tưởng máy này vừa có thay đổi, và mọi sửa đổi bên máy chủ đều hoá xung đột.
+  const coSuaTuTruoc = sync.daNoi() && sync.coThayDoi();
+
   const T = typeof performance !== 'undefined' ? () => Math.round(performance.now()) : () => Date.now();
   const t0 = T();
   const store = storage || (typeof indexedDB !== 'undefined' ? indexedDbStorage() : memoryStorage());
@@ -55,7 +62,11 @@ export async function bootEmbedded({ storage = null, wasmUrl = null, env = null 
   let bytes = null;
   try { bytes = await store.loadDb(); } catch (e) { console.warn('[finmate] không đọc được DB đã lưu:', e?.message || e); }
   const t1 = T();
-  prepareEngine({ SQL, bytes: bytes ? new Uint8Array(bytes) : null, storage: store });
+  // Mỗi lần sổ đổi thì ghi lại một dấu: chức năng đồng bộ nhờ dấu này mà biết
+  // máy này có gì mới để gửi lên hay không, thay vì lần nào mở app cũng đẩy cả
+  // cuốn sổ lên mạng.
+  const danhDau = (sql, params) => { if (sync.daNoi() && sync.laThayDoiThat(sql, params)) sync.danhDauDaSua(); };
+  prepareEngine({ SQL, bytes: bytes ? new Uint8Array(bytes) : null, storage: store, onDirty: danhDau });
 
   const dbMod = await import('../../../server/src/db.js');
   const api = await import('../../../server/src/routes/api.js');
@@ -65,6 +76,15 @@ export async function bootEmbedded({ storage = null, wasmUrl = null, env = null 
   // Khoá PIN vẫn có tác dụng: cùng middleware với máy chủ.
   useMiddleware(auth.requireAuth);
   mountRouter(api.router);
+
+  // Lấy sổ mới từ máy chủ về TRƯỚC KHI chạy tự động hoá.
+  //
+  // Thứ tự này là cả thiết kế: tự động hoá cũng ghi vào sổ, nên nếu để nó chạy
+  // trước thì lần nào mở app máy này cũng "có thay đổi", và mọi thay đổi bên
+  // máy chủ đều biến thành xung đột phải hỏi người dùng. Kiểm tra ở đây, lúc
+  // sổ còn đúng như lúc đóng app lần trước, thì chuyện thường ngày (sửa ở máy
+  // khác) tự chảy về êm, chỉ còn xung đột thật mới phải hỏi.
+  await keoSoVe(dbMod, coSuaTuTruoc).catch((e) => console.info('[finmate] chưa lấy được sổ từ máy chủ:', e?.message || e));
 
   const t2 = T();
   const boot = api.runAutomation();
@@ -90,6 +110,24 @@ export async function bootEmbedded({ storage = null, wasmUrl = null, env = null 
     boot,
   };
   return engineApi;
+}
+
+/**
+ * Nếu máy này đang nối với một tài khoản và KHÔNG có thay đổi nào chưa gửi thì
+ * lấy bản mới hơn trên máy chủ về. Có thay đổi chưa gửi thì để yên — chỗ đó là
+ * xung đột thật, do người dùng quyết trong Cài đặt.
+ */
+async function keoSoVe(dbMod, coSuaTuTruoc) {
+  if (!sync.daNoi() || coSuaTuTruoc) return;
+  const may = await sync.trangThaiMayChu({ timeoutMs: 2500 });
+  if (!(may.rev > sync.cauHinh().rev)) return;
+  const { bytes, rev } = await sync.taiVe();
+  dbMod.db.replace(bytes);
+  // Sổ vừa nhận có thể do một bản FinMate cũ hơn ghi ra: dựng lại schema,
+  // chạy migration và gắn lại trigger nhật ký trước khi ai đó đọc nó.
+  dbMod.prepareLedger();
+  sync.luuCauHinh({ rev, at: new Date().toISOString(), doi: 0 });
+  console.info(`[finmate] đã lấy sổ bản ${rev} từ máy chủ về`);
 }
 
 export const embedded = () => engineApi;

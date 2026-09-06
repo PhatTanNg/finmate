@@ -37,14 +37,18 @@ export function openEngine() {
       await storage?.saveDb?.(data);
     } catch (e) { console.warn('[finmate] lưu DB lỗi:', e?.message || e); }
   };
-  const markDirty = () => {
+  const markDirty = (sql, params) => {
     dirty = true;
-    onDirty?.();
+    onDirty?.(sql, params);
     clearTimeout(timer);
     timer = setTimeout(flush, 700);
   };
 
-  const isWrite = (sql) => !/^\s*(SELECT|PRAGMA table_info|EXPLAIN|WITH)/i.test(sql);
+  // PRAGMA không sửa dữ liệu. Xếp nó vào nhóm "có ghi" thì hỏng thật: mỗi lần
+  // lưu xong, sql.js đóng/mở lại DB nên phải bật lại PRAGMA foreign_keys — và
+  // thế là lần lưu nào cũng tự đánh dấu "vừa sửa", hẹn giờ lưu tiếp, lặp vô
+  // tận: máy chép cả cuốn sổ xuống IndexedDB mỗi 700ms cho tới khi đóng app.
+  const isWrite = (sql) => !/^\s*(SELECT|PRAGMA|EXPLAIN|WITH)/i.test(sql);
 
   const db = {
     exec(sql) {
@@ -59,7 +63,7 @@ export function openEngine() {
       }
       if (/^\s*PRAGMA\s+journal_mode/i.test(sql)) return;
       raw.exec(sql);
-      if (isWrite(sql)) markDirty();
+      if (isWrite(sql)) markDirty(sql);
     },
     prepare(sql) {
       const runStmt = (params, collect) => {
@@ -79,7 +83,7 @@ export function openEngine() {
           const changes = raw.getRowsModified();
           const r = raw.exec('SELECT last_insert_rowid() AS id');
           const lastInsertRowid = Number(r?.[0]?.values?.[0]?.[0] ?? 0);
-          markDirty();
+          markDirty(sql, params);
           return { changes, lastInsertRowid };
         },
       };

@@ -1,5 +1,5 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { api, getKey, setKey, setLockHandler } from './lib/api.js';
+import { api, getKey, setKey, setLockHandler, EMBEDDED } from './lib/api.js';
 import { short, setBaseCurrency } from './lib/format.js';
 import { applyTheme, readTheme, watchSystemTheme, NEXT_THEME, THEME_ICON, THEME_LABEL } from './lib/theme.js';
 import CommandPalette from './components/CommandPalette.jsx';
@@ -91,6 +91,8 @@ export default function App() {
   // Mất mạng: app vẫn chạy đủ (máy chủ nằm ngay trên máy/LAN), chỉ cố vấn AI
   // tạm nghỉ và bộ luật tiếng Việt trả lời thay. Báo cho người dùng biết rõ.
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  // Đồng bộ dừng lại vì hai bên cùng đổi — chỉ người dùng mới quyết được.
+  const [lechDongBo, setLechDongBo] = useState(null);
   useEffect(() => {
     const on = () => setOffline(false);
     const off = () => setOffline(true);
@@ -132,6 +134,36 @@ export default function App() {
   }, [checkAuth]);
 
   useEffect(() => { if (auth?.unlocked) refresh(); }, [auth?.unlocked, refresh]);
+
+  // Bản chạy trên máy, đã nối với một tài khoản: mỗi lần mở app thử đồng bộ một
+  // lượt. Chỉ tự làm việc không thể mất dữ liệu — máy chủ mới hơn mà máy này
+  // chưa sửa gì thì lấy về, máy này có sửa mà máy chủ đứng yên thì gửi lên. Cả
+  // hai cùng đổi thì dừng lại và hiện băng nhắc, để người dùng tự chọn.
+  useEffect(() => {
+    if (!EMBEDDED || !auth?.unlocked) return;
+    let bo = false;
+    (async () => {
+      try {
+        const sync = await import('./lib/sync.js');
+        if (!sync.daNoi()) return;
+        const m = (await import('./native/boot.js')).embedded();
+        const kq = await sync.dongBoMotLuot({
+          layBytes: () => m.exportDb(),
+          thaySo: (b) => m.importDb(b),
+          saoLuu: () => api.post('/backup/run').catch(() => null),
+        });
+        if (bo) return;
+        // Việc lấy về đã làm xong từ lúc mở app (native/boot.js), nên ở đây chỉ
+        // còn gửi lên — hoặc dừng lại vì hai bên cùng đổi.
+        if (kq.viec === 'lech') setLechDongBo(kq);
+      } catch (e) {
+        // Mất mạng hay máy chủ nghỉ là chuyện thường của một app dùng offline —
+        // không được làm phiền, lần mở sau thử lại.
+        console.info('[finmate] chưa đồng bộ được:', e?.message || e);
+      }
+    })();
+    return () => { bo = true; };
+  }, [auth?.unlocked]);
 
   useEffect(() => {
     location.hash = tab;
@@ -276,6 +308,10 @@ export default function App() {
         <button className="avatar" onClick={() => setTab('more')} aria-label="Hồ sơ và cài đặt" style={{ border: 0, cursor: 'pointer' }}>{initial}</button>
         <div className="tb-title">{TITLE[tab] || 'FinMate'}</div>
         {offline && <span className="tag warn" title="Không có internet. Mọi tính năng vẫn dùng được; cố vấn AI tạm nghỉ, bộ luật trả lời thay.">📴 Ngoại tuyến</span>}
+        {lechDongBo && (
+          <button className="tag warn" style={{ border: 0, cursor: 'pointer' }} onClick={() => setTab('settings')}
+            title="Sổ trên máy này và trên máy chủ cùng có thay đổi. Vào Cài đặt để chọn giữ bản nào.">⇅ Lệch đồng bộ</button>
+        )}
         <button className="btn ghost icon" onClick={() => setCmd(true)} aria-label="Tìm nhanh"><IconSearch /></button>
         <button className="btn ghost icon" onClick={cycleTheme} aria-label={THEME_LABEL[theme]} title={THEME_LABEL[theme]}>{THEME_ICON[theme]}</button>
       </header>

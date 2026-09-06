@@ -11,6 +11,7 @@
 import { runInCtx } from '../db_context.js';
 import { multiUser, userForToken } from './accounts.js';
 import { ledgerFor } from './ledgers.js';
+import { bumpRev } from './sync.js';
 
 /** Những đường không cần đăng nhập. */
 const OPEN = [
@@ -41,8 +42,23 @@ export function requireAccount(req, res, next) {
     return res.status(401).json({ ok: false, error: 'Cần đăng nhập', locked: true, need_login: true });
   }
   req.user = user;
+  const ctx = ledgerFor(user.id);
+
+  // Mỗi lần sổ đổi thì nhích số hiệu bản lên một. Thiết bị đang giữ sổ nhờ số
+  // này mà biết máy chủ đã đổi kể từ lần mình tải về — không có nó thì lần gửi
+  // sổ lên sau sẽ lặng lẽ xoá mất những gì vừa ghi qua giao diện web.
+  //
+  // Bỏ qua /account/*: đăng nhập, đổi mật khẩu hay chính việc gửi sổ lên đều
+  // không phải thay đổi nội dung sổ (riêng việc gửi sổ lên đã tự đặt số hiệu).
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !/^\/account\b/.test(req.path)) {
+    res.on('finish', () => {
+      if (res.statusCode >= 400) return;
+      try { runInCtx(ctx, () => bumpRev()); } catch { /* sổ có thể vừa bị đóng */ }
+    });
+  }
+
   // Cả phần còn lại của request — kể cả các chặng async — chạy trong ngữ cảnh
   // sổ của người này. Đây là chỗ duy nhất quyết định "sổ nào", nên không có
   // đường nào để một truy vấn lạc sang sổ người khác.
-  return runInCtx(ledgerFor(user.id), () => next());
+  return runInCtx(ctx, () => next());
 }

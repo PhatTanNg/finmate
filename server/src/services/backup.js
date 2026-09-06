@@ -3,9 +3,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { db, DB_PATH, all, setting } from '../db.js';
+import { currentCtx } from '../db_context.js';
 import { today } from '../util/date.js';
 
+/** Gốc chứa sao lưu. Chế độ một sổ thì bản sao lưu nằm thẳng ở đây. */
 export const BACKUP_DIR = process.env.FINMATE_BACKUP_DIR || path.join(path.dirname(DB_PATH), 'backups');
+
+/**
+ * Nơi cất sao lưu của SỔ ĐANG DÙNG.
+ *
+ * Nhiều người dùng thì mỗi người một thư mục con. Dùng chung một thư mục là
+ * hỏng thật chứ không chỉ lộn xộn: tên file chỉ có ngày, nên bản sao lưu của
+ * người này ghi đè bản của người kia trong cùng ngày — ai mở ra khôi phục sẽ
+ * nhận về sổ của người lạ, và bản sao lưu của chính mình thì đã mất.
+ */
+export const backupDir = () => {
+  const id = currentCtx()?.userId;
+  return id ? path.join(BACKUP_DIR, 'users', String(id)) : BACKUP_DIR;
+};
 const KEEP = Number(process.env.FINMATE_BACKUP_KEEP) || 14;
 
 const ensureDir = (d) => {
@@ -26,26 +41,27 @@ export function snapshotToTemp() {
 }
 
 export function listBackups() {
-  ensureDir(BACKUP_DIR);
+  const dir = ensureDir(backupDir());
   return fs
-    .readdirSync(BACKUP_DIR)
+    .readdirSync(dir)
     .filter((f) => f.endsWith('.db'))
     .map((f) => {
-      const st = fs.statSync(path.join(BACKUP_DIR, f));
+      const st = fs.statSync(path.join(dir, f));
       return { file: f, size: st.size, created_at: st.mtime.toISOString() };
     })
     .sort((a, b) => b.file.localeCompare(a.file));
 }
 
 function prune() {
+  const dir = backupDir();
   const olds = listBackups().slice(KEEP);
-  for (const b of olds) fs.rmSync(path.join(BACKUP_DIR, b.file), { force: true });
+  for (const b of olds) fs.rmSync(path.join(dir, b.file), { force: true });
   return olds.length;
 }
 
-export function createBackup(date = today()) {
-  ensureDir(BACKUP_DIR);
-  const file = path.join(BACKUP_DIR, `finmate-${date}.db`);
+export function createBackup(date = today(), { nhan = '' } = {}) {
+  const dir = ensureDir(backupDir());
+  const file = path.join(dir, `finmate-${date}${nhan ? `-${nhan}` : ''}.db`);
   vacuumInto(file);
   const removed = prune();
   setting('last_backup', date);

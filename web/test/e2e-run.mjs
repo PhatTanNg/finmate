@@ -91,6 +91,12 @@ if (fs.existsSync(path.join(web, 'dist', 'index.html'))) {
   spawnBg(process.execPath, [path.join(here, 'serve-static.mjs')], { env: { ...process.env, E2E_ROOT: path.join(web, 'dist'), E2E_API: 'http://127.0.0.1:4002', E2E_PORT: '4300' } });
   await up('http://127.0.0.1:4300/');
   bad += await run({ E2E_BASE: 'http://127.0.0.1:4300', E2E_SIGNUP_CODE: 'ma-moi-e2e', E2E_INBOX: 'http://127.0.0.1:4400/last' }, 'e2e-account.mjs');
+
+  // Hành trình thứ tư: bản chạy trên máy (cổng 4100, không có máy chủ) gửi sổ
+  // lên chính máy chủ tài khoản ở trên. Chỉ chạy được khi cả hai bản đã build.
+  if (fs.existsSync(path.join(web, 'dist-embedded', 'index.html'))) {
+    bad += await run({ E2E_BASE: 'http://127.0.0.1:4100', E2E_API: 'http://127.0.0.1:4002', E2E_SIGNUP_CODE: 'ma-moi-e2e' }, 'e2e-sync.mjs');
+  }
   fs.rmSync(DATA, { recursive: true, force: true });
 }
 
