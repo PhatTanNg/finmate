@@ -59,6 +59,30 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
+      - name: Token có thật sự dùng được không
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # Hỏi Fly xem token này là của ai. Bước này tồn tại vì thông điệp lỗi
+          # gốc của flyctl khi token hỏng ("You must be authenticated to view
+          # this") không nói được token sai ở đâu — mà người dán token thì không
+          # nhìn thấy nó nữa để tự soi.
+          if flyctl auth whoami; then
+            echo "Token hợp lệ."
+          else
+            echo "::error::Fly không nhận token này."
+            # Soi ĐỊNH DẠNG chứ không in giá trị. Ba lỗi hay gặp, theo thứ tự:
+            case "$FLY_API_TOKEN" in
+              FlyV1*) echo "  · Định dạng FlyV1 — đúng kiểu. Vậy nhiều khả năng token đã bị thu hồi, hết hạn, hoặc tài khoản Fly chưa xác minh xong (vào https://fly.io/dashboard xem có đòi thêm bước nào không)." ;;
+              fm2_*)  echo "  · Chuỗi bắt đầu bằng fm2_ — đây là phần ĐUÔI của token. Fly hiện token đầy đủ dạng 'FlyV1 fm2_...'; phải copy CẢ chữ FlyV1 và dấu cách ở đầu." ;;
+              "")     echo "  · Secret rỗng." ;;
+              *)      echo "  · Không phải định dạng token của Fly. Có thể bạn dán nhầm thứ khác, hoặc chỉ copy được một phần." ;;
+            esac
+            echo "  · Độ dài chuỗi đã dán: ${#FLY_API_TOKEN} ký tự (token Fly thường dài hơn 80)."
+            echo "  · Lấy token mới ở https://fly.io/user/personal_access_tokens — chọn loại token của TÀI KHOẢN, không phải 'deploy token' của một app (loại đó không tạo được app mới)."
+            exit 1
+          fi
+
       - name: Tạo app nếu chưa có
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -67,8 +91,13 @@ jobs:
           if flyctl status --app "$APP" >/dev/null 2>&1; then
             echo "App $APP đã có, dùng lại."
           else
-            echo "Tạo app $APP…"
-            flyctl apps create "$APP" --org personal
+            # Tổ chức không phải lúc nào cũng tên "personal" (tài khoản tạo qua
+            # một tổ chức khác chẳng hạn), nên hỏi Fly xem token này thuộc tổ
+            # chức nào rồi dùng đúng cái đó.
+            ORG=$(flyctl orgs list --json | jq -r 'if type == "object" then (keys[0] // empty) else (.[0].Slug // .[0].slug // empty) end')
+            ORG=${ORG:-personal}
+            echo "Tạo app $APP trong tổ chức $ORG…"
+            flyctl apps create "$APP" --org "$ORG"
           fi
 
       - name: Tạo ổ đĩa giữ dữ liệu nếu chưa có
