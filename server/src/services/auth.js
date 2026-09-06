@@ -9,6 +9,8 @@
  */
 import crypto from 'node:crypto';
 import { setting } from '../db.js';
+import { currentCtx } from '../db_context.js';
+import { multiUser, setIngestHash } from './accounts.js';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 ngày
 const MAX_FAILS = 8;
@@ -29,11 +31,25 @@ export const pinIsSet = () => Boolean(setting('app_pin'));
  * Token bí mật cho webhook. Luôn tồn tại: sinh ngay lần gọi đầu tiên.
  * Nhờ vậy không bao giờ có cửa sổ thời gian mà /ingest mở toang cho cả mạng LAN.
  */
+/**
+ * Nhớ token webhook vào sổ danh bạ để tin nhắn ngân hàng tìm được đúng sổ.
+ *
+ * Token nằm trong sổ RIÊNG của từng người, nên khi một tin nhắn bắn vào
+ * /api/ingest, máy chủ không thể biết nó của ai nếu không có bảng tra ngược —
+ * mà mở lần lượt sổ của từng người ra dò thì vừa chậm vừa sai về nguyên tắc.
+ */
+const nhoTokenChoDanhBa = (t) => {
+  const id = currentCtx()?.userId;
+  if (!id || !multiUser()) return;
+  try { setIngestHash(id, t); } catch (e) { console.warn('[finmate] không ghi được token webhook vào danh bạ:', e.message); }
+};
+
 export function ingestToken() {
   let t = setting('ingest_token');
   if (!t) {
     t = crypto.randomBytes(24).toString('base64url');
     setting('ingest_token', t);
+    nhoTokenChoDanhBa(t);
   }
   return t;
 }
@@ -42,6 +58,7 @@ export function ingestToken() {
 export function rotateIngestToken() {
   const t = crypto.randomBytes(24).toString('base64url');
   setting('ingest_token', t);
+  nhoTokenChoDanhBa(t);
   return t;
 }
 

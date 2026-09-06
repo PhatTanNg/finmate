@@ -60,6 +60,12 @@ function control() {
     );
     CREATE INDEX IF NOT EXISTS idx_resets_user ON resets(user_id);
   `);
+  // Băm token webhook của từng người, để một tin nhắn ngân hàng bắn vào
+  // /api/ingest tìm được đúng sổ mà không cần mở lần lượt sổ của mọi người.
+  // Lưu băm chứ không lưu token: sổ danh bạ rò ra ngoài cũng không ai đẩy được
+  // giao dịch giả vào sổ người khác.
+  try { ctl.exec('ALTER TABLE users ADD COLUMN ingest_hash TEXT'); } catch { /* đã có */ }
+  ctl.exec('CREATE INDEX IF NOT EXISTS idx_users_ingest ON users(ingest_hash)');
   return ctl;
 }
 
@@ -207,8 +213,6 @@ const resetMinutes = () => Number(process.env.FINMATE_RESET_MINUTES) || 60;
 /** Không phát vé mới dồn dập cho cùng một người (bấm nhầm nút, hoặc bị chọc). */
 const RESET_COOLDOWN_S = 60;
 
-const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
-
 /**
  * Phát vé đặt lại mật khẩu cho một email.
  *
@@ -231,7 +235,7 @@ export function startReset(email, { boQuaChoNghi = false } = {}) {
   const token = crypto.randomBytes(32).toString('base64url');
   const phut = resetMinutes();
   const het = new Date(Date.now() + phut * 60_000).toISOString();
-  c.prepare('INSERT INTO resets (hash, user_id, expires_at) VALUES (?,?,?)').run(hashToken(token), u.id, het);
+  c.prepare('INSERT INTO resets (hash, user_id, expires_at) VALUES (?,?,?)').run(bamToken(token), u.id, het);
   return { token, expires_at: het, user: publicUser(u), minutes: phut };
 }
 
@@ -239,7 +243,7 @@ export function startReset(email, { boQuaChoNghi = false } = {}) {
 export function resetOwner(token) {
   if (!token) return null;
   const c = control();
-  const r = c.prepare('SELECT * FROM resets WHERE hash = ?').get(hashToken(token));
+  const r = c.prepare('SELECT * FROM resets WHERE hash = ?').get(bamToken(token));
   if (!r || r.used_at || new Date(r.expires_at).getTime() < Date.now()) return null;
   return publicUser(c.prepare('SELECT * FROM users WHERE id = ?').get(r.user_id));
 }
@@ -252,7 +256,7 @@ export function resetWithToken(token, password) {
   const pass = String(password ?? '');
   if (pass.length < 8) throw new Error('Mật khẩu phải có ít nhất 8 ký tự');
   const c = control();
-  const h = hashToken(token);
+  const h = bamToken(token);
   const r = c.prepare('SELECT * FROM resets WHERE hash = ?').get(h);
   if (!r || r.used_at || new Date(r.expires_at).getTime() < Date.now()) {
     throw new Error('Đường dẫn đặt lại mật khẩu đã hết hạn hoặc đã dùng rồi');
@@ -267,6 +271,21 @@ export function resetWithToken(token, password) {
 /** Dọn vé đã hết hạn — gọi cùng lượt tự động hoá mỗi giờ. */
 export const pruneResets = () =>
   Number(control().prepare("DELETE FROM resets WHERE expires_at < datetime('now', '-1 day')").run().changes || 0);
+
+// ── Cửa webhook của từng người ─────────────────────────────────────────────
+
+/** Nhớ token webhook (dạng băm) của một người, để tra ngược khi có tin nhắn tới. */
+export function setIngestHash(userId, token) {
+  control().prepare('UPDATE users SET ingest_hash = ? WHERE id = ?')
+    .run(token ? bamToken(token) : null, Number(userId));
+}
+
+/** Người dùng sở hữu token webhook này, hoặc null. */
+export function userByIngestToken(token) {
+  if (!token) return null;
+  const u = control().prepare('SELECT * FROM users WHERE ingest_hash = ?').get(bamToken(token));
+  return u ? publicUser(u) : null;
+}
 
 /** Id của mọi người dùng — để chạy tự động hoá trên sổ của từng người. */
 export const allUserIds = () => control().prepare('SELECT id FROM users ORDER BY id').all().map((r) => Number(r.id));

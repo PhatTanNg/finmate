@@ -539,7 +539,13 @@ Bản `dist` đọc/ghi thẳng vào sổ trên máy chủ, nên mất mạng l�
 
 Muốn offline trọn vẹn (kể cả chat bằng bộ luật) thì dùng bản chạy trên máy + đồng bộ như trên.
 
-### 10. Trước khi phơi ra Internet
+### 10. Tự động ghi thu chi trên máy chủ nhiều người dùng
+
+Cửa `POST /api/ingest` (iOS Shortcuts bắn tin nhắn ngân hàng vào) hoạt động cả ở chế độ nhiều người dùng: **mỗi người một token riêng**, nằm trong sổ của chính họ, và máy chủ tra ngược token → chủ sổ để ghi đúng chỗ. Điện thoại không giữ được mật khẩu tài khoản nên đây là đường duy nhất hợp lý; đổi lại token phải được giữ như một bí mật (sổ danh bạ chỉ lưu **băm** của nó).
+
+Lấy địa chỉ và token trong tab **Tự động hoá** — mỗi người thấy token của mình. Nghi bị lộ thì bấm **Đổi token**: Shortcut trên máy cũ ngừng gửi được ngay.
+
+### 11. Trước khi phơi ra Internet
 
 Bộ rà soát bảo mật đã sửa những chỗ sau; nêu ra đây để bạn biết cái gì đang bảo vệ mình:
 

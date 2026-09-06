@@ -153,6 +153,42 @@ const laKq = await guiSo(an.token, readFileSync(laFile), null);
 ok('cơ sở dữ liệu SQLite của việc khác cũng bị chặn', laKq.status >= 400, JSON.stringify(laKq).slice(0, 100));
 ok('nói rõ thiếu bảng gì', /Thiếu bảng/.test(laKq.error || ''), laKq.error);
 
+head('Tin nhắn ngân hàng bắn vào đúng sổ của chủ nó');
+// Đây là tính năng đáng giá nhất của app (không phải gõ tay khoản nào), mà ở
+// chế độ nhiều người dùng nó từng chết hẳn: cửa /ingest đòi phiên đăng nhập,
+// trong khi iOS Shortcuts trên điện thoại chỉ cầm được một token.
+const tokenCua = async (t) => (await GET('/automation/status', t)).ingest?.token
+  || (await GET('/automation/status', t)).token
+  || (await GET('/automation/status', t)).ingest_token;
+const tkAn = await tokenCua(an.token);
+const tkBinh = await tokenCua(binh.token);
+ok('mỗi người có token webhook riêng', Boolean(tkAn) && Boolean(tkBinh) && tkAn !== tkBinh, `${String(tkAn).slice(0, 6)} vs ${String(tkBinh).slice(0, 6)}`);
+
+const banTin = async (token, text) => {
+  const r = await fetch(`${base}/ingest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-finmate-token': token },
+    body: JSON.stringify({ text }),
+  });
+  return { http: r.status, ...(await r.json().catch(() => ({}))) };
+};
+
+const tinAn = await banTin(tkAn, 'TK 0011 -85,000VND luc 12/09 tai HIGHLANDS COFFEE. So du 12,000,000VND');
+ok('tin nhắn kèm token của An được nhận, KHÔNG cần đăng nhập', tinAn.http === 200, JSON.stringify(tinAn).slice(0, 120));
+const soAn = (await GET('/transactions', an.token)).transactions || [];
+ok('khoản vừa bắn nằm trong sổ của An', soAn.some((t) => /HIGHLANDS/i.test(`${t.merchant || ''} ${t.raw || ''} ${t.note || ''}`)), JSON.stringify(soAn.slice(0, 1)).slice(0, 120));
+const soBinh = (await GET('/transactions', binh.token)).transactions || [];
+ok('và KHÔNG lạc sang sổ của Bình', !soBinh.some((t) => /HIGHLANDS/i.test(`${t.merchant || ''} ${t.raw || ''} ${t.note || ''}`)));
+
+ok('token bịa thì bị chặn', (await banTin('token-bia-dat', 'TK 0011 -50,000VND tai QUAN COM')).http === 401);
+const khongToken = await fetch(`${base}/ingest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'gi do' }) });
+ok('không token cũng bị chặn', khongToken.status === 401, String(khongToken.status));
+
+const tkMoi = (await POST('/automation/rotate-token', {}, an.token)).token;
+ok('đổi được token khi nghi bị lộ', Boolean(tkMoi) && tkMoi !== tkAn, String(tkMoi).slice(0, 8));
+ok('token cũ hết tác dụng ngay', (await banTin(tkAn, 'TK 0011 -30,000VND tai QUAN CU')).http === 401);
+ok('token mới dùng được', (await banTin(tkMoi, 'TK 0011 -30,000VND tai QUAN MOI')).http === 200);
+
 head('Ghi lúc mất mạng: gửi lại không thành hai');
 // Giao diện xếp việc vào hàng chờ rồi gửi lại khi có sóng. Cảnh tệ nhất là máy
 // chủ ĐÃ ghi nhưng câu trả lời rơi giữa đường: máy gửi tưởng hỏng nên gửi lại.

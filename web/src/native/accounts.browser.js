@@ -23,6 +23,9 @@ export const resetOwner = () => null;
 export const resetWithToken = khong;
 export const pruneResets = () => 0;
 export const allUserIds = () => [];
+// Bản chạy trên máy chỉ có một chủ, nên token webhook không cần tra ngược ai.
+export const setIngestHash = () => {};
+export const userByIngestToken = () => null;
 export const closeControl = () => {};
 export const countUsers = () => 0;
 export const _resetForTests = () => {};

@@ -105,7 +105,10 @@ const bangNhau = (a, b) => {
 app.use('/api', (req, res, next) => {
   // POST /api/ingest là cửa duy nhất mở ra ngoài (iOS Shortcuts gọi vào), nên
   // nó luôn phải kèm token bí mật — kể cả khi người dùng chưa đặt mã PIN.
-  if (/^\/ingest\/?$/.test(req.path)) {
+  // Nhiều người dùng thì token webhook là của từng người và nằm trong sổ riêng
+  // của họ — việc kiểm tra (và chọn đúng sổ) do requireAccount lo, xem
+  // services/account_auth.js. Ở đây chỉ lo bản một sổ.
+  if (!multiUser() && /^\/ingest\/?$/.test(req.path)) {
     const given = req.get('x-finmate-token') || req.query.token;
     if (!bangNhau(given, ingestToken()) && !(pinIsSet() && sessionOk(req))) {
       return res.status(401).json({ ok: false, error: 'token không hợp lệ' });

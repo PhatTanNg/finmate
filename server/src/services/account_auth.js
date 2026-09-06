@@ -9,7 +9,7 @@
  * chạy y như cũ, một sổ, khoá bằng PIN, dùng được offline trên điện thoại.
  */
 import { runInCtx } from '../db_context.js';
-import { multiUser, userForToken } from './accounts.js';
+import { multiUser, userForToken, userByIngestToken } from './accounts.js';
 import { ledgerFor } from './ledgers.js';
 import { bumpRev } from './sync.js';
 
@@ -25,8 +25,30 @@ const tokenOf = (req) =>
   || (req.get?.('authorization') || '').replace(/^Bearer\s+/i, '')
   || req.query?.key;
 
+/**
+ * Cửa webhook: tin nhắn ngân hàng bắn vào bằng TOKEN, không phải bằng phiên.
+ *
+ * iOS Shortcuts trên điện thoại không giữ được mật khẩu tài khoản, nên đường
+ * này nhận diện bằng token riêng của từng người. Không có nhánh này thì ở chế
+ * độ nhiều người dùng, cửa /ingest bị đòi đăng nhập và tính năng tự động ghi
+ * thu chi — thứ đáng giá nhất của app — chết hẳn.
+ */
+const laIngest = (req) => req.method === 'POST' && /^\/ingest\/?$/.test(req.path);
+const tokenIngest = (req) => req.get?.('x-finmate-token') || req.query?.token;
+
 export function requireAccount(req, res, next) {
   if (!multiUser()) return next();
+
+  if (laIngest(req)) {
+    const chu = userByIngestToken(tokenIngest(req));
+    if (chu) {
+      req.user = chu;
+      return runInCtx(ledgerFor(chu.id), () => next());
+    }
+    // Không có token đúng thì vẫn cho phiên đăng nhập bình thường đi tiếp
+    // (giao diện tự thử nhập liệu qua đường này), nhưng không mở tự do.
+  }
+
   if (OPEN.some((re) => re.test(req.path))) {
     // /health vẫn nhận diện người gửi nếu có token hợp lệ (không có thì thôi).
     // Giao diện hỏi /health lúc mở trang để biết còn đăng nhập hay không —

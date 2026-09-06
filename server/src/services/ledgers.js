@@ -12,6 +12,7 @@ import { runInCtx } from '../db_context.js';
 import { prepareLedger } from '../db.js';
 import { bootstrap } from '../bootstrap.js';
 import { ensureWelcome } from './chat/index.js';
+import { ingestToken } from './auth.js';
 import { ledgerPath } from './accounts.js';
 
 const MAX_OPEN = Number(process.env.FINMATE_MAX_OPEN_LEDGERS) || 200;
@@ -27,7 +28,10 @@ function openLedger(userId) {
   // của chính sổ đó, dùng đúng đoạn mã đã dựng sổ mặc định.
   // Sổ mới cũng cần lời chào mở đầu như bản một người dùng — người mới đăng ký
   // mở app ra thấy màn chat trống trơn thì không biết bắt đầu từ đâu.
-  runInCtx(ctx, () => { prepareLedger(); bootstrap(); ensureWelcome(); });
+  // ingestToken() vừa sinh token webhook cho người này vừa ghi băm của nó vào
+  // sổ danh bạ — làm ngay lúc tạo sổ thì tin nhắn ngân hàng bắn vào lúc nào
+  // cũng tìm được đúng chủ, không phải chờ họ mở tab Tự động hoá.
+  runInCtx(ctx, () => { prepareLedger(); bootstrap(); ensureWelcome(); ingestToken(); });
   if (moi) console.info(`[finmate] tạo sổ mới cho người dùng #${userId}`);
   return ctx;
 }
