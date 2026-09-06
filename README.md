@@ -484,6 +484,26 @@ Vài điều quyết định app sống hay chết trên máy chủ:
 - **`FINMATE_DATA_DIR` phải trỏ vào volume.** Dockerfile đã đặt sẵn `/data`. Quên biến này là lỗi nguy hiểm nhất: `finmate.db` vẫn nằm đúng chỗ nên nhìn qua tưởng ổn, còn sổ của mọi người dùng thì bay sạch sau mỗi lần deploy. `test/smoke-deploy.mjs` canh đúng chuyện này.
 - **Chỉ chạy một máy.** SQLite cho một tiến trình ghi. Cần khoẻ hơn thì tăng CPU/RAM, đừng tăng số máy (`fly scale count 1`).
 - **Luôn đặt `FINMATE_SIGNUP_CODE`.** Cửa đăng ký là cửa duy nhất ai cũng gọi được; không có mã mời thì người lạ tạo tài khoản đến khi đầy đĩa. Kèm theo còn có trần `FINMATE_MAX_USERS` và giới hạn số lần đăng ký mỗi giờ theo IP.
+- **Quên mật khẩu.** Người dùng bấm “Quên mật khẩu?” ở màn đăng nhập, nhận một đường dẫn qua email, tự đặt mật khẩu mới. Đường dẫn **dùng một lần**, hết hạn sau 60 phút, và đặt lại xong thì mọi thiết bị đều bị đăng xuất — nếu ai đó đã lén vào được tài khoản thì việc chủ tài khoản đặt lại mật khẩu phải đá được kẻ đó ra. Sổ sách không mất gì: mật khẩu chỉ là cửa vào, không phải chìa khoá mã hoá.
+
+  Bật gửi thư (Resend, miễn phí 3.000 thư/tháng):
+
+  ```bash
+  fly secrets set FINMATE_MAIL_KEY=re_...  FINMATE_MAIL_FROM="FinMate <finmate@ten-mien-cua-ban>"
+  ```
+
+  **Chưa gắn dịch vụ gửi thư thì vẫn dùng được**, chỉ là bạn phát đường dẫn bằng tay — đây cũng là đường cứu khi chính bạn quên mật khẩu của mình:
+
+  ```bash
+  fly ssh console -C "node server/src/scripts/reset_password.js --list"
+  fly ssh console -C "node server/src/scripts/reset_password.js --email ai-do@example.com"
+  # in ra một đường dẫn dùng một lần — gửi cho họ, họ tự gõ mật khẩu mới
+  ```
+
+  Máy chạy tại chỗ thì gọn hơn: `npm run reset-password -w server -- --email ai-do@example.com`. Thêm `--password "..."` để đặt thẳng, nhưng nên tránh — mật khẩu đó bạn cũng biết.
+
+  App **không bao giờ nói “email này chưa đăng ký”**: với một app tài chính thì việc dò được ai đang dùng đã là rò rỉ, nên câu trả lời luôn y hệt nhau dù email có tài khoản hay không.
+
 - **Sao lưu vẫn là việc của bạn.** Volume của Fly có snapshot hằng ngày, nhưng snapshot không thay được bản sao lưu bạn giữ trong tay: `fly ssh sftp get /data/backups/<tên-file>`.
 
 Tắt máy chủ (deploy lại, máy ngủ, `fly scale`) đều đi qua SIGTERM: app ngừng nhận request mới, đóng mọi sổ để SQLite gộp nốt WAL vào file chính rồi mới thoát. Không làm vậy thì một bản sao lưu chép đúng lúc đó sẽ thiếu phần vừa ghi.
@@ -519,11 +539,17 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_SESSION_DAYS` | `30` | Phiên đăng nhập sống bao lâu |
 | `FINMATE_MAX_OPEN_LEDGERS` | `200` | Số sổ giữ mở cùng lúc trong bộ nhớ |
 | `FINMATE_SHUTDOWN_MS` | `8000` | Chờ request đang dở bao lâu khi nhận SIGTERM trước khi đóng sổ |
+| `FINMATE_MAIL_KEY` | – | Khoá dịch vụ gửi thư (Resend `re_...`). Có thì bật được “quên mật khẩu” qua email |
+| `FINMATE_MAIL_FROM` | `FinMate <onboarding@resend.dev>` | Địa chỉ người gửi. Tên miền phải đã xác minh với nhà cung cấp |
+| `FINMATE_MAIL_URL` | `https://api.resend.com/emails` | Đổi khi dùng dịch vụ khác có cùng dạng API |
+| `FINMATE_PUBLIC_URL` | tự đoán theo request | Địa chỉ app nhìn từ ngoài, để dán vào đường dẫn trong thư |
+| `FINMATE_RESET_MINUTES` | `60` | Đường dẫn đặt lại mật khẩu sống bao lâu |
+| `FINMATE_FORGOT_PER_HOUR` | `8` | Số lần xin đặt lại mật khẩu mỗi giờ từ một IP |
 
 ### Những việc chỉ bạn làm được
 - **Kết nối ngân hàng tự động (Open Banking)**: ở châu Âu có PSD2 — các nhà cung cấp như GoCardless Bank Account Data (Nordigen cũ) cho phép đọc trực tiếp giao dịch từ AIB, BOI, Revolut, N26… mà không cần Shortcuts. Cần bạn tự đăng ký tài khoản nhà cung cấp và lấy khoá; sau đó nối vào `services/ingest.js`. Việt Nam chưa có Open Banking mở cho cá nhân nên vẫn phải dùng webhook tin nhắn hoặc import CSV.
 - **Nguồn giá trả phí / realtime**: giá đang lấy từ nguồn miễn phí (trễ vài phút tới cuối ngày tuỳ nguồn). Có nguồn riêng thì nối thêm một fetcher trong `services/prices.js`.
-- **Đặt lại mật khẩu qua email**: chưa có. Máy chủ không gửi email nào, nên quên mật khẩu là phải vào `fly ssh console` xoá tài khoản rồi tạo lại (sổ vẫn còn ở `/data/users/<id>.db`). Muốn có thì cần một dịch vụ gửi mail (Resend, SES…) và bạn tự đăng ký lấy khoá.
+- **Khoá dịch vụ gửi email**: chức năng quên mật khẩu đã có sẵn, nhưng thư phải đi qua một dịch vụ gửi thư và khoá đó chỉ bạn lấy được. [Resend](https://resend.com) miễn phí 3.000 thư/tháng, đăng ký 5 phút, không cần thẻ: lấy khoá `re_...` rồi `fly secrets set FINMATE_MAIL_KEY=re_...`. Chưa có khoá thì vẫn đặt lại được bằng tay từ máy chủ (xem mục 8).
 - **Đồng bộ khi mất mạng ở chế độ tài khoản**: bản dùng máy chủ cần mạng để đọc/ghi. Bản chạy thẳng trên điện thoại thì offline hoàn toàn nhưng dữ liệu nằm ở máy đó. Nối hai thứ lại (ghi offline rồi đồng bộ lên) là việc còn để ngỏ.
 
 ---
@@ -595,7 +621,8 @@ cd server && node test/smoke-stream.mjs      # chat dạng luồng SSE, ảnh ho
 cd server && node test/smoke-autopilot.mjs   # đề xuất chờ gật, chế độ tự lái, bản tin sáng, phản hồi tin ngân hàng, "ừ"/"thôi" trong chat
 cd server && node test/smoke-manual.mjs      # làm tay không cần AI: trả nợ, cân bằng quỹ, gộp trùng, xoá sạch có chốt; cầu dao mất mạng, cờ offline
 cd server && node test/smoke-onboarding.mjs  # lúc thiết lập: câu ghi sổ thật, câu khai báo và câu hỏi không được lẫn vào nhau
-cd server && node test/smoke-accounts.mjs    # nhiều người dùng: đăng nhập, mã mời, và trên hết là CÁCH LY sổ giữa người này với người kia
+cd server && node test/smoke-accounts.mjs    # nhiều người dùng: đăng nhập, mã mời, quên mật khẩu (thư đi qua máy chủ thư giả),
+                                             # và trên hết là CÁCH LY sổ giữa người này với người kia
 cd server && node test/smoke-deploy.mjs      # máy chủ thật: chạy đúng tiến trình server, SIGTERM, bật lại — dữ liệu phải còn nguyên
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...

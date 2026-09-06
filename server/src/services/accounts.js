@@ -49,6 +49,16 @@ function control() {
       device TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    -- Vé đặt lại mật khẩu. Chỉ lưu BĂM của vé, không lưu vé: ai đọc trộm được
+    -- file này cũng không dùng nó để chiếm tài khoản người khác được.
+    CREATE TABLE IF NOT EXISTS resets (
+      hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,
+      used_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_resets_user ON resets(user_id);
   `);
   return ctl;
 }
@@ -168,6 +178,85 @@ export function changePassword(userId, { current, next }) {
 }
 
 export const countUsers = () => control().prepare('SELECT COUNT(*) c FROM users').get().c;
+
+// ── Quên mật khẩu ──────────────────────────────────────────────────────────
+//
+// Vé đặt lại là một chuỗi ngẫu nhiên gửi tới email của chủ tài khoản. Ba luật
+// làm nên toàn bộ độ an toàn của nó:
+//   1. Chỉ lưu BĂM của vé trong sổ danh bạ (như mật khẩu). Đọc trộm file cũng
+//      không chiếm được tài khoản ai.
+//   2. Dùng một lần, và hết hạn nhanh.
+//   3. Đặt lại xong thì mọi phiên đang mở đều bị đăng xuất — nếu ai đó đã lén
+//      vào được tài khoản, việc chủ tài khoản đặt lại mật khẩu phải đá được
+//      kẻ đó ra, không thì chức năng này thành vô nghĩa.
+//
+// Dữ liệu KHÔNG mất khi quên mật khẩu: sổ nằm ở file riêng theo id người dùng,
+// mật khẩu chỉ là cửa vào chứ không phải chìa khoá mã hoá.
+
+const resetMinutes = () => Number(process.env.FINMATE_RESET_MINUTES) || 60;
+/** Không phát vé mới dồn dập cho cùng một người (bấm nhầm nút, hoặc bị chọc). */
+const RESET_COOLDOWN_S = 60;
+
+const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+
+/**
+ * Phát vé đặt lại mật khẩu cho một email.
+ *
+ * Trả về null khi email không có tài khoản, hoặc vừa phát vé xong chưa lâu.
+ * Bên gọi PHẢI trả lời người dùng y hệt nhau trong mọi trường hợp — nói
+ * "email này không tồn tại" là biếu không cho người lạ danh sách ai đã đăng ký.
+ */
+export function startReset(email, { boQuaChoNghi = false } = {}) {
+  const c = control();
+  const u = c.prepare('SELECT * FROM users WHERE email = ?').get(normEmail(email));
+  if (!u) return null;
+  // Chủ máy chủ chạy lệnh tay thì không bắt chờ: quãng nghỉ này để chặn người
+  // lạ chọc phá qua cửa API, chứ người đang ngồi trong máy chủ thì đã toàn quyền.
+  const gan = boQuaChoNghi ? null : c.prepare(
+    "SELECT created_at FROM resets WHERE user_id = ? AND created_at > datetime('now', ?) ORDER BY created_at DESC LIMIT 1"
+  ).get(u.id, `-${RESET_COOLDOWN_S} seconds`);
+  if (gan) return null;
+  // Vé cũ chưa dùng của người này hết giá trị ngay khi có vé mới.
+  c.prepare('DELETE FROM resets WHERE user_id = ? AND used_at IS NULL').run(u.id);
+  const token = crypto.randomBytes(32).toString('base64url');
+  const phut = resetMinutes();
+  const het = new Date(Date.now() + phut * 60_000).toISOString();
+  c.prepare('INSERT INTO resets (hash, user_id, expires_at) VALUES (?,?,?)').run(hashToken(token), u.id, het);
+  return { token, expires_at: het, user: publicUser(u), minutes: phut };
+}
+
+/** Người dùng của một vé còn hiệu lực, hoặc null. Không tiêu vé. */
+export function resetOwner(token) {
+  if (!token) return null;
+  const c = control();
+  const r = c.prepare('SELECT * FROM resets WHERE hash = ?').get(hashToken(token));
+  if (!r || r.used_at || new Date(r.expires_at).getTime() < Date.now()) return null;
+  return publicUser(c.prepare('SELECT * FROM users WHERE id = ?').get(r.user_id));
+}
+
+/**
+ * Tiêu vé và đặt mật khẩu mới. Ném lỗi nếu vé sai/hết hạn/đã dùng.
+ * Đăng xuất mọi thiết bị, kể cả thiết bị đang cầm vé.
+ */
+export function resetWithToken(token, password) {
+  const pass = String(password ?? '');
+  if (pass.length < 8) throw new Error('Mật khẩu phải có ít nhất 8 ký tự');
+  const c = control();
+  const h = hashToken(token);
+  const r = c.prepare('SELECT * FROM resets WHERE hash = ?').get(h);
+  if (!r || r.used_at || new Date(r.expires_at).getTime() < Date.now()) {
+    throw new Error('Đường dẫn đặt lại mật khẩu đã hết hạn hoặc đã dùng rồi');
+  }
+  c.prepare('UPDATE users SET pass = ? WHERE id = ?').run(hashPass(pass), r.user_id);
+  c.prepare("UPDATE resets SET used_at = datetime('now') WHERE hash = ?").run(h);
+  c.prepare('DELETE FROM resets WHERE user_id = ? AND used_at IS NULL').run(r.user_id);
+  c.prepare('DELETE FROM sessions WHERE user_id = ?').run(r.user_id);
+  return publicUser(c.prepare('SELECT * FROM users WHERE id = ?').get(r.user_id));
+}
+
+/** Dọn vé đã hết hạn — gọi cùng lượt tự động hoá mỗi giờ. */
+export const pruneResets = () =>
+  Number(control().prepare("DELETE FROM resets WHERE expires_at < datetime('now', '-1 day')").run().changes || 0);
 
 /** Id của mọi người dùng — để chạy tự động hoá trên sổ của từng người. */
 export const allUserIds = () => control().prepare('SELECT id FROM users ORDER BY id').all().map((r) => Number(r.id));

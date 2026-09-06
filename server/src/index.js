@@ -10,7 +10,7 @@ import { setting, closeMainDb } from './db.js';
 import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
 import { requireAccount } from './services/account_auth.js';
 import { closeAll, withLedger } from './services/ledgers.js';
-import { multiUser, closeControl, allUserIds } from './services/accounts.js';
+import { multiUser, closeControl, allUserIds, pruneResets } from './services/accounts.js';
 import { ensureWelcome } from './services/chat/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -117,6 +117,8 @@ function tuDongHoa(nhan) {
     console.log(`[finmate] tự động hoá ${nhan}: ${r.posted.length} giao dịch định kỳ, ${r.interest.length} bút toán lãi, ${r.insights} cảnh báo`);
     return;
   }
+  // Vé đặt lại mật khẩu đã hết hạn thì dọn đi, đừng để tích trong sổ danh bạ.
+  try { pruneResets(); } catch (e) { console.warn('[finmate] dọn vé đặt lại mật khẩu lỗi:', e.message); }
   let posted = 0; let interest = 0; let loi = 0;
   const ids = allUserIds();
   for (const id of ids) {

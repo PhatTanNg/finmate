@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +50,26 @@ if (fs.existsSync(path.join(web, 'dist', 'index.html'))) {
   const DATA = path.join(os.tmpdir(), 'finmate-e2e-account');
   fs.rmSync(DATA, { recursive: true, force: true });
   fs.mkdirSync(DATA, { recursive: true });
+  // Hộp thư giả: giữ lại lá thư máy chủ gửi để bộ kiểm mở đúng đường dẫn mà
+  // người dùng thật sẽ bấm trong thư — không giả lập bước nào ở giữa.
+  const hopThu = [];
+  const mail = http.createServer((req, res) => {
+    if (req.method === 'POST') {
+      let b = '';
+      req.on('data', (c) => { b += c; });
+      req.on('end', () => {
+        try { hopThu.push(JSON.parse(b)); } catch { /* thư hỏng thì bỏ */ }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 'thu-' + hopThu.length }));
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(hopThu[hopThu.length - 1] || null));
+  });
+  await new Promise((r) => mail.listen(4400, '127.0.0.1', r));
+  kids.push({ kill: () => mail.close() });
+
   spawnBg(process.execPath, ['src/index.js'], {
     cwd: server,
     env: {
@@ -60,11 +81,16 @@ if (fs.existsSync(path.join(web, 'dist', 'index.html'))) {
       FINMATE_DB: path.join(DATA, 'default.db'),
       FINMATE_BACKUP_DIR: path.join(DATA, 'backups'),
       FINMATE_SIGNUP_CODE: 'ma-moi-e2e',
+      FINMATE_MAIL_KEY: 'khoa-gia',
+      FINMATE_MAIL_URL: 'http://127.0.0.1:4400/emails',
+      // Đường dẫn trong thư phải trỏ về trang tĩnh (nơi người dùng mở app),
+      // không phải cổng API.
+      FINMATE_PUBLIC_URL: 'http://127.0.0.1:4300',
     },
   });
   spawnBg(process.execPath, [path.join(here, 'serve-static.mjs')], { env: { ...process.env, E2E_ROOT: path.join(web, 'dist'), E2E_API: 'http://127.0.0.1:4002', E2E_PORT: '4300' } });
   await up('http://127.0.0.1:4300/');
-  bad += await run({ E2E_BASE: 'http://127.0.0.1:4300', E2E_SIGNUP_CODE: 'ma-moi-e2e' }, 'e2e-account.mjs');
+  bad += await run({ E2E_BASE: 'http://127.0.0.1:4300', E2E_SIGNUP_CODE: 'ma-moi-e2e', E2E_INBOX: 'http://127.0.0.1:4400/last' }, 'e2e-account.mjs');
   fs.rmSync(DATA, { recursive: true, force: true });
 }
 

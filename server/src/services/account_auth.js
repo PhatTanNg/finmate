@@ -15,7 +15,8 @@ import { ledgerFor } from './ledgers.js';
 /** Những đường không cần đăng nhập. */
 const OPEN = [
   /^\/health$/,
-  /^\/account\/(register|login)$/,
+  // Quên mật khẩu thì đương nhiên chưa đăng nhập được — hai đường này phải mở.
+  /^\/account\/(register|login|forgot|reset)$/,
 ];
 
 const tokenOf = (req) =>

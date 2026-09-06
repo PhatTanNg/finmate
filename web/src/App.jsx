@@ -6,6 +6,7 @@ import CommandPalette from './components/CommandPalette.jsx';
 import { IconHome, IconChat, IconList, IconBell, IconGrid, IconSearch } from './components/icons.jsx';
 import Lock from './pages/Lock.jsx';
 import Login from './pages/Login.jsx';
+import Reset from './pages/Reset.jsx';
 import Chat from './pages/Chat.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Transactions from './pages/Transactions.jsx';
@@ -61,7 +62,25 @@ const BOTTOM = [
 ];
 const MORE_PAGES = new Set(['accounts', 'funds', 'budgets', 'goals', 'income', 'investments', 'debts', 'currency', 'fire', 'advisor', 'ailog', 'automation', 'settings', 'more']);
 
+/**
+ * Vé đặt lại mật khẩu đi trong HASH (#reset=...) chứ không phải query string:
+ * phần hash không bao giờ được trình duyệt gửi lên máy chủ, nên vé không lọt
+ * vào log truy cập hay header Referer của bất kỳ ai.
+ */
+const veTrongDiaChi = () => {
+  const m = /(?:^|[#&])reset=([^&]+)/.exec(typeof location === 'undefined' ? '' : location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
 export default function App() {
+  // Đọc vé một lần rồi xoá khỏi thanh địa chỉ ngay: bấm chia sẻ trang hay chụp
+  // màn hình gửi cho ai đó thì cũng không kèm theo vé.
+  const [ve, setVe] = useState(() => {
+    const t = veTrongDiaChi();
+    if (t) { try { history.replaceState(null, '', location.pathname + location.search); } catch { location.hash = ''; } }
+    return t;
+  });
+  // (dòng trên đã xoá hash nếu đó là vé, nên chỗ này không bao giờ nhận nhầm vé làm tên tab)
   const [tab, setTab] = useState(() => location.hash.slice(1) || 'dashboard');
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
@@ -97,7 +116,7 @@ export default function App() {
       // là khoá PIN của chính máy này. Hai chuyện khác hẳn nhau.
       const h = await api.get('/health').catch(() => null);
       if (h?.multi_user) {
-        setAuth({ multi: true, user: h.user || null, unlocked: Boolean(h.user), canMoi: Boolean(h.signup_code_required) });
+        setAuth({ multi: true, user: h.user || null, unlocked: Boolean(h.user), canMoi: Boolean(h.signup_code_required), coEmail: Boolean(h.mail_enabled) });
         return;
       }
       const s = await api.get('/auth/status');
@@ -120,7 +139,18 @@ export default function App() {
   }, [tab]);
 
   useEffect(() => {
-    const onHash = () => setTab(location.hash.slice(1) || 'dashboard');
+    const onHash = () => {
+      // Bấm đường dẫn trong thư khi app đang mở sẵn ở tab này: trình duyệt chỉ
+      // đổi hash chứ không tải lại trang, nên phải tự bắt lấy vé ở đây — không
+      // thì người dùng bấm vào thư mà màn hình chẳng nhúc nhích.
+      const t = veTrongDiaChi();
+      if (t) {
+        setVe(t);
+        try { history.replaceState(null, '', location.pathname + location.search); } catch { location.hash = ''; }
+        return;
+      }
+      setTab(location.hash.slice(1) || 'dashboard');
+    };
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
   }, []);
@@ -223,9 +253,20 @@ export default function App() {
       </div>
     );
   }
+  // Mở đường dẫn trong thư: đặt mật khẩu mới trước đã, kể cả khi máy này đang
+  // còn đăng nhập sẵn một tài khoản khác.
+  if (ve && auth.multi) {
+    return (
+      <Reset
+        token={ve}
+        onDone={(user) => { setVe(null); setAuth({ ...auth, user, unlocked: true }); }}
+        onHuy={() => { setVe(null); setAuth({ ...auth, user: null, unlocked: false }); }}
+      />
+    );
+  }
   if (!auth.unlocked) {
     return auth.multi
-      ? <Login canMoi={auth.canMoi} onDone={(user) => setAuth({ ...auth, user, unlocked: true })} />
+      ? <Login canMoi={auth.canMoi} coEmail={auth.coEmail} onDone={(user) => setAuth({ ...auth, user, unlocked: true })} />
       : <Lock pinSet={auth.pinSet} onUnlock={() => setAuth({ ...auth, unlocked: true })} />;
   }
 

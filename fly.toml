@@ -20,6 +20,9 @@
 #        fly secrets set FINMATE_INGEST_TOKEN="$(openssl rand -hex 24)"
 #        fly secrets set FINMATE_SIGNUP_CODE="mã mời của riêng bạn"
 #        fly secrets set FINMATE_LLM_KEY="sk-ant-..."     # nếu muốn bật AI phía máy chủ
+#        fly secrets set FINMATE_MAIL_KEY="re_..."        # để "quên mật khẩu" tự gửi thư được
+#      (chưa có khoá thư thì vẫn đặt lại mật khẩu được bằng tay:
+#        fly ssh console -C "node server/src/scripts/reset_password.js --email ban@example.com")
 #   6. fly deploy
 #   7. fly open       — mở app, tạo tài khoản bằng mã mời ở bước 5
 #
@@ -44,6 +47,10 @@ primary_region = 'sin'     # Singapore — gần Việt Nam nhất. 'fra' nếu 
   # Trần số tài khoản: volume 3GB, mỗi sổ vài MB. Đặt trần để một ngày nào đó
   # cửa đăng ký bị dò ra thì đĩa không bị lấp đầy.
   FINMATE_MAX_USERS = '50'
+  # Đường dẫn trong thư đặt lại mật khẩu phải trỏ về tên miền thật. Suy từ
+  # request cũng ra đúng, nhưng khai rõ thì không sợ proxy nào ở giữa làm lệch.
+  # Đổi thành tên miền của bạn (hoặc xoá dòng này).
+  # FINMATE_PUBLIC_URL = 'https://ten-app-cua-ban.fly.dev'
 
 [http_service]
   internal_port = 4000

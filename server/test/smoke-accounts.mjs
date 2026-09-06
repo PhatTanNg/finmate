@@ -152,6 +152,81 @@ const qua = await POST('/account/register', { email: 'nguoithu4@example.com', pa
 ok('chạm trần số tài khoản thì dừng nhận thêm', qua.status !== 200 && /đủ số tài khoản/i.test(qua.error || ''), JSON.stringify(qua).slice(0, 100));
 delete process.env.FINMATE_MAX_USERS;
 
+head('Quên mật khẩu: gửi thư');
+// Máy chủ thư giả: bắt lại đúng lá thư app định gửi, để soi nội dung thật chứ
+// không phải soi ý định gửi.
+const thuDaGui = [];
+const mailSrv = await new Promise((r) => {
+  const a = express();
+  a.use(express.json());
+  a.post('/emails', (req, rq) => { thuDaGui.push({ ...req.body, auth: req.get('authorization') }); rq.json({ id: 'thu-' + thuDaGui.length }); });
+  const sv = a.listen(0, () => r(sv));
+});
+process.env.FINMATE_MAIL_KEY = 'khoa-gia';
+process.env.FINMATE_MAIL_URL = `http://127.0.0.1:${mailSrv.address().port}/emails`;
+process.env.FINMATE_PUBLIC_URL = 'https://finmate.example';
+
+ok('/health báo giao diện biết máy chủ gửi được thư', (await GET('/health')).mail_enabled === true);
+const quen = await POST('/account/forgot', { email: 'an@example.com' });
+ok('gọi quên mật khẩu được khi CHƯA đăng nhập', quen.status === 200, JSON.stringify(quen).slice(0, 80));
+ok('có gửi đúng một lá thư', thuDaGui.length === 1, String(thuDaGui.length));
+ok('thư gửi đúng người', thuDaGui[0]?.to?.[0] === 'an@example.com', JSON.stringify(thuDaGui[0]?.to));
+ok('thư có kèm khoá API ở header', /^Bearer khoa-gia$/.test(thuDaGui[0]?.auth || ''));
+const veTrongThu = /#reset=([A-Za-z0-9_-]+)/.exec(thuDaGui[0]?.text || '')?.[1];
+ok('thư có đường dẫn đặt lại trên đúng tên miền công khai', (thuDaGui[0]?.text || '').includes('https://finmate.example/#reset='), (thuDaGui[0]?.text || '').slice(0, 60));
+ok('thư nói rõ dùng một lần và có hạn', /MỘT LẦN|một lần/.test(thuDaGui[0]?.text || '') && /phút/.test(thuDaGui[0]?.text || ''));
+
+const laVe = await POST('/account/forgot', { email: 'khong-ai-dung@example.com' });
+ok('email không có tài khoản: trả lời y hệt, không lộ ai đã đăng ký', JSON.stringify(laVe) === JSON.stringify(quen), JSON.stringify(laVe));
+ok('và tất nhiên không gửi thư nào', thuDaGui.length === 1, String(thuDaGui.length));
+
+const lienTiep = await POST('/account/forgot', { email: 'an@example.com' });
+ok('bấm lại ngay thì không gửi thêm thư (quãng nghỉ chống chọc phá)', thuDaGui.length === 1, String(thuDaGui.length));
+ok('nhưng vẫn trả lời y hệt, không để lộ là đã có vé', JSON.stringify(lienTiep) === JSON.stringify(quen));
+
+head('Quên mật khẩu: dùng vé');
+const kiem = await GET(`/account/reset?token=${encodeURIComponent(veTrongThu)}`);
+ok('mở đường dẫn thì biết ngay vé còn dùng được', kiem.valid === true && kiem.email === 'an@example.com', JSON.stringify(kiem));
+ok('vé bịa thì báo hỏng chứ không nhận bừa', (await GET('/account/reset?token=ve-bia-dat')).valid === false);
+
+const nganQua = await POST('/account/reset', { token: veTrongThu, password: 'ngan' });
+ok('mật khẩu mới quá ngắn thì bị chặn', nganQua.status !== 200 && /8 ký tự/.test(nganQua.error || ''), JSON.stringify(nganQua).slice(0, 80));
+
+const phienCu = (await POST('/account/login', { email: 'an@example.com', password: 'matkhau-moi-cua-an' })).token;
+ok('trước khi đặt lại, phiên cũ vẫn dùng được', (await GET('/accounts', phienCu)).status === 200);
+
+const datLai = await POST('/account/reset', { token: veTrongThu, password: 'mat-khau-quen-roi' });
+ok('đặt lại được bằng vé trong thư', datLai.status === 200 && datLai.user?.id === an.user.id, JSON.stringify(datLai).slice(0, 100));
+ok('đặt lại xong vào thẳng app, không bắt gõ lại mật khẩu vừa đặt', typeof datLai.token === 'string' && datLai.token.length > 20);
+ok('mọi thiết bị khác bị đăng xuất', (await GET('/accounts', phienCu)).status === 401);
+ok('mật khẩu cũ hết dùng được', (await POST('/account/login', { email: 'an@example.com', password: 'matkhau-moi-cua-an' })).status === 401);
+ok('mật khẩu mới đăng nhập được', (await POST('/account/login', { email: 'an@example.com', password: 'mat-khau-quen-roi' })).status === 200);
+ok('vé đã dùng thì không dùng lại được', (await POST('/account/reset', { token: veTrongThu, password: 'lan-nua-di' })).status !== 200);
+ok('sổ vẫn còn nguyên sau khi đặt lại mật khẩu',
+  (await GET('/accounts', datLai.token)).accounts?.some((a) => a.name === 'VCB của An'));
+
+head('Quên mật khẩu: vé cũ và vé hết hạn');
+// Vé "hết hạn" = hạn nằm trong quá khứ. Đặt số phút âm là cách gọn nhất để
+// dựng đúng tình huống đó mà không phải giả lập đồng hồ.
+process.env.FINMATE_RESET_MINUTES = '-1';
+const veHet = acc.startReset('binh@example.com');
+ok('vé hết hạn thì coi như không có', veHet && !acc.resetOwner(veHet.token), JSON.stringify(Boolean(veHet)));
+let neVe = null;
+try { acc.resetWithToken(veHet.token, 'mat-khau-gi-do'); } catch (e) { neVe = e.message; }
+ok('dùng vé hết hạn thì báo rõ là hết hạn', /hết hạn|đã dùng/.test(neVe || ''), String(neVe));
+delete process.env.FINMATE_RESET_MINUTES;
+ok('mật khẩu của Bình không hề bị đổi', Boolean(acc.verify({ email: 'binh@example.com', password: 'matkhau-cua-binh' })));
+
+head('Quên mật khẩu: máy chủ chưa gắn dịch vụ gửi thư');
+delete process.env.FINMATE_MAIL_KEY;
+ok('/health nói thẳng là không gửi được thư', (await GET('/health')).mail_enabled === false);
+const khongThu = await POST('/account/forgot', { email: 'an@example.com' });
+ok('vẫn trả lời tử tế chứ không lỗi', khongThu.status === 200, JSON.stringify(khongThu).slice(0, 80));
+ok('và nói rõ là không gửi được, để giao diện chỉ đường khác', khongThu.mail_enabled === false && khongThu.sent === false, JSON.stringify(khongThu));
+mailSrv.close();
+delete process.env.FINMATE_MAIL_URL;
+delete process.env.FINMATE_PUBLIC_URL;
+
 srv.close();
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${fail ? '✗' : '✓'} smoke-accounts: ${pass} đạt, ${fail} hỏng`);

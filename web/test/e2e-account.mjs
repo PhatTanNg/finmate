@@ -156,6 +156,62 @@ await page.waitForTimeout(1200);
 ok('đăng nhập lại thấy đúng sổ cũ của mình', /VCB của Lan/.test(await text('.main')));
 await page.screenshot({ path: SHOTS + '/03-quay-lai.png' });
 
+// ── 6. Quên mật khẩu ───────────────────────────────────────────────────────
+const INBOX = process.env.E2E_INBOX;
+if (INBOX) {
+  step('6. Quên mật khẩu: xin thư, mở đường dẫn trong thư, đặt mật khẩu mới');
+  // Đăng xuất để đứng đúng chỗ người quên mật khẩu đang đứng.
+  await page.evaluate(() => { location.hash = 'more'; });
+  await page.waitForTimeout(900);
+  const ra = await page.$('text=Đăng xuất');
+  if (ra) { page.once('dialog', (d) => d.accept()); await ra.click(); await page.waitForSelector('.lock-box', { timeout: 30000 }); }
+
+  ok('màn đăng nhập có lối vào "Quên mật khẩu?"', Boolean(await page.$('text=Quên mật khẩu?')));
+  await page.click('text=Quên mật khẩu?');
+  await page.waitForTimeout(400);
+  ok('màn quên mật khẩu không hỏi mật khẩu (hỏi thì hỏi làm gì nữa)', !(await page.$('input[type=password]')));
+  await page.fill('input[type=email]', 'lan@example.com');
+  await page.click('button.primary');
+  await page.waitForTimeout(1500);
+  const bao = await text('.lock-box');
+  ok('báo đã gửi thư mà không khẳng định email có tài khoản hay không', /Nếu email này có tài khoản/.test(bao), bao.slice(-90));
+
+  const thu = await (await fetch(INBOX)).json().catch(() => null);
+  ok('máy chủ có gửi thư thật', Boolean(thu?.text), JSON.stringify(thu).slice(0, 80));
+  const lien = /(https?:\/\/\S*#reset=[A-Za-z0-9_-]+)/.exec(thu?.text || '')?.[1];
+  ok('trong thư có đường dẫn đặt lại', Boolean(lien), (thu?.text || '').slice(0, 80));
+
+  await page.goto(lien, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.lock-box', { timeout: 30000 });
+  await page.waitForTimeout(1200);
+  const man = await text('.lock-box');
+  ok('mở đường dẫn ra đúng màn đặt mật khẩu mới, có ghi rõ cho tài khoản nào', /Đặt mật khẩu mới/.test(man) && /lan@example.com/.test(man), man.slice(0, 90));
+  // Vé không được nằm lại trên thanh địa chỉ sau khi đã đọc: chụp màn hình hay
+  // bấm chia sẻ trang thì cũng không kèm theo vé.
+  ok('vé đã được xoá khỏi thanh địa chỉ', !(await page.evaluate(() => location.hash)).includes('reset='), await page.evaluate(() => location.hash));
+
+  const oMk = await page.$$('input[type=password]');
+  await oMk[0].fill('mat-khau-hoan-toan-moi');
+  await oMk[1].fill('sai-o-thu-hai');
+  await page.click('button.primary');
+  await page.waitForTimeout(800);
+  ok('hai lần nhập lệch nhau thì bị chặn', /chưa khớp/.test(await text('.lock-box')));
+
+  await (await page.$$('input[type=password]'))[1].fill('mat-khau-hoan-toan-moi');
+  await page.click('button.primary');
+  await page.waitForSelector('.botnav', { timeout: 30000 });
+  ok('đặt lại xong vào thẳng app, không bắt đăng nhập lại', true);
+  await page.evaluate(() => { location.hash = 'accounts'; });
+  await page.waitForTimeout(1200);
+  ok('sổ cũ vẫn còn nguyên sau khi đặt lại mật khẩu', /VCB của Lan/.test(await text('.main')));
+  await page.screenshot({ path: SHOTS + '/04-dat-lai-xong.png' });
+
+  // Mở lại chính đường dẫn đó lần nữa: vé dùng một lần.
+  await page.goto(lien, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1500);
+  ok('mở lại đường dẫn cũ thì báo hết hạn, không cho đặt lại lần nữa', /không còn dùng được/.test(await text('.lock-box')), (await text('.lock-box')).slice(0, 80));
+}
+
 ok('không có lỗi JavaScript nào trong suốt hành trình', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
 
 await b.close();

@@ -26,6 +26,12 @@ services:
       # Mã mời — bắt buộc trên thực tế nếu máy chủ chạm được từ Internet.
       FINMATE_SIGNUP_CODE: ${FINMATE_SIGNUP_CODE:-}
       FINMATE_MAX_USERS: ${FINMATE_MAX_USERS:-}
+      # Gửi thư đặt lại mật khẩu. Không có khoá thì chủ máy chủ phát đường dẫn
+      # bằng tay: docker compose exec finmate node server/src/scripts/reset_password.js --email ...
+      FINMATE_MAIL_KEY: ${FINMATE_MAIL_KEY:-}
+      FINMATE_MAIL_FROM: ${FINMATE_MAIL_FROM:-}
+      # Địa chỉ app nhìn từ ngoài, để đường dẫn trong thư trỏ đúng chỗ.
+      FINMATE_PUBLIC_URL: ${FINMATE_PUBLIC_URL:-}
       # Tuỳ chọn — bật cố vấn AI thật.
       # Bỏ trống MODEL thì app tự chọn: claude-opus-5 với key Claude, gpt-4o-mini với key OpenAI.
       FINMATE_LLM_KEY: ${FINMATE_LLM_KEY:-}

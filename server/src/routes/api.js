@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { all, get, insert, update, remove, run, setting } from '../db.js';
 import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken } from '../services/auth.js';
 import * as tk from '../services/accounts.js';
+import { mailEnabled, sendMail, resetMail } from '../services/mailer.js';
 import { BACKUP_DIR, listBackups, createBackup, snapshotToTemp, exportAll, autoBackup } from '../services/backup.js';
 import { today, monthKey, monthStart, monthEnd, lastMonths } from '../util/date.js';
 import { bootstrap } from '../bootstrap.js';
@@ -117,6 +118,75 @@ router.post('/account/login', wrap(async (req, res) => {
   ok(res, { user: u, ...tk.startSession(u.id, req.get('user-agent')) });
 }));
 
+// ── Quên mật khẩu ─────────────────────────────────────────────────────────
+//
+// Câu trả lời của /account/forgot LUÔN GIỐNG NHAU dù email có tài khoản hay
+// không. Nói "email này chưa đăng ký" là biếu không cho người lạ cách kiểm tra
+// ai đang dùng app — với một app tài chính thì bản thân việc đó đã là rò rỉ.
+const FORGOT_MAX = Number(process.env.FINMATE_FORGOT_PER_HOUR) || 8;
+const forgotHits = new Map();
+function forgotTooMany(ip) {
+  const now = Date.now();
+  const h = (forgotHits.get(ip) || []).filter((t) => now - t < 3600_000);
+  if (h.length >= FORGOT_MAX) { forgotHits.set(ip, h); return true; }
+  h.push(now);
+  forgotHits.set(ip, h);
+  if (forgotHits.size > 5000) {
+    for (const [k, v] of forgotHits) if (!v.some((t) => now - t < 3600_000)) forgotHits.delete(k);
+  }
+  return false;
+}
+
+/** Địa chỉ app nhìn từ ngoài, để dán vào thư. Sau reverse proxy thì tin header. */
+const publicBase = (req) => {
+  if (process.env.FINMATE_PUBLIC_URL) return String(process.env.FINMATE_PUBLIC_URL).replace(/\/+$/, '');
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+  return `${proto}://${req.get('host')}`;
+};
+export const resetLink = (req, token) => `${publicBase(req)}/#reset=${token}`;
+
+router.post('/account/forgot', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  const chung = { mail_enabled: mailEnabled(), sent: mailEnabled() };
+  if (forgotTooMany(ipOf(req))) {
+    return res.status(429).json({ ok: false, error: 'Yêu cầu quá nhiều lần từ máy này, thử lại sau một giờ' });
+  }
+  // Máy chủ chưa gắn dịch vụ gửi thư: nói thẳng ra thay vì phát vé rồi im lặng
+  // để người dùng ngồi chờ một lá thư không bao giờ tới. Câu trả lời này không
+  // phụ thuộc vào email nên vẫn không lộ ai có tài khoản.
+  if (!mailEnabled()) return ok(res, chung);
+
+  const ve = tk.startReset(req.body?.email);
+  if (ve) {
+    try {
+      const thu = resetMail({ link: resetLink(req, ve.token), minutes: ve.minutes, name: ve.user.name });
+      await sendMail({ to: ve.user.email, ...thu });
+    } catch (e) {
+      // Gửi hỏng thì ghi log cho chủ máy chủ đọc, nhưng vẫn trả lời như thường:
+      // phân biệt được "gửi hỏng" với "email không tồn tại" cũng là một cách dò.
+      console.error('[finmate] gửi thư đặt lại mật khẩu hỏng:', e.message);
+    }
+  }
+  ok(res, chung);
+}));
+
+// Mở đường dẫn trong thư: hỏi xem vé còn dùng được không, để hiện đúng màn hình
+// (đặt mật khẩu mới, hay "đường dẫn đã hết hạn") thay vì để người dùng gõ xong
+// mới báo hỏng.
+router.get('/account/reset', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  const u = tk.resetOwner(req.query.token);
+  ok(res, { valid: Boolean(u), email: u?.email || null });
+}));
+
+router.post('/account/reset', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  const u = tk.resetWithToken(req.body?.token, req.body?.password);
+  // Chứng minh được là chủ hộp thư rồi thì cho vào luôn, không bắt gõ lại mật
+  // khẩu vừa đặt. Mọi phiên cũ đã bị xoá ở bước trên nên đây là phiên duy nhất.
+  ok(res, { user: u, ...tk.startSession(u.id, req.get('user-agent')), note: 'Mọi thiết bị khác đã bị đăng xuất' });
+}));
+
 router.post('/account/logout', wrap(async (req, res) => {
   if (!tk.multiUser()) return needMulti(res);
   tk.endSession(req.get('x-finmate-key') || (req.get('authorization') || '').replace(/^Bearer\s+/i, ''));
@@ -160,6 +230,9 @@ router.get('/health', wrap(async (req, res) => ok(res, {
   // Giao diện cần biết để hiện màn đăng nhập hay không, và có phải hỏi mã mời.
   multi_user: tk.multiUser(),
   signup_code_required: tk.multiUser() && tk.signupCodeRequired(),
+  // Máy chủ có gửi được thư không: quyết định màn "quên mật khẩu" chỉ dẫn người
+  // dùng chờ thư, hay bảo họ liên hệ chủ máy chủ.
+  mail_enabled: tk.multiUser() && mailEnabled(),
   user: req.user || null,
 })));
 
