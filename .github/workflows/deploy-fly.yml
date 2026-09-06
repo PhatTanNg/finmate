@@ -258,6 +258,20 @@ jobs:
           echo "$body" | jq -e '.multi_user == true' >/dev/null \
             || echo "::warning::Máy chủ đang chạy chế độ MỘT SỔ. fly.toml phải có FINMATE_MULTIUSER=1."
 
+      - name: Máy chủ không lên thì lấy log của chính nó
+        if: failure()
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          # Không có bước này thì mọi trục trặc lúc khởi động đều hiện ra y hệt
+          # nhau: "chưa trả lời sau 150 giây" — không nói được app chết vì sao.
+          echo "===== Trạng thái máy ====="
+          flyctl status --app "$APP" || true
+          echo "===== Ổ đĩa ====="
+          flyctl volumes list --app "$APP" || true
+          echo "===== Log của app (những dòng cuối) ====="
+          flyctl logs --app "$APP" --no-tail || true
+
       - name: Chỉ đường cho người vừa bấm
         env:
           APP: ${{ inputs.app }}

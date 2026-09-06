@@ -41,9 +41,14 @@ ENV FINMATE_HOST=0.0.0.0
 ENV PORT=4000
 VOLUME ["/data"]
 
-# Không chạy bằng root.
-RUN mkdir -p /data && chown -R node:node /data
-USER node
+# Không chạy bằng root — nhưng cũng không thể đặt USER node ở đây: ổ đĩa gắn vào
+# /data lúc CHẠY thuộc root, mà một tiến trình 'node' thì không tự sửa quyền cho
+# mình được. Vào bằng root, entrypoint sửa quyền đúng thư mục đó rồi mới hạ
+# quyền xuống 'node' (su-exec) trước khi chạy app.
+RUN apk add --no-cache su-exec && mkdir -p /data && chown -R node:node /data
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
