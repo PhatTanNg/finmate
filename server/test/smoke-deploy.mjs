@@ -116,6 +116,24 @@ for (const bien of ['FINMATE_DB', 'FINMATE_BACKUP_DIR']) {
   ok(`${bien} cũng nằm trong volume`, Boolean(v) && mounts.some((m) => v === m || v.startsWith(`${m}/`)), String(v));
 }
 
+head('fly.toml trỏ dữ liệu vào đúng ổ đĩa được gắn');
+// Bộ kiểm này từng chỉ soi Dockerfile — và đó là lý do một lần deploy thật vẫn
+// chết: cấu hình máy trên Fly lấy từ [env] của fly.toml, thiếu ở đó thì app rơi
+// về /app/server/data (thư mục mã nguồn trong máy ảo), chết ngay khi khởi động
+// với EACCES, trong khi deploy vẫn báo xanh.
+const flyRaw = readFileSync(path.join(here, '..', '..', 'fly.toml'), 'utf8');
+const flyEnv = Object.fromEntries([...flyRaw.matchAll(/^\s*(FINMATE_[A-Z_]+|PORT)\s*=\s*'([^']*)'/gm)].map((m) => [m[1], m[2]]));
+const flyMount = /^\s*destination\s*=\s*'([^']*)'/m.exec(flyRaw)?.[1];
+ok('fly.toml có khai nơi gắn ổ đĩa', Boolean(flyMount), String(flyMount));
+for (const bien of ['FINMATE_DATA_DIR', 'FINMATE_DB', 'FINMATE_BACKUP_DIR']) {
+  ok(`fly.toml khai ${bien}`, Boolean(flyEnv[bien]), JSON.stringify(flyEnv[bien]));
+  ok(`${bien} nằm trong ổ đĩa ${flyMount}`,
+    flyEnv[bien] === flyMount || (flyEnv[bien] || '').startsWith(`${flyMount}/`), `${flyEnv[bien]} vs ${flyMount}`);
+}
+ok('fly.toml bật chế độ nhiều người dùng', flyEnv.FINMATE_MULTIUSER === '1', flyEnv.FINMATE_MULTIUSER);
+// Máy chủ đứng sau proxy của Fly: khai sai số tầng là hỏng chống dò mật khẩu.
+ok('fly.toml khai đúng một tầng proxy', flyEnv.FINMATE_TRUST_PROXY === '1', flyEnv.FINMATE_TRUST_PROXY);
+
 head('Tên miền thật: trang của chính app gọi được, trang lạ thì không');
 // Trình duyệt gửi kèm Origin cả với request cùng origin. Trên máy chủ thật,
 // Origin là tên miền đã deploy chứ không phải localhost — nếu chỉ cho phép

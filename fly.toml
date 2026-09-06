@@ -37,6 +37,18 @@ primary_region = 'sin'     # Singapore — gần Việt Nam nhất. 'fra' nếu 
 
 [env]
   PORT = '4000'
+  # BA DÒNG DƯỚI ĐÂY LÀ THỨ GIỮ TOÀN BỘ SỔ SÁCH.
+  #
+  # Dockerfile cũng khai ENV cho chúng, nhưng cấu hình máy trên Fly lấy từ chính
+  # [env] này — thiếu ở đây là app rơi về mặc định /app/server/data, tức là ghi
+  # vào thư mục mã nguồn TRONG máy ảo thay vì ổ đĩa. Đã gặp thật: app chết ngay
+  # khi khởi động với "EACCES: permission denied, mkdir '/app/server/data'",
+  # deploy vẫn xanh, và người dùng chỉ thấy một trang trắng.
+  #
+  # Phải khớp với [[mounts]] destination ở cuối file.
+  FINMATE_DATA_DIR = '/data'
+  FINMATE_DB = '/data/finmate.db'
+  FINMATE_BACKUP_DIR = '/data/backups'
   # Bên trong máy Fly phải nghe mọi địa chỉ thì proxy của Fly mới vào được.
   # Không phơi ra Internet trần: mọi thứ đi qua proxy có HTTPS ở dưới.
   FINMATE_HOST = '0.0.0.0'
