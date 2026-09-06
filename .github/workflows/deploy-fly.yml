@@ -212,7 +212,35 @@ jobs:
           # --ha=false: CHỈ MỘT MÁY. SQLite cho đúng một tiến trình ghi, và một ổ
           # đĩa Fly cũng chỉ gắn được vào một máy — hai máy là hỏng dữ liệu.
           # --remote-only: build bằng máy dựng của Fly, khỏi phụ thuộc Docker của runner.
-          flyctl deploy --app "$APP" --ha=false --remote-only
+          # Khoá máy (lease): sau khi tạo app trên dashboard, hoặc sau một lần
+          # deploy dở, Fly còn giữ khoá trên máy vài phút. Deploy lúc đó chết
+          # ngay với "failed to acquire lease" — không phải hỏng gì, chỉ là tới
+          # sớm. Khoá tự hết hạn, nên chờ rồi thử lại là xong; bắt người ta ngồi
+          # canh đồng hồ rồi bấm lại thì vô lý.
+          for lan in 1 2 3 4 5 6; do
+            if out=$(flyctl deploy --app "$APP" --ha=false --remote-only 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            echo "$out"
+            case "$out" in
+              *"lease"*|*"currently held"*)
+                if [ "$lan" -lt 6 ]; then
+                  echo "Máy đang bị khoá bởi một thao tác khác (thường là trang dashboard vừa tạo app). Chờ 60 giây rồi thử lại — lần $lan/6."
+                  sleep 60
+                  continue
+                fi
+                echo "::error::Máy vẫn bị khoá sau 6 lần chờ. Vào https://fly.io/apps/$APP/monitoring xem có thao tác nào đang chạy dở không, đợi nó xong rồi chạy lại workflow."
+                ;;
+              *"insufficient"*|*"capacity"*)
+                echo "::error::Vùng $REGION đang hết chỗ. Chạy lại với vùng khác (nrt = Tokyo, hkg = Hong Kong)."
+                ;;
+              *)
+                echo "::error::Deploy hỏng. Nguyên văn lời Fly nói ở ngay trên."
+                ;;
+            esac
+            exit 1
+          done
 
       - name: Kiểm tra máy chủ đã sống
         env:
