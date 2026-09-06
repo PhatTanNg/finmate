@@ -264,6 +264,26 @@ jobs:
           done
           flyctl status --app "$APP" || true
 
+      - name: Cấp địa chỉ công khai nếu app chưa có
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          # Máy chạy khoẻ mà tên miền vẫn không vào được thì gần như luôn là vì
+          # app chưa có địa chỉ IP công khai: proxy của Fly không có gì để nhận
+          # request từ Internet, nên mọi lần gọi đều rơi vào im lặng — nhìn y hệt
+          # như app chết. `fly deploy` tự cấp trong lần deploy đầu, nhưng app tạo
+          # tay trên dashboard hoặc có lần deploy đầu hỏng dở thì bỏ sót bước này.
+          #
+          # Phải có CẢ HAI. Chỉ IPv6 là hụt một nửa thế giới: máy chạy GitHub
+          # Actions, và nhiều mạng di động ở Việt Nam, chỉ đi được IPv4.
+          # IPv4 dùng chung (--shared) thì không mất phí.
+          ips=$(flyctl ips list --app "$APP" 2>&1 || true)
+          echo "$ips"
+          echo "$ips" | grep -qw v4 || flyctl ips allocate-v4 --shared --app "$APP" || true
+          echo "$ips" | grep -qw v6 || flyctl ips allocate-v6 --app "$APP" || true
+          echo "--- sau khi cấp ---"
+          flyctl ips list --app "$APP" || true
+
       - name: Kiểm tra máy chủ đã sống
         env:
           APP: ${{ inputs.app }}
@@ -273,6 +293,12 @@ jobs:
             sleep 5
           done
           if [ -z "$body" ]; then
+            # Nuốt lỗi của curl thì mọi nguyên nhân đều hiện ra là "im lặng":
+            # app chết, app khoẻ mà chưa có IP công khai, DNS chưa kịp lan, chứng
+            # chỉ HTTPS chưa cấp xong — bốn thứ sửa bằng bốn cách khác nhau.
+            echo "===== curl nói gì ====="
+            curl -sS -o /dev/null -w 'mã HTTP: %{http_code}\nnối tới: %{remote_ip}\n' \
+              --connect-timeout 10 "https://$APP.fly.dev/api/health" || true
             echo "::error::Máy chủ chưa trả lời sau 150 giây. Xem log: flyctl logs --app $APP, hoặc tab Monitoring trên fly.io."
             exit 1
           fi
@@ -295,6 +321,8 @@ jobs:
           for id in $(flyctl machines list --app "$APP" --json | jq -r '.[].id'); do
             flyctl machine status "$id" --app "$APP" || true
           done
+          echo "===== Địa chỉ công khai ====="
+          flyctl ips list --app "$APP" || true
           echo "===== Ổ đĩa ====="
           flyctl volumes list --app "$APP" || true
           echo "===== Log của app (những dòng cuối) ====="

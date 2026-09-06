@@ -169,6 +169,12 @@ const viTriHoi = wf.indexOf('/api/health"');
 ok('quy trình có bật máy sau khi deploy', viTriBat > -1, 'không thấy `flyctl machine start`');
 ok('bật máy xong mới hỏi sức khoẻ', viTriBat > -1 && viTriHoi > -1 && viTriBat < viTriHoi,
   `bật ở vị trí ${viTriBat}, hỏi ở ${viTriHoi}`);
+// Máy khoẻ bên trong mà tên miền vẫn câm: app chưa có IP công khai. Và phải có
+// cả IPv4 — chỉ IPv6 thì mọi mạng chỉ chạy IPv4 đều không vào được.
+const viTriIp = wf.indexOf('allocate-v4');
+ok('quy trình cấp IPv4 dùng chung cho app', viTriIp > -1, 'không thấy `flyctl ips allocate-v4`');
+ok('có IP xong mới hỏi sức khoẻ', viTriIp > -1 && viTriHoi > -1 && viTriIp < viTriHoi,
+  `cấp ở vị trí ${viTriIp}, hỏi ở ${viTriHoi}`);
 
 head('Tên miền thật: trang của chính app gọi được, trang lạ thì không');
 // Trình duyệt gửi kèm Origin cả với request cùng origin. Trên máy chủ thật,
