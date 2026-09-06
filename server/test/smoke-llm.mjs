@@ -227,7 +227,13 @@ const server = http.createServer((req, res) => {
       ? [{ type: 'text', text: 'Được, mình ghi ngay.' }, { type: 'tool_use', id: 'tu_a', name: 'ghi_giao_dich', input: { so_tien: 50000, loai: 'chi', mo_ta: 'cà phê', danh_muc: 'Ăn uống' } }]
       : [{ type: 'text', text: 'Xong rồi, mình đã ghi 50.000đ cà phê vào mục Ăn uống.' }];
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', model: body.model, content, stop_reason: turn === 1 ? 'tool_use' : 'end_turn' }));
+    // Anthropic luôn trả usage — máy chủ giả cũng phải trả, nếu không đồng hồ
+    // token của app không bao giờ được kiểm thật.
+    res.end(JSON.stringify({
+      id: 'msg_1', type: 'message', role: 'assistant', model: body.model, content,
+      stop_reason: turn === 1 ? 'tool_use' : 'end_turn',
+      usage: { input_tokens: 1200, output_tokens: 80, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 },
+    }));
   });
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -283,7 +289,45 @@ ok('max_tokens rộng tay cho model có suy nghĩ', seen[0].body.max_tokens >= 8
 {
   const { llmStatus } = await import('../src/services/chat/llm.js');
   const s = llmStatus();
-  ok('llmStatus đếm được lượt gọi và có đồng hồ token', s.lan_goi === 2 && s.token && typeof s.token.vao === 'number');
+  ok('llmStatus đếm được lượt gọi', s.lan_goi === 2);
+  // Đồng hồ token tách theo tháng và có tổng, để trả lời được câu hỏi hay gặp
+  // nhất: "tháng này tốn bao nhiêu".
+  ok('đồng hồ token tách theo tháng và có tổng',
+    typeof s.token?.thang_nay?.vao === 'number' && typeof s.token?.tong?.vao === 'number' && /^\d{4}-\d{2}$/.test(s.token?.thang || ''),
+    JSON.stringify(s.token).slice(0, 120));
+  ok('đếm đúng số lượt trong tháng', s.token.thang_nay.luot === 2, String(s.token?.thang_nay?.luot));
+  ok('cộng dồn đúng token vào/ra và cả phần đọc từ bộ đệm',
+    s.token.thang_nay.vao === 2400 && s.token.thang_nay.ra === 160 && s.token.thang_nay.cache_doc === 1800,
+    JSON.stringify(s.token.thang_nay));
+  // Model lạ thì KHÔNG bịa ra một con số tiền: nói thẳng là chưa quy đổi được.
+  ok('model không có trong bảng giá thì không bịa ra số tiền',
+    s.token.co_bang_gia === false && s.token.uoc_tinh_usd.thang_nay === null, JSON.stringify(s.token.uoc_tinh_usd));
+
+  // Model cho việc vặt: chỉ có tác dụng khi người dùng tự chọn, và phải là
+  // model được gọi thật chứ không chỉ ghi vào cấu hình cho đẹp.
+  {
+    const { classify } = await import('../src/services/chat/llm.js');
+    const truoc = seen.length;
+    process.env.FINMATE_LLM_MODEL_FAST = 'claude-haiku-4-5';
+    await classify('cà phê 40k').catch(() => null);
+    const goi = seen.slice(truoc);
+    ok('phân loại gọi bằng model việc vặt, không phải model chính',
+      goi.length > 0 && goi[0].body.model === 'claude-haiku-4-5', JSON.stringify(goi[0]?.body?.model));
+    delete process.env.FINMATE_LLM_MODEL_FAST;
+    const truoc2 = seen.length;
+    await classify('cà phê 40k').catch(() => null);
+    ok('không chọn model việc vặt thì vẫn dùng model chính (không tự hạ)',
+      seen.slice(truoc2)[0]?.body?.model === 'claude-test', JSON.stringify(seen.slice(truoc2)[0]?.body?.model));
+  }
+
+  const { uocTinh, coGia } = await import('../src/services/chat/gia.js');
+  ok('có bảng giá cho các model Claude đang dùng', coGia('claude-opus-5') && coGia('claude-sonnet-5') && coGia('claude-haiku-4-5'));
+  // 1 triệu token vào của claude-opus-5 là 5 đô theo bảng giá chính thức.
+  ok('quy đổi đúng theo bảng giá', uocTinh('claude-opus-5', { vao: 1_000_000 }) === 5 && uocTinh('claude-sonnet-5', { ra: 1_000_000 }) === 10,
+    `${uocTinh('claude-opus-5', { vao: 1_000_000 })} / ${uocTinh('claude-sonnet-5', { ra: 1_000_000 })}`);
+  // Đọc từ bộ đệm rẻ hơn hẳn — đó là lý do prompt caching đáng bật.
+  ok('token đọc từ bộ đệm rẻ hơn token thường', uocTinh('claude-opus-5', { cache_doc: 1_000_000 }) < uocTinh('claude-opus-5', { vao: 1_000_000 }) / 5,
+    String(uocTinh('claude-opus-5', { cache_doc: 1_000_000 })));
 }
 
 await new Promise((r) => server.close(r));

@@ -31,7 +31,8 @@ import { listRemittances, remittanceSummary, timingAdvice, quote as fxQuote, cos
 import { CURRENCIES, CURRENCY_CODES, normalizeCurrency } from '../util/currency.js';
 import { recomputeBaseAmounts } from '../services/ledger.js';
 import { chat, history as chatHistory, ensureWelcome, resetChat } from '../services/chat/index.js';
-import { llmEnabled, llmModel, llmProvider, llmStatus, testLlm } from '../services/chat/llm.js';
+import { llmEnabled, llmModel, llmProvider, llmStatus, llmUsage, testLlm } from '../services/chat/llm.js';
+import { bangGia, giaCua } from '../services/chat/gia.js';
 import { listActions, actionDetail, actionStats, undoAction, undoLast, undoBatch, pruneActions } from '../services/ai_audit.js';
 import { listMemory, remember, forget, pruneMemory } from '../services/ai_memory.js';
 import { runReview, reviewConfig, setReviewConfig, lastReview, reviewHistory } from '../services/ai_review.js';
@@ -448,7 +449,7 @@ router.post('/settings', wrap(async (req, res) => {
  * đây nằm trong chính sổ của người đó — cách ly vật lý như mọi thứ khác — và
  * được ưu tiên hơn biến môi trường của máy chủ.
  */
-const CHIA_KHOA = ['llm_key', 'llm_model', 'llm_url', 'llm_provider', 'llm_effort', 'llm_thinking'];
+const CHIA_KHOA = ['llm_key', 'llm_model', 'llm_model_fast', 'llm_url', 'llm_provider', 'llm_effort', 'llm_thinking'];
 const cheKey = (k) => (k && k.length > 8 ? `${k.slice(0, 6)}…${k.slice(-4)}` : (k ? '••••' : null));
 
 const trangThaiKey = () => {
@@ -464,6 +465,11 @@ const trangThaiKey = () => {
     // nếu người dùng gỡ khoá riêng đi.
     may_chu_co_key: Boolean(String(process.env.FINMATE_LLM_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || '').trim()),
     ...Object.fromEntries(CHIA_KHOA.filter((k) => k !== 'llm_key').map((k) => [k, setting(k) || null])),
+    // Đồng hồ token + ước tính tiền, để người dùng biết mình đang tiêu bao nhiêu
+    // TRƯỚC khi nhận hoá đơn của nhà cung cấp.
+    dung: llmEnabled() ? llmUsage() : null,
+    gia_model: giaCua(llmModel()),
+    bang_gia: bangGia(),
   };
 };
 
@@ -476,7 +482,7 @@ router.post('/ai/key', wrap(async (req, res) => {
     if (k && k.length < 12) throw new Error('Khoá API trông không giống thật (quá ngắn)');
     setting('llm_key', k);
   }
-  for (const [tu, khoa] of [['model', 'llm_model'], ['url', 'llm_url'], ['provider', 'llm_provider'], ['effort', 'llm_effort'], ['thinking', 'llm_thinking']]) {
+  for (const [tu, khoa] of [['model', 'llm_model'], ['model_fast', 'llm_model_fast'], ['url', 'llm_url'], ['provider', 'llm_provider'], ['effort', 'llm_effort'], ['thinking', 'llm_thinking']]) {
     if (b[tu] !== undefined) setting(khoa, String(b[tu] ?? '').trim());
   }
   ok(res, trangThaiKey());

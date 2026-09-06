@@ -17,7 +17,8 @@
  *  - FINMATE_LLM_MAX_TOKENS  trần độ dài câu trả lời (tính cả phần suy nghĩ).
  */
 import { detectProvider, anthropicUrl, anthropicHeaders, toAnthropicRequest, fromAnthropicResponse } from './anthropic.js';
-import { setting } from '../../db.js';
+import { setting, activePath } from '../../db.js';
+import { coGia, uocTinh } from './gia.js';
 
 /**
  * Cấu hình model đọc LẠI mỗi lần dùng, không đóng băng lúc nạp module.
@@ -48,6 +49,7 @@ const KHOA_SO = {
   FINMATE_LLM_KEY: 'llm_key',
   FINMATE_LLM_URL: 'llm_url',
   FINMATE_LLM_MODEL: 'llm_model',
+  FINMATE_LLM_MODEL_FAST: 'llm_model_fast',
   FINMATE_LLM_PROVIDER: 'llm_provider',
   FINMATE_LLM_EFFORT: 'llm_effort',
   FINMATE_LLM_THINKING: 'llm_thinking',
@@ -70,6 +72,13 @@ const apiKey = () => env('FINMATE_LLM_KEY') || env('ANTHROPIC_API_KEY') || env('
 const provider = () => env('FINMATE_LLM_PROVIDER') || detectProvider(apiKey(), rawUrl());
 const openaiUrl = () => rawUrl() || 'https://api.openai.com/v1/chat/completions';
 const modelName = () => env('FINMATE_LLM_MODEL') || (provider() === 'anthropic' ? 'claude-opus-5' : 'gpt-4o-mini');
+/**
+ * Model cho việc vặt: phân loại ý định, đoán danh mục của một dòng tin nhắn
+ * ngân hàng. Những việc này ngắn, khuôn mẫu, làm hàng chục lần mỗi ngày và
+ * không cần tới model giỏi nhất — nhưng CHỈ đổi khi người dùng tự chọn. Tự ý
+ * hạ model để tiết kiệm tiền hộ người khác là quyết định không thuộc về app.
+ */
+const modelVat = () => env('FINMATE_LLM_MODEL_FAST') || modelName();
 // Với Claude, max_tokens là trần cho CẢ phần suy nghĩ lẫn câu trả lời, nên phải
 // rộng tay hơn hẳn con số 2-4k của thời chưa có thinking; kẻo câu trả lời bị
 // cắt ngang giữa chừng mà không ai hiểu vì sao.
@@ -100,7 +109,20 @@ export const llmProvider = () => provider();
  * Kèm theo là đồng hồ token: người dùng trả tiền theo token, nên phải thấy được
  * mỗi lượt chat tốn bao nhiêu và bộ đệm prompt có thực sự trúng hay không.
  */
-const health = { ok: null, at: null, error: null, errorAt: null, calls: 0, fails: 0, retries: 0 };
+/**
+ * Sức khoẻ đường dây và đồng hồ token phải theo TỪNG SỔ.
+ *
+ * Để chung một biến ở mức module thì trên máy chủ nhiều người dùng, người này
+ * nhìn thấy số lượt gọi, số token và cả thông điệp lỗi gần nhất của người kia
+ * — vừa sai vừa là một kiểu rò rỉ. Khoá theo đường dẫn sổ đang dùng.
+ */
+const theoSo = new Map();
+const moiSo = () => ({ ok: null, at: null, error: null, errorAt: null, calls: 0, fails: 0, retries: 0 });
+const suckhoe = () => {
+  const k = activePath();
+  if (!theoSo.has(k)) theoSo.set(k, moiSo());
+  return theoSo.get(k);
+};
 /**
  * Cầu dao mất mạng. Không có internet thì mỗi lượt chat sẽ chờ fetch hỏng,
  * thử lại hai lần, rồi mới lùi về bộ luật — người dùng ngồi nhìn ba chấm vài
@@ -113,35 +135,73 @@ const isNetworkError = (e) => e?.name !== 'AbortError' && /fetch failed|ECONNRES
 export const llmPaused = () => Date.now() < pausedUntil;
 export function pauseLlm(ms = PAUSE_MS) { pausedUntil = Date.now() + ms; }
 export function resumeLlm() { pausedUntil = 0; }
-const tokens = { vao: 0, ra: 0, cache_doc: 0, cache_ghi: 0, luot: 0, gan_nhat: null };
+/**
+ * Đồng hồ token nằm TRONG SỔ (bảng settings), không phải trong bộ nhớ tiến
+ * trình: người dùng trả tiền theo token nên con số này phải sống qua mỗi lần
+ * khởi động lại máy chủ, và phải là của riêng họ. Tách theo tháng để câu hỏi
+ * thường gặp nhất — "tháng này tốn bao nhiêu" — trả lời được ngay.
+ */
+const thangNay = () => new Date().toISOString().slice(0, 7);
+const RONG = { vao: 0, ra: 0, cache_doc: 0, cache_ghi: 0, luot: 0 };
+
+function docDongHo() {
+  let d = {};
+  try { d = JSON.parse(setting('llm_usage') || '{}') || {}; } catch { d = {}; }
+  const thang = d.thang === thangNay() ? { ...RONG, ...d.thang_nay } : { ...RONG };
+  return { thang: thangNay(), thang_nay: thang, tong: { ...RONG, ...d.tong }, gan_nhat: d.gan_nhat || null };
+}
+
+function ghiDongHo(usage, model) {
+  const d = docDongHo();
+  for (const k of ['vao', 'ra', 'cache_doc', 'cache_ghi']) {
+    d.thang_nay[k] += Number(usage[k]) || 0;
+    d.tong[k] += Number(usage[k]) || 0;
+  }
+  d.thang_nay.luot += 1;
+  d.tong.luot += 1;
+  d.gan_nhat = { ...usage, model, luc: new Date().toISOString() };
+  try { setting('llm_usage', JSON.stringify(d)); } catch { /* sổ chưa sẵn sàng */ }
+  return d;
+}
+
+/** Đồng hồ token + ước tính tiền của sổ đang dùng. */
+export function llmUsage() {
+  const d = docDongHo();
+  const m = modelName();
+  return {
+    ...d,
+    model: m,
+    co_bang_gia: coGia(m),
+    uoc_tinh_usd: { thang_nay: uocTinh(m, d.thang_nay), tong: uocTinh(m, d.tong) },
+  };
+}
 export function llmStatus() {
+  const sk = suckhoe();
   return {
     bat: Boolean(apiKey()), nha_cung_cap: provider(), model: modelName(),
     do_sau_suy_nghi: effortCfg(), suy_nghi: thinkingCfg()?.type || 'mac_dinh',
-    lan_goi: health.calls, lan_loi: health.fails, lan_thu_lai: health.retries,
-    gan_nhat_ok: health.ok, gan_nhat_luc: health.at,
-    loi_gan_nhat: health.error, loi_luc: health.errorAt,
+    lan_goi: sk.calls, lan_loi: sk.fails, lan_thu_lai: sk.retries,
+    gan_nhat_ok: sk.ok, gan_nhat_luc: sk.at,
+    loi_gan_nhat: sk.error, loi_luc: sk.errorAt,
     tam_dung_den: llmPaused() ? new Date(pausedUntil).toISOString() : null,
-    token: { ...tokens },
+    token: llmUsage(),
   };
 }
-function noteOk(usage) {
-  health.ok = true; health.at = new Date().toISOString(); health.calls += 1;
+function noteOk(usage, model = modelName()) {
+  const sk = suckhoe();
+  sk.ok = true; sk.at = new Date().toISOString(); sk.calls += 1;
   pausedUntil = 0;
-  if (usage) {
-    tokens.vao += usage.vao; tokens.ra += usage.ra;
-    tokens.cache_doc += usage.cache_doc; tokens.cache_ghi += usage.cache_ghi;
-    tokens.luot += 1; tokens.gan_nhat = usage;
-  }
+  if (usage) ghiDongHo(usage, model);
 }
 function noteFail(e) {
-  health.ok = false; health.at = new Date().toISOString(); health.calls += 1; health.fails += 1;
-  // Cắt ngắn và bỏ mọi thứ trông giống key: thông điệp này đi ra tới API health.
+  const sk = suckhoe();
+  sk.ok = false; sk.at = new Date().toISOString(); sk.calls += 1; sk.fails += 1;
+  // Cắt ngắn và bỏ mọi thứ trông giống key: thông điệp này đi ra tới API /health.
   // Không xoá khi có lượt thành công sau đó — lỗi lác đác là thứ cần thấy nhất,
   // mà chính nó lại là thứ dễ bị một lượt tốt kế tiếp xoá sạch dấu vết.
-  health.error = String(e?.message || e).replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***').slice(0, 300);
-  health.errorAt = health.at;
-  console.warn(`[finmate] gọi ${provider()}/${modelName()} lỗi: ${health.error}`);
+  sk.error = String(e?.message || e).replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***').slice(0, 300);
+  sk.errorAt = sk.at;
+  console.warn(`[finmate] gọi ${provider()}/${modelName()} lỗi: ${sk.error}`);
 }
 
 /**
@@ -195,14 +255,14 @@ function openaiMessages(messages) {
  * Gọi API chat. Trả về { msg, usage }: `msg` là nguyên message của model
  * (có thể chứa tool_calls) theo hình dạng OpenAI.
  */
-async function callApi(messages, { json = false, schema = null, timeout = timeoutMs(), temperature = 0.4, tools = null } = {}) {
+async function callApi(messages, { json = false, schema = null, timeout = timeoutMs(), temperature = 0.4, tools = null, model = modelName() } = {}) {
   if (!apiKey()) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
     if (provider() === 'anthropic') {
       const body = toAnthropicRequest(messages, tools, {
-        model: modelName(), json, schema, maxTokens: maxTokens(), effort: effortCfg(), thinking: thinkingCfg(),
+        model, json, schema, maxTokens: maxTokens(), effort: effortCfg(), thinking: thinkingCfg(),
       });
       const res = await fetch(anthropicUrl(rawUrl()), {
         method: 'POST',
@@ -225,7 +285,7 @@ async function callApi(messages, { json = false, schema = null, timeout = timeou
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey()}` },
       body: JSON.stringify({
-        model: modelName(),
+        model,
         messages: openaiMessages(messages),
         temperature,
         ...(tools ? { tools, tool_choice: 'auto' } : {}),
@@ -257,14 +317,14 @@ async function call(messages, opts = {}) {
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt += 1) {
     try {
       const r = await callApi(messages, rest);
-      noteOk(r?.usage);
+      noteOk(r?.usage, rest.model || modelName());
       const msg = r?.msg || null;
       return raw ? msg : msg?.content || null;
     } catch (e) {
       noteFail(e);
       last = e;
       if (attempt === RETRY_DELAYS.length || e?.permanent || !isTransient(e)) break;
-      health.retries += 1;
+      suckhoe().retries += 1;
       console.warn(`[finmate] thử lại lần ${attempt + 1} sau ${RETRY_DELAYS[attempt]}ms`);
       await sleep(RETRY_DELAYS[attempt]);
     }
@@ -398,7 +458,9 @@ export async function classify(text, { currency = 'VND' } = {}) {
         { role: 'system', content: `Bạn phân loại ý định người dùng cho app tài chính cá nhân tiếng Việt. Chỉ trả JSON: {"intent": one of ${INTENT_LIST.join('|')}, "amount": number|null, "confidence": 0..1}. amount là số tiền theo đơn vị thường ngày của ${currency} nếu có ${viDu}.` },
         { role: 'user', content: String(text).slice(0, 500) },
       ],
-      { json: true, schema: CLASSIFY_SCHEMA, temperature: 0 }
+      // Phân loại là việc ngắn và khuôn mẫu — dùng model việc vặt nếu người
+      // dùng đã chọn một cái rẻ hơn, còn không thì vẫn là model chính.
+      { json: true, schema: CLASSIFY_SCHEMA, temperature: 0, model: modelVat() }
     );
   } catch {
     return null;

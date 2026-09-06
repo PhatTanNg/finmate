@@ -17,6 +17,7 @@ export default function AiKeyCard() {
   const [key, setKey] = useState('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
+  const [modelVat, setModelVat] = useState('');
   const [url, setUrl] = useState('');
   const [ban, setBan] = useState(false);
   const [thu, setThu] = useState(null);
@@ -25,6 +26,7 @@ export default function AiKeyCard() {
   const nap = () => api.get('/ai/key').then((d) => {
     setTt(d);
     setModel(d.llm_model || '');
+    setModelVat(d.llm_model_fast || '');
     setEffort(d.llm_effort || '');
     setUrl(d.llm_url || '');
   }).catch(() => setTt(null));
@@ -34,7 +36,7 @@ export default function AiKeyCard() {
   const luu = async () => {
     setBan(true); setTin(null);
     try {
-      await api.post('/ai/key', { ...(key ? { key } : {}), model, effort, url });
+      await api.post('/ai/key', { ...(key ? { key } : {}), model, model_fast: modelVat, effort, url });
       setKey('');
       await nap();
       setTin('Đã lưu. Cố vấn AI dùng khoá này ngay từ câu tiếp theo.');
@@ -77,6 +79,10 @@ export default function AiKeyCard() {
           <select className="inp" value={effort} onChange={(e) => setEffort(e.target.value)}>
             <option value="">Mặc định</option><option value="low">low (nhanh, rẻ)</option><option value="medium">medium</option><option value="high">high</option>
           </select></label>
+        <label className="fld"><span>Model cho việc vặt</span>
+          <input className="inp" value={modelVat} onChange={(e) => setModelVat(e.target.value)} placeholder="claude-haiku-4-5" />
+          <small className="mini">Phân loại câu chat và đoán danh mục cho tin nhắn ngân hàng — việc ngắn, làm nhiều lần mỗi ngày.
+            Bỏ trống thì dùng chung model ở trên.</small></label>
         <label className="fld full"><span>URL API (bỏ trống nếu dùng Claude/OpenAI chính thức)</span>
           <input className="inp" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/v1/chat/completions" /></label>
       </div>
@@ -92,6 +98,25 @@ export default function AiKeyCard() {
             ? <>✅ Gọi được <b>{thu.model}</b> ({thu.provider}) · {thu.ms}ms · model trả lời: “{thu.reply}”.</>
             : <>❌ Chưa gọi được{thu.model ? <> <b>{thu.model}</b></> : null}. <div style={{ marginTop: 4 }}><code>{thu.error}</code></div>
               {thu.goi_y && <div style={{ marginTop: 6 }}>👉 {thu.goi_y}</div>}</>}
+        </div>
+      )}
+      {tt.dung && tt.dung.thang_nay.luot > 0 && (
+        <div className="note mini" style={{ marginTop: 10 }}>
+          <b>Tháng {tt.dung.thang}</b>: {tt.dung.thang_nay.luot.toLocaleString('vi-VN')} lượt gọi ·
+          {' '}{Math.round(tt.dung.thang_nay.vao / 1000).toLocaleString('vi-VN')}k token vào ·
+          {' '}{Math.round(tt.dung.thang_nay.ra / 1000).toLocaleString('vi-VN')}k token ra
+          {tt.dung.thang_nay.cache_doc > 0 && <> · {Math.round(tt.dung.thang_nay.cache_doc / 1000).toLocaleString('vi-VN')}k đọc từ bộ đệm (rẻ gấp 10)</>}
+          <div style={{ marginTop: 4 }}>
+            {tt.dung.uoc_tinh_usd.thang_nay != null
+              ? <>≈ <b>${tt.dung.uoc_tinh_usd.thang_nay.toFixed(2)}</b> tháng này (tổng từ trước tới nay ≈ ${tt.dung.uoc_tinh_usd.tong.toFixed(2)}) — ước tính theo bảng giá niêm yết, hoá đơn thật do nhà cung cấp tính.</>
+              : <>Chưa quy ra tiền được: <code>{tt.dung.model}</code> không có trong bảng giá app biết. Số token ở trên vẫn là thật.</>}
+          </div>
+          {tt.gia_model && (
+            <div className="muted" style={{ marginTop: 4 }}>
+              Model đang dùng: ${tt.gia_model.vao}/triệu token vào · ${tt.gia_model.ra}/triệu token ra.
+              {tt.bang_gia?.some((g) => g.vao < tt.gia_model.vao) && <> Rẻ hơn: {tt.bang_gia.filter((g) => g.vao < tt.gia_model.vao).map((g) => `${g.model} ($${g.vao}/$${g.ra})`).join(' · ')}.</>}
+            </div>
+          )}
         </div>
       )}
       <p className="mini muted" style={{ marginTop: 10 }}>
