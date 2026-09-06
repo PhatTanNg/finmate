@@ -286,13 +286,57 @@ if (EMBEDDED) {
   await save();
   const offTx = await text();
   ok('MẤT MẠNG VẪN GHI ĐƯỢC GIAO DỊCH', /Ghi lúc mất mạng/.test(offTx) && /123\.000/.test(offTx));
+} else {
+  // Bản dùng máy chủ không ghi thẳng vào sổ được khi mất mạng, nhưng không
+  // được để người dùng gõ xong rồi mất trắng: việc phải nằm lại trong máy và
+  // tự gửi khi có sóng.
+  await go('transactions');
+  await page.click('.fab');
+  await modal();
+  const of = await fields();
+  await of[1].fill('123000');
+  await of[6].fill('Ghi lúc mất mạng');
+  await page.click('.modal >> text=Lưu');
+  await page.waitForTimeout(1500);
+  const bao = await page.evaluate(() => document.body.innerText);
+  ok('nói thẳng là việc đang chờ gửi, ngay dưới thanh tiêu đề', /đang chờ gửi/i.test(bao), bao.slice(0, 150));
+  ok('việc nằm trong hàng chờ ngay trong máy', await page.evaluate(() => (JSON.parse(localStorage.getItem('finmate.queue') || '[]')).length === 1));
+  // Hỏi thẳng máy chủ chứ không đọc chữ trên màn hình: đây là câu hỏi "sổ có
+  // thêm dòng nào chưa", mà sổ thì nằm ở máy chủ.
+  const demTrenSo = async () => {
+    // Gọi từ Node nên không bị chặn mạng như trong trang.
+    const r = await fetch(`${BASE}/api/transactions`).then((x) => x.json()).catch(() => ({}));
+    return (r.transactions || []).filter((t) => /Ghi lúc mất mạng/.test(`${t.merchant || ''} ${t.note || ''}`)).length;
+  };
+  ok('KHÔNG chèn một dòng giả vào sổ cho đẹp', (await demTrenSo()) === 0, `sổ đang có ${await demTrenSo()} dòng`);
+  ok('ô nhập đóng lại như một lượt lưu bình thường', !(await page.$('.modal')));
+  // Bấm Lưu lần nữa vì "không thấy gì xảy ra" là phản xạ rất thường — không
+  // được biến thành hai khoản chi.
+  await page.click('.fab');
+  await modal();
+  const of2 = await fields();
+  await of2[1].fill('123000');
+  await of2[6].fill('Ghi lúc mất mạng');
+  await page.click('.modal >> text=Lưu');
+  await page.waitForTimeout(1200);
+  ok('lưu y hệt lần nữa thì vẫn chỉ có MỘT việc chờ', await page.evaluate(() => (JSON.parse(localStorage.getItem('finmate.queue') || '[]')).length === 1));
 }
 await page.screenshot({ path: SHOTS + '/04-offline.png' });
 await ctx.setOffline(false);
 await page.evaluate(() => window.dispatchEvent(new Event('online')));
-await page.waitForTimeout(1200);
+await page.waitForTimeout(2500);
 expectOffline = false;
 ok('có mạng lại thì băng báo biến mất', !(await page.$('.offline-bar')));
+if (!EMBEDDED) {
+  await go('transactions');
+  await page.waitForTimeout(1200);
+  const sau = await text();
+  ok('CÓ MẠNG LẠI THÌ VIỆC GHI LÚC MẤT MẠNG TỰ LÊN SỔ', /Ghi lúc mất mạng/.test(sau) && /123\.000/.test(sau), sau.slice(0, 140));
+  const demSau = await fetch(`${BASE}/api/transactions`).then((x) => x.json()).then((r) => (r.transactions || []).filter((t) => /Ghi lúc mất mạng/.test(`${t.merchant || ''} ${t.note || ''}`)).length).catch(() => -1);
+  ok('và chỉ lên sổ MỘT lần, dù đã bấm Lưu hai lần', demSau === 1, `sổ có ${demSau} dòng`);
+  ok('hàng chờ rỗng lại', await page.evaluate(() => (JSON.parse(localStorage.getItem('finmate.queue') || '[]')).length === 0));
+  ok('băng “chờ gửi” biến mất', !/đang chờ gửi/i.test(await page.evaluate(() => document.body.innerText)));
+}
 
 // ── 13. Tải lại: dữ liệu còn nguyên ────────────────────────────────────────
 step('13. Tải lại app, dữ liệu còn nguyên');

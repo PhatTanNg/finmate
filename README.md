@@ -526,7 +526,18 @@ Vài điều đáng biết:
 - Việc lấy về xảy ra **trước khi** tự động hoá chạy. Thứ tự này là cố ý: tự động hoá cũng ghi vào sổ, chạy trước thì lần mở app nào máy cũng "có thay đổi" và mọi sửa đổi bên kia đều hoá thành xung đột.
 - Sổ đã do một thiết bị giữ thì **máy chủ ngừng chạy tự động hoá** trên sổ đó — chính thiết bị lo việc ấy mỗi lần mở app. Không tách ra thì hai bên cùng sửa, lần gửi nào cũng báo lệch.
 - Máy chủ đặt ở tên miền khác với trang chạy app (ví dụ app trên GitHub Pages, máy chủ trên Fly) thì khai origin của trang cho máy chủ: `FINMATE_ORIGINS=https://ten-cua-ban.github.io`.
-- Bản dùng máy chủ (`dist`) thì khác: nó đọc/ghi thẳng vào sổ trên máy chủ nên cần mạng. Muốn "offline được mà vẫn có tài khoản" thì dùng bản chạy trên máy + đồng bộ như trên.
+#### Bản dùng máy chủ khi mất mạng
+
+Bản `dist` đọc/ghi thẳng vào sổ trên máy chủ, nên mất mạng là không ghi thẳng được. Nhưng nó không bỏ rơi bạn giữa chừng:
+
+- **Xem vẫn xem được.** Câu trả lời của mỗi trang được giữ lại một bản trong máy; mất mạng thì trang mở ra bằng bản chụp gần nhất, có băng "đang ngoại tuyến" chạy suốt bên trên để bạn biết đây là số cũ. Đăng xuất hoặc khoá app là xoá sạch bản chụp.
+- **Ghi thì được giữ lại.** Thêm khoản chi lúc mất sóng sẽ nằm trong hàng chờ ngay trong máy, có băng "N việc đang chờ gửi" cho tới khi gửi xong. App tự gửi khi có mạng lại, gửi **tuần tự** theo đúng thứ tự đã xếp.
+- **Gửi lại không thành hai.** Mỗi việc mang một mã riêng; máy chủ nhớ mã đã làm rồi (bảng `op_log`) và trả lại đúng câu trả lời cũ thay vì ghi thêm lần nữa. Không có lớp này thì cảnh "máy chủ đã ghi nhưng câu trả lời rơi giữa đường" biến một ly cà phê thành hai khoản chi.
+- **Không chèn dòng giả vào sổ.** Khoản đang chờ không xuất hiện trong danh sách và không cộng vào số dư — số dư sai là thứ người dùng phát hiện muộn và không bao giờ tin lại nữa.
+- Những việc mà **câu trả lời mới là thứ có giá trị** thì không xếp hàng: chat với cố vấn, đăng nhập, cập nhật giá, đồng ý một đề xuất của AI. Gửi lại sau vài tiếng thì hoặc vô nghĩa, hoặc gây bất ngờ.
+- Việc chờ mang theo tên chủ của nó. Máy dùng chung, người khác đăng nhập vào thì việc của bạn nằm yên chứ không ghi nhầm vào sổ họ.
+
+Muốn offline trọn vẹn (kể cả chat bằng bộ luật) thì dùng bản chạy trên máy + đồng bộ như trên.
 
 ### Biến môi trường
 
@@ -645,7 +656,8 @@ cd server && node test/smoke-onboarding.mjs  # lúc thiết lập: câu ghi sổ
 cd server && node test/smoke-accounts.mjs    # nhiều người dùng: đăng nhập, mã mời, quên mật khẩu (thư đi qua máy chủ thư giả),
                                              # và trên hết là CÁCH LY sổ giữa người này với người kia
 cd server && node test/smoke-deploy.mjs      # máy chủ thật: chạy đúng tiến trình server, SIGTERM, bật lại — dữ liệu phải còn nguyên
-cd server && node test/smoke-sync.mjs        # đồng bộ cả sổ: số hiệu bản, chặn khi lệch, ép ghi đè, sao lưu, không đụng sổ người khác
+cd server && node test/smoke-sync.mjs        # đồng bộ cả sổ: số hiệu bản, chặn khi lệch, ép ghi đè, sao lưu, không đụng sổ người khác;
+                                             # và mã chống trùng: gửi lại một việc đã ghi thì KHÔNG thành hai
 cd server && node test/smoke-honesty.mjs     # AI không được nói "đã ghi" khi chưa gọi công cụ
 cd server && node test/smoke-life-events.mjs # ly hôn, mất việc, sắp sinh con, thừa kế, nghỉ hưu...
 cd server && node test/scenarios.mjs         # 203 kịch bản người dùng thật, 17 nhóm tính năng

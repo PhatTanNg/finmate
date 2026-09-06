@@ -1,3 +1,5 @@
+import { xepHang, xepDuoc, guiHangCho, nhan } from './queue.js';
+
 const KEY_STORE = 'finmate_key';
 
 /** Bản chạy ngay trên điện thoại: không có máy chủ, gọi thẳng router trong tiến trình. */
@@ -59,12 +61,115 @@ export async function saveBlob(blob, filename) {
 
 const json = { 'Content-Type': 'application/json' };
 
+/**
+ * Bản chụp câu trả lời GET gần nhất, để mất mạng vẫn mở được các trang.
+ *
+ * Không có lớp này thì hàng chờ ghi ở dưới gần như vô dụng: mở trang Giao dịch
+ * lúc mất mạng chỉ ra một trang lỗi trống, không có cả nút thêm khoản chi để
+ * mà xếp hàng. Số liệu hiện ra là số CŨ — app đã có băng "đang ngoại tuyến"
+ * chạy suốt bên trên nên người dùng biết mình đang nhìn bản chụp.
+ */
+const KHO_GET = 'finmate.getcache';
+const TRAN_MOI_TRANG = 200_000;   // trang nào to quá thì thôi, đừng làm đầy bộ nhớ
+const TRAN_SO_TRANG = 60;
+
+const docKho = () => {
+  try { return JSON.parse(store.getItem(KHO_GET) || '{}') || {}; } catch { return {}; }
+};
+export const xoaKhoGet = () => { try { store.removeItem(KHO_GET); } catch { /* riêng tư */ } };
+
+const luuKho = (p, data) => {
+  try {
+    const chuoi = JSON.stringify(data);
+    if (chuoi.length > TRAN_MOI_TRANG) return;
+    const kho = docKho();
+    kho[p] = { at: Date.now(), data };
+    const khoa = Object.keys(kho);
+    if (khoa.length > TRAN_SO_TRANG) {
+      // Bỏ những trang lâu không xem nhất.
+      khoa.sort((a, b) => kho[a].at - kho[b].at).slice(0, khoa.length - TRAN_SO_TRANG).forEach((k) => delete kho[k]);
+    }
+    store.setItem(KHO_GET, JSON.stringify(kho));
+  } catch { /* hết chỗ hoặc chế độ riêng tư: bỏ qua, chỉ mất khả năng xem offline */ }
+};
+
+const layKho = (p) => docKho()[p]?.data ?? null;
+
+/**
+ * Mất mạng (không phải máy chủ trả lỗi).
+ *
+ * fetch chỉ ném TypeError cho mọi trục trặc đường truyền, nên phân biệt bằng
+ * chính việc "chưa có phản hồi nào cả". Chỗ này quyết định việc ghi được xếp
+ * vào hàng chờ hay báo hỏng, nên đoán sai là hoặc nuốt mất lỗi thật, hoặc xếp
+ * hàng một việc mà máy chủ đã từ chối.
+ */
+const matMang = (e) => e instanceof TypeError || /Failed to fetch|NetworkError|Load failed|network/i.test(e?.message || '');
+
+/**
+ * Ghi khi mất mạng: giữ việc lại trong máy, tự gửi khi có sóng.
+ *
+ * Trả về `{ ok: true, da_xep_hang: true }` để luồng giao diện chạy tiếp bình
+ * thường (đóng ô nhập, nạp lại danh sách) thay vì đứng lại với một ô nhập mở
+ * và một lỗi không ai hiển thị. Đây KHÔNG phải là nói dối đã ghi xong: khoản
+ * vừa nhập không hề xuất hiện trong danh sách, và app treo một băng thông báo
+ * "N việc đang chờ gửi" ở ngay dưới thanh tiêu đề cho tới khi gửi được.
+ *
+ * Cái không được phép làm là chèn một dòng giả vào sổ cho đẹp — số dư sai là
+ * thứ người dùng phát hiện ra muộn và không bao giờ tin lại nữa.
+ */
+const guiHoacXep = async (method, p, body) => {
+  try {
+    const res = await fetch(`/api${p}`, {
+      method,
+      headers: headers(body === undefined ? {} : json),
+      ...(body === undefined ? {} : { body: JSON.stringify(body || {}) }),
+    });
+    return await j(res);
+  } catch (e) {
+    if (!matMang(e) || !xepDuoc(method, p)) throw e;
+    const v = xepHang(method, p, body);
+    return { ok: true, da_xep_hang: true, viec: nhan(v) };
+  }
+};
+
+const docHoacKho = async (p) => {
+  try {
+    const data = await fetch(`/api${p}`, { headers: headers() }).then(j);
+    luuKho(p, data);
+    return data;
+  } catch (e) {
+    if (!matMang(e)) throw e;
+    const cu = layKho(p);
+    if (!cu) throw new Error('Đang mất mạng và máy chưa có bản nào của trang này.');
+    // Đánh dấu để nơi nào cần thì nói rõ đây là số cũ.
+    return { ...cu, tu_bo_nho: true };
+  }
+};
+
+/** Gửi hết hàng chờ. Gọi khi có mạng lại, khi mở app, và khi người dùng bấm tay. */
+export const guiHangChoNgay = () => guiHangCho(async (v) => {
+  let res;
+  try {
+    res = await fetch(`/api${v.path}`, {
+      method: v.method,
+      // Mã chống trùng: máy chủ đã ghi rồi thì trả lại câu trả lời cũ chứ không ghi thêm.
+      headers: headers({ ...(v.body === undefined || v.body === null ? {} : json), 'x-finmate-op': v.id }),
+      ...(v.body === undefined || v.body === null ? {} : { body: JSON.stringify(v.body) }),
+    });
+  } catch (e) {
+    const err = new Error(e?.message || 'Mất mạng');
+    err.mat_mang = true;
+    throw err;
+  }
+  return j(res);
+});
+
 export const api = {
-  get: (p) => (EMBEDDED ? local('GET', p).then((x) => x.data) : fetch(`/api${p}`, { headers: headers() }).then(j)),
-  post: (p, body) => (EMBEDDED ? local('POST', p, body || {}).then((x) => x.data) : fetch(`/api${p}`, { method: 'POST', headers: headers(json), body: JSON.stringify(body || {}) }).then(j)),
-  patch: (p, body) => (EMBEDDED ? local('PATCH', p, body || {}).then((x) => x.data) : fetch(`/api${p}`, { method: 'PATCH', headers: headers(json), body: JSON.stringify(body || {}) }).then(j)),
-  put: (p, body) => (EMBEDDED ? local('PUT', p, body || {}).then((x) => x.data) : fetch(`/api${p}`, { method: 'PUT', headers: headers(json), body: JSON.stringify(body || {}) }).then(j)),
-  del: (p) => (EMBEDDED ? local('DELETE', p).then((x) => x.data) : fetch(`/api${p}`, { method: 'DELETE', headers: headers() }).then(j)),
+  get: (p) => (EMBEDDED ? local('GET', p).then((x) => x.data) : docHoacKho(p)),
+  post: (p, body) => (EMBEDDED ? local('POST', p, body || {}).then((x) => x.data) : guiHoacXep('POST', p, body || {})),
+  patch: (p, body) => (EMBEDDED ? local('PATCH', p, body || {}).then((x) => x.data) : guiHoacXep('PATCH', p, body || {})),
+  put: (p, body) => (EMBEDDED ? local('PUT', p, body || {}).then((x) => x.data) : guiHoacXep('PUT', p, body || {})),
+  del: (p) => (EMBEDDED ? local('DELETE', p).then((x) => x.data) : guiHoacXep('DELETE', p)),
 
   /** Tải file (sao lưu, xuất dữ liệu) kèm khoá phiên. */
   download: async (p, filename) => {

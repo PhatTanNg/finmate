@@ -376,6 +376,20 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT
 );
 
+-- Việc đã làm rồi, ghi lại để làm lại không thành hai.
+--
+-- Giao diện lúc mất mạng xếp việc vào hàng chờ rồi gửi lại khi có sóng. Gửi
+-- lại thì không tránh được cảnh "máy chủ đã nhận nhưng câu trả lời rơi giữa
+-- đường" — không có bảng này thì một ly cà phê thành hai khoản chi.
+CREATE TABLE IF NOT EXISTS op_log (
+  op_id TEXT PRIMARY KEY,
+  method TEXT,
+  path TEXT,
+  status INTEGER,
+  body TEXT,
+  at TEXT DEFAULT (datetime('now'))
+);
+
 -- Tỷ giá theo ngày: rate = số đơn vị <quote> đổi được từ 1 <base>
 CREATE TABLE IF NOT EXISTS fx_rates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -657,7 +671,7 @@ function warnDropped(table, data, kept) {
  * theo số hàng thật sự đổi, nên sổ có to đến đâu cũng không chậm đi.
  */
 const AUDIT_SKIP = new Set(['ai_actions', 'ai_changes', 'ai_audit_state', 'ai_proposals', 'chat_messages', 'price_history',
-  'insights', 'networth_snapshots', 'fx_rates', 'settings', 'ingest_log', 'sqlite_sequence']);
+  'insights', 'networth_snapshots', 'fx_rates', 'settings', 'ingest_log', 'op_log', 'sqlite_sequence']);
 
 function jsonOf(prefix, table) {
   const cols = [...tableColumns(table)];

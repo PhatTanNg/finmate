@@ -52,6 +52,45 @@ const wrap = (fn) => async (req, res) => {
   }
 };
 
+/**
+ * Làm lại một việc đã làm rồi thì KHÔNG được làm thành hai.
+ *
+ * Giao diện lúc mất mạng xếp việc vào hàng chờ (web/src/lib/queue.js) rồi gửi
+ * lại khi có sóng. Gửi lại luôn kèm theo rủi ro không tránh được: máy chủ đã
+ * nhận và đã ghi, nhưng câu trả lời rơi giữa đường nên máy gửi tưởng hỏng.
+ * Không có lớp này thì một ly cà phê thành hai khoản chi — và người dùng chỉ
+ * phát hiện ra khi số dư lệch.
+ *
+ * Cách làm đơn giản nhất mà đúng: máy gửi tự sinh một mã cho mỗi việc và gửi
+ * kèm; máy chủ nhớ mã đó cùng câu trả lời đã trả. Gặp lại mã cũ thì trả lại
+ * đúng câu trả lời cũ, không đụng vào sổ.
+ */
+router.use((req, res, next) => {
+  const op = req.get?.('x-finmate-op');
+  if (!op || req.method === 'GET' || req.method === 'HEAD') return next();
+  let cu = null;
+  try { cu = get('SELECT * FROM op_log WHERE op_id = ?', [String(op).slice(0, 80)]); } catch { /* sổ chưa có bảng */ }
+  if (cu) {
+    res.setHeader('x-finmate-op-replay', '1');
+    let than = {};
+    try { than = JSON.parse(cu.body); } catch { than = { ok: true }; }
+    return res.status(cu.status || 200).json(than);
+  }
+  // Ghi lại câu trả lời ngay lúc trả. Không nhớ lỗi 5xx: đó là trục trặc nhất
+  // thời, lần gửi lại sau đáng được thử làm thật chứ không phải nhận lại lỗi cũ.
+  const goc = res.json.bind(res);
+  res.json = (than) => {
+    try {
+      if (res.statusCode < 500) {
+        run('INSERT OR IGNORE INTO op_log (op_id, method, path, status, body) VALUES (?,?,?,?,?)',
+          [String(op).slice(0, 80), req.method, req.path, res.statusCode, JSON.stringify(than)]);
+      }
+    } catch { /* không ghi được nhật ký thì cũng đừng làm hỏng câu trả lời */ }
+    return goc(than);
+  };
+  return next();
+});
+
 // ---- hệ thống -------------------------------------------------------------
 
 // ---- tài khoản người dùng (chỉ bật khi FINMATE_MULTIUSER=1) ----
@@ -1001,6 +1040,8 @@ export function runAutomation() {
   const insights = generateInsights();
   const backup = autoBackup();
   pruneMemory();
+  // Mã chống trùng chỉ cần sống lâu hơn quãng một máy có thể nằm ngoài vùng phủ.
+  try { run("DELETE FROM op_log WHERE at < datetime('now', '-30 days')"); } catch { /* bảng có thể chưa có */ }
   // Tự lái: biến cảnh báo thành việc cụ thể chờ gật, và nhắn bản tin mỗi sáng.
   let autopilot = null;
   try { autopilot = runAutopilot(); } catch (e) { console.warn('[finmate] tự lái lỗi:', e.message); }

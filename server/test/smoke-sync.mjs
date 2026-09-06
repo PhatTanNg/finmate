@@ -153,6 +153,41 @@ const laKq = await guiSo(an.token, readFileSync(laFile), null);
 ok('cơ sở dữ liệu SQLite của việc khác cũng bị chặn', laKq.status >= 400, JSON.stringify(laKq).slice(0, 100));
 ok('nói rõ thiếu bảng gì', /Thiếu bảng/.test(laKq.error || ''), laKq.error);
 
+head('Ghi lúc mất mạng: gửi lại không thành hai');
+// Giao diện xếp việc vào hàng chờ rồi gửi lại khi có sóng. Cảnh tệ nhất là máy
+// chủ ĐÃ ghi nhưng câu trả lời rơi giữa đường: máy gửi tưởng hỏng nên gửi lại.
+// Không có mã chống trùng thì một ly cà phê thành hai khoản chi.
+const guiKemMa = async (p, body, token, ma) => {
+  const r = await fetch(base + p, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-finmate-key': token, 'x-finmate-op': ma },
+    body: JSON.stringify(body),
+  });
+  return { status: r.status, replay: r.headers.get('x-finmate-op-replay') === '1', ...(await r.json().catch(() => ({}))) };
+};
+const truocKhiGui = (await GET('/transactions', an.token)).transactions.length;
+const lan1 = await guiKemMa('/transactions', { type: 'expense', amount: 45_000, note: 'cà phê ghi lúc mất sóng' }, an.token, 'op-ca-phe-1');
+const lan2 = await guiKemMa('/transactions', { type: 'expense', amount: 45_000, note: 'cà phê ghi lúc mất sóng' }, an.token, 'op-ca-phe-1');
+ok('lần gửi đầu ghi được', lan1.status === 200 && lan1.transaction?.id > 0, JSON.stringify(lan1).slice(0, 100));
+ok('gửi lại cùng một mã: máy chủ nói rõ đây là bản chép lại', lan2.replay === true);
+ok('gửi lại trả về ĐÚNG câu trả lời cũ', lan2.transaction?.id === lan1.transaction.id, `${lan1.transaction?.id} vs ${lan2.transaction?.id}`);
+const sauKhiGui = (await GET('/transactions', an.token)).transactions;
+ok('sổ chỉ có MỘT khoản, không phải hai', sauKhiGui.length === truocKhiGui + 1, `${truocKhiGui} -> ${sauKhiGui.length}`);
+ok('và đúng là khoản vừa ghi', sauKhiGui.some((t) => /cà phê ghi lúc mất sóng/.test(t.note || '')));
+
+const maKhac = await guiKemMa('/transactions', { type: 'expense', amount: 45_000, note: 'cà phê ghi lúc mất sóng' }, an.token, 'op-ca-phe-2');
+ok('mã khác thì vẫn ghi bình thường (hai ly cà phê giống hệt nhau là chuyện thường)',
+  maKhac.transaction?.id !== lan1.transaction.id
+  && (await GET('/transactions', an.token)).transactions.length === truocKhiGui + 2);
+
+ok('mã của người này không dùng được ở sổ người kia',
+  (await guiKemMa('/transactions', { type: 'expense', amount: 999, note: 'của Bình' }, binh.token, 'op-ca-phe-1')).replay !== true);
+
+const loi = await guiKemMa('/transactions', { type: 'expense', amount: 0 }, an.token, 'op-hong-1');
+ok('việc máy chủ từ chối cũng được nhớ', loi.status >= 400 && /Số tiền/.test(loi.error || ''), JSON.stringify(loi).slice(0, 80));
+ok('gửi lại việc hỏng thì nhận lại đúng lời từ chối đó, không thử ghi lại',
+  (await guiKemMa('/transactions', { type: 'expense', amount: 0 }, an.token, 'op-hong-1')).replay === true);
+
 srv.close();
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${fail ? '✗' : '✓'} smoke-sync: ${pass} đạt, ${fail} hỏng`);

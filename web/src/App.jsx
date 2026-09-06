@@ -1,5 +1,6 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { api, getKey, setKey, setLockHandler, EMBEDDED } from './lib/api.js';
+import { api, getKey, setKey, setLockHandler, EMBEDDED, guiHangChoNgay, xoaKhoGet } from './lib/api.js';
+import { soViec, theoDoi, datChu } from './lib/queue.js';
 import { short, setBaseCurrency } from './lib/format.js';
 import { applyTheme, readTheme, watchSystemTheme, NEXT_THEME, THEME_ICON, THEME_LABEL } from './lib/theme.js';
 import CommandPalette from './components/CommandPalette.jsx';
@@ -93,8 +94,10 @@ export default function App() {
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
   // Đồng bộ dừng lại vì hai bên cùng đổi — chỉ người dùng mới quyết được.
   const [lechDongBo, setLechDongBo] = useState(null);
+  // Bản dùng máy chủ: những việc ghi lúc mất mạng đang nằm chờ trong máy.
+  const [cho, setCho] = useState(() => (EMBEDDED ? 0 : soViec()));
   useEffect(() => {
-    const on = () => setOffline(false);
+    const on = () => { setOffline(false); if (!EMBEDDED) flushCho(); };
     const off = () => setOffline(true);
     addEventListener('online', on);
     addEventListener('offline', off);
@@ -117,6 +120,9 @@ export default function App() {
       // tài khoản (sổ theo người, sang máy khác vẫn còn); một sổ thì cửa vào
       // là khoá PIN của chính máy này. Hai chuyện khác hẳn nhau.
       const h = await api.get('/health').catch(() => null);
+      // Việc xếp hàng lúc mất mạng phải biết nó thuộc tài khoản nào, để máy dùng
+      // chung không gửi việc của người này vào sổ người kia.
+      datChu(h?.user?.email || 'local');
       if (h?.multi_user) {
         setAuth({ multi: true, user: h.user || null, unlocked: Boolean(h.user), canMoi: Boolean(h.signup_code_required), coEmail: Boolean(h.mail_enabled) });
         return;
@@ -134,6 +140,27 @@ export default function App() {
   }, [checkAuth]);
 
   useEffect(() => { if (auth?.unlocked) refresh(); }, [auth?.unlocked, refresh]);
+
+  /**
+   * Gửi nốt những việc đã ghi lúc mất mạng.
+   *
+   * Gửi xong mới nạp lại số liệu: không thì màn hình vẫn là bản chưa có mấy
+   * khoản vừa gửi, người dùng tưởng mất.
+   */
+  const flushCho = useCallback(async () => {
+    if (EMBEDDED || !soViec()) return;
+    const r = await guiHangChoNgay().catch(() => null);
+    // Nạp lại cả trang đang mở, không chỉ số liệu trang chủ: người dùng đang
+    // đứng ở trang Giao dịch thì thứ họ chờ thấy là khoản vừa gửi hiện ra ở đó.
+    if (r?.gui) { refresh(); setCurKey((k) => k + 1); }
+  }, [refresh]);
+
+  useEffect(() => {
+    if (EMBEDDED) return undefined;
+    const bo = theoDoi(() => setCho(soViec()));
+    if (auth?.unlocked) flushCho();
+    return bo;
+  }, [auth?.unlocked, flushCho]);
 
   // Bản chạy trên máy, đã nối với một tài khoản: mỗi lần mở app thử đồng bộ một
   // lượt. Chỉ tự làm việc không thể mất dữ liệu — máy chủ mới hơn mà máy này
@@ -245,12 +272,20 @@ export default function App() {
   const logout = async () => {
     try { await api.post('/account/logout', {}); } catch { /* token có thể đã hết hạn */ }
     setKey('');
+    // Bản chụp các trang là dữ liệu tài chính của người vừa đăng xuất — không
+    // được để người đăng nhập sau mở ra xem lúc mất mạng. (Hàng chờ thì giữ
+    // nguyên: nó mang tên chủ và chỉ gửi khi đúng người đó quay lại.)
+    xoaKhoGet();
+    datChu('local');
     setAuth((a) => ({ ...a, user: null, unlocked: false }));
   };
 
   const lock = () => {
     api.post('/auth/logout').catch(() => {});
     setKey('');
+    // Khoá máy lại thì bản chụp các trang cũng phải biến mất: người dùng bấm
+    // khoá là để dữ liệu tài chính không còn nằm phơi ra trên máy này nữa.
+    xoaKhoGet();
     setAuth((a) => ({ ...a, unlocked: false }));
   };
 
@@ -308,6 +343,10 @@ export default function App() {
         <button className="avatar" onClick={() => setTab('more')} aria-label="Hồ sơ và cài đặt" style={{ border: 0, cursor: 'pointer' }}>{initial}</button>
         <div className="tb-title">{TITLE[tab] || 'FinMate'}</div>
         {offline && <span className="tag warn" title="Không có internet. Mọi tính năng vẫn dùng được; cố vấn AI tạm nghỉ, bộ luật trả lời thay.">📴 Ngoại tuyến</span>}
+        {cho > 0 && (
+          <button className="tag warn" style={{ border: 0, cursor: 'pointer' }} onClick={() => setTab('settings')}
+            title="Những việc ghi lúc mất mạng đang chờ gửi lên máy chủ. Bấm để xem.">⏳ {cho} chờ gửi</button>
+        )}
         {lechDongBo && (
           <button className="tag warn" style={{ border: 0, cursor: 'pointer' }} onClick={() => setTab('settings')}
             title="Sổ trên máy này và trên máy chủ cùng có thay đổi. Vào Cài đặt để chọn giữ bản nào.">⇅ Lệch đồng bộ</button>
@@ -352,6 +391,14 @@ export default function App() {
 
       <main className="main">
         {offline && <div className="offline-bar">📴 Không có internet — mọi tính năng vẫn dùng được, cố vấn AI tạm nghỉ và bộ luật trả lời thay.</div>}
+        {/* Ghi lúc mất mạng thì việc nằm lại trong máy. Phải nói ra ở chỗ dễ
+            thấy nhất: người vừa bấm Lưu cần biết ngay là nó chưa lên sổ, chứ
+            không phải mở Cài đặt mới biết. */}
+        {cho > 0 && (
+          <div className="offline-bar" style={{ cursor: 'pointer' }} onClick={() => setTab('settings')}>
+            ⏳ {cho} việc ghi lúc mất mạng đang chờ gửi — {offline ? 'sẽ tự gửi khi có mạng lại' : 'app đang gửi'}. Bấm để xem.
+          </div>
+        )}
         {err && <div className="toast" onClick={() => setErr(null)} role="alert">⚠️ {err}</div>}
         <Fragment key={`${curKey}-${tab}`}><div className="page-fade">{page()}</div></Fragment>
       </main>
