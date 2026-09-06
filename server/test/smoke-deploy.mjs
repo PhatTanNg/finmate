@@ -134,6 +134,19 @@ ok('fly.toml bật chế độ nhiều người dùng', flyEnv.FINMATE_MULTIUSER
 // Máy chủ đứng sau proxy của Fly: khai sai số tầng là hỏng chống dò mật khẩu.
 ok('fly.toml khai đúng một tầng proxy', flyEnv.FINMATE_TRUST_PROXY === '1', flyEnv.FINMATE_TRUST_PROXY);
 
+head('Quy trình deploy bật máy dậy trước khi hỏi sức khoẻ');
+// `fly deploy` gặp máy đang tắt thì chỉ cập nhật cấu hình rồi coi "stopped" là
+// trạng thái tốt — deploy báo xanh mà app chưa hề chạy lại. Máy nằm im như vậy
+// đúng sau khi app chết đủ 10 lần, tức là ngay lần deploy mang bản vá tới. Nếu
+// quy trình không bật máy, bước kiểm tra sức khoẻ chỉ thấy im lặng và không
+// phân biệt được "máy chưa bật" với "app hỏng".
+const wf = readFileSync(path.join(here, '..', '..', '.github', 'workflows', 'deploy-fly.yml'), 'utf8');
+const viTriBat = wf.indexOf('flyctl machine start');
+const viTriHoi = wf.indexOf('/api/health"');
+ok('quy trình có bật máy sau khi deploy', viTriBat > -1, 'không thấy `flyctl machine start`');
+ok('bật máy xong mới hỏi sức khoẻ', viTriBat > -1 && viTriHoi > -1 && viTriBat < viTriHoi,
+  `bật ở vị trí ${viTriBat}, hỏi ở ${viTriHoi}`);
+
 head('Tên miền thật: trang của chính app gọi được, trang lạ thì không');
 // Trình duyệt gửi kèm Origin cả với request cùng origin. Trên máy chủ thật,
 // Origin là tên miền đã deploy chứ không phải localhost — nếu chỉ cho phép

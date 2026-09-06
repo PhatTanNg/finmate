@@ -242,6 +242,28 @@ jobs:
             exit 1
           done
 
+      - name: Bật máy dậy
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          # `fly deploy` gặp một máy ĐANG TẮT thì chỉ cập nhật cấu hình rồi coi
+          # "stopped" là trạng thái tốt: nó in "reached stopped state / is now in
+          # a good state" và báo deploy thành công, dù app chưa hề chạy lại.
+          #
+          # Mà máy chỉ nằm im như vậy sau khi app chết đủ 10 lần liên tiếp
+          # ("machine has reached its max restart count of 10") — tức là đúng lúc
+          # mình vừa vá lỗi khởi động và cần nó chạy lại nhất. min_machines_running
+          # = 0 nên lẽ ra proxy của Fly tự đánh thức khi có người vào, nhưng máy
+          # đã cạn lượt khởi động lại thì không dậy, và bước kiểm tra sức khoẻ
+          # bên dưới chỉ thấy im lặng — không phân biệt được với app chết.
+          #
+          # Bật tay một cái là hết mơ hồ: sau bước này, máy im nghĩa là app hỏng.
+          for id in $(flyctl machines list --app "$APP" --json | jq -r '.[].id'); do
+            echo "Bật máy $id"
+            flyctl machine start "$id" --app "$APP" || true
+          done
+          flyctl status --app "$APP" || true
+
       - name: Kiểm tra máy chủ đã sống
         env:
           APP: ${{ inputs.app }}
@@ -267,6 +289,12 @@ jobs:
           # nhau: "chưa trả lời sau 150 giây" — không nói được app chết vì sao.
           echo "===== Trạng thái máy ====="
           flyctl status --app "$APP" || true
+          echo "===== Vì sao tiến trình dừng (mã thoát của từng máy) ====="
+          # `status` chỉ nói máy đang tắt; cái cần biết là app thoát với mã nào
+          # và Fly có còn khởi động lại nữa không.
+          for id in $(flyctl machines list --app "$APP" --json | jq -r '.[].id'); do
+            flyctl machine status "$id" --app "$APP" || true
+          done
           echo "===== Ổ đĩa ====="
           flyctl volumes list --app "$APP" || true
           echo "===== Log của app (những dòng cuối) ====="
