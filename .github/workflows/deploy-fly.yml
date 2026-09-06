@@ -1,0 +1,173 @@
+# Dựng máy chủ FinMate trên Fly.io — bấm từ trình duyệt, kể cả trên điện thoại.
+#
+# Vì sao có workflow này: `fly deploy` cần flyctl, tức là cần một cái máy có
+# terminal. Nhiều người (chủ nhân repo này chẳng hạn) chỉ có iPhone trong tay.
+# GitHub Actions thì có sẵn máy Linux, nên mọi lệnh flyctl chạy ở đây — người
+# dùng chỉ cần bấm "Run workflow" trong tab Actions.
+#
+# CHUẨN BỊ (làm một lần, đều bằng trình duyệt):
+#   1. Tạo tài khoản tại https://fly.io/app/sign-up
+#   2. Lấy token: https://fly.io/user/personal_access_tokens -> Create token
+#   3. Repo này -> Settings -> Secrets and variables -> Actions -> New secret:
+#        FLY_API_TOKEN     = token vừa lấy                        (bắt buộc)
+#        FINMATE_SIGNUP_CODE = mã mời tự đặt, để người lạ không đăng ký được
+#        FINMATE_MAIL_KEY  = khoá Resend, nếu muốn "quên mật khẩu" tự gửi thư
+#        FINMATE_LLM_KEY   = khoá Claude, nếu muốn bao cả nhà dùng chung
+#   4. Actions -> "Dựng máy chủ (Fly.io)" -> Run workflow
+#
+# Workflow này KHÔNG tự chạy khi push: dựng máy chủ và đổi bí mật là việc phải
+# do người bấm, không phải hệ quả phụ của một lần sửa mã.
+name: Dựng máy chủ (Fly.io)
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Tên app trên Fly (phải là duy nhất toàn cầu, chữ thường và dấu gạch ngang)'
+        required: true
+      region:
+        description: 'Đặt máy ở đâu: sin (Singapore, gần VN nhất) · nrt (Tokyo) · fra (Frankfurt) · iad (Mỹ)'
+        required: true
+        default: sin
+      volume_gb:
+        description: 'Dung lượng ổ đĩa giữ dữ liệu (GB). 3 là thoải mái cho nhiều năm.'
+        required: true
+        default: '3'
+
+# Chỉ một lần deploy chạy tại một thời điểm — hai lần cùng lúc có thể tạo hai
+# ổ đĩa, mà SQLite thì chỉ được một máy ghi.
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy lên Fly.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kiểm tra đã có token Fly chưa
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::Chưa có secret FLY_API_TOKEN. Lấy token ở https://fly.io/user/personal_access_tokens rồi thêm vào Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Tạo app nếu chưa có
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          APP: ${{ inputs.app }}
+        run: |
+          if flyctl status --app "$APP" >/dev/null 2>&1; then
+            echo "App $APP đã có, dùng lại."
+          else
+            echo "Tạo app $APP…"
+            flyctl apps create "$APP" --org personal
+          fi
+
+      - name: Tạo ổ đĩa giữ dữ liệu nếu chưa có
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          APP: ${{ inputs.app }}
+          REGION: ${{ inputs.region }}
+          GB: ${{ inputs.volume_gb }}
+        run: |
+          # Ổ đĩa là thứ giữ toàn bộ sổ sách qua mỗi lần deploy. Không có nó thì
+          # mỗi lần deploy lại là mất sạch — nên tạo trước khi deploy lần đầu.
+          # flyctl từng đổi cách viết hoa khoá JSON giữa các đời, nên nhận cả hai.
+          if flyctl volumes list --app "$APP" --json | jq -e 'any(.[]; (.name // .Name) == "finmate_data")' >/dev/null; then
+            echo "Ổ đĩa finmate_data đã có, giữ nguyên."
+          else
+            flyctl volumes create finmate_data --app "$APP" --region "$REGION" --size "$GB" --yes
+          fi
+
+      - name: Đặt các bí mật (chỉ đặt cái nào chưa có)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          APP: ${{ inputs.app }}
+          SIGNUP_CODE: ${{ secrets.FINMATE_SIGNUP_CODE }}
+          MAIL_KEY: ${{ secrets.FINMATE_MAIL_KEY }}
+          MAIL_FROM: ${{ secrets.FINMATE_MAIL_FROM }}
+          LLM_KEY: ${{ secrets.FINMATE_LLM_KEY }}
+        run: |
+          co() { flyctl secrets list --app "$APP" --json | jq -e --arg k "$1" 'any(.[]; (.name // .Name) == $k)' >/dev/null 2>&1; }
+          dat() {
+            # Đặt bí mật mà KHÔNG in giá trị ra log. Mỗi lần đặt là Fly khởi động
+            # lại máy, nên chỉ đặt khi thật sự có thay đổi.
+            if co "$1"; then echo "$1: đã có, giữ nguyên."; else
+              echo "$1: đặt mới."
+              flyctl secrets set "$1=$2" --app "$APP" --stage
+            fi
+          }
+
+          # Token webhook: bắt buộc phải có, và phải giữ nguyên qua các lần deploy
+          # (Shortcut trên điện thoại đang dùng nó). Sinh ngẫu nhiên ở lần đầu.
+          if co FINMATE_INGEST_TOKEN; then
+            echo "FINMATE_INGEST_TOKEN: đã có, giữ nguyên."
+          else
+            flyctl secrets set "FINMATE_INGEST_TOKEN=$(openssl rand -hex 24)" --app "$APP" --stage
+          fi
+
+          [ -n "$SIGNUP_CODE" ] && dat FINMATE_SIGNUP_CODE "$SIGNUP_CODE" || echo "Chưa đặt FINMATE_SIGNUP_CODE — ai biết địa chỉ cũng đăng ký được. Nên đặt."
+          [ -n "$MAIL_KEY" ] && dat FINMATE_MAIL_KEY "$MAIL_KEY" || true
+          [ -n "$MAIL_FROM" ] && dat FINMATE_MAIL_FROM "$MAIL_FROM" || true
+          [ -n "$LLM_KEY" ] && dat FINMATE_LLM_KEY "$LLM_KEY" || true
+
+          # Địa chỉ công khai để dán vào thư đặt lại mật khẩu.
+          dat FINMATE_PUBLIC_URL "https://$APP.fly.dev"
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          APP: ${{ inputs.app }}
+          REGION: ${{ inputs.region }}
+        run: |
+          # Nơi đặt máy đọc từ fly.toml chứ không phải cờ dòng lệnh — ghi vùng
+          # người dùng chọn vào đó (chỉ trong bản checkout của lần chạy này).
+          sed -i "s/^primary_region = .*/primary_region = '$REGION'/" fly.toml
+          grep '^primary_region' fly.toml
+          # --ha=false: CHỈ MỘT MÁY. SQLite cho đúng một tiến trình ghi, và một ổ
+          # đĩa Fly cũng chỉ gắn được vào một máy — hai máy là hỏng dữ liệu.
+          # --remote-only: build bằng máy dựng của Fly, khỏi phụ thuộc Docker của runner.
+          flyctl deploy --app "$APP" --ha=false --remote-only
+
+      - name: Kiểm tra máy chủ đã sống
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          APP: ${{ inputs.app }}
+        run: |
+          for i in $(seq 1 30); do
+            body=$(curl -fsS "https://$APP.fly.dev/api/health" 2>/dev/null) && break
+            sleep 5
+          done
+          if [ -z "$body" ]; then
+            echo "::error::Máy chủ chưa trả lời sau 150 giây. Xem log: flyctl logs --app $APP, hoặc tab Monitoring trên fly.io."
+            exit 1
+          fi
+          echo "$body" | jq .
+          echo "$body" | jq -e '.multi_user == true' >/dev/null \
+            || echo "::warning::Máy chủ đang chạy chế độ MỘT SỔ. fly.toml phải có FINMATE_MULTIUSER=1."
+
+      - name: Chỉ đường cho người vừa bấm
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          {
+            echo "## ✅ FinMate đang chạy"
+            echo ""
+            echo "**Mở app:** https://$APP.fly.dev"
+            echo ""
+            echo "Trên iPhone: mở bằng **Safari** → nút Chia sẻ → **Thêm vào MH chính**."
+            echo ""
+            echo "1. Bấm **Chưa có tài khoản? Tạo mới** rồi nhập mã mời bạn đã đặt."
+            echo "2. Vào **Cài đặt → Cố vấn AI** dán khoá API của riêng bạn (nếu muốn có AI)."
+            echo "3. Vào tab **Tự động hoá** lấy địa chỉ webhook + token cho iOS Shortcuts."
+            echo ""
+            echo "Chạy lại workflow này bất cứ lúc nào để deploy phiên bản mới — dữ liệu nằm trên ổ đĩa riêng nên không mất."
+          } >> "$GITHUB_STEP_SUMMARY"
