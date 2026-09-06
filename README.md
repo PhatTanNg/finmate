@@ -539,6 +539,20 @@ Bản `dist` đọc/ghi thẳng vào sổ trên máy chủ, nên mất mạng l�
 
 Muốn offline trọn vẹn (kể cả chat bằng bộ luật) thì dùng bản chạy trên máy + đồng bộ như trên.
 
+### 10. Trước khi phơi ra Internet
+
+Bộ rà soát bảo mật đã sửa những chỗ sau; nêu ra đây để bạn biết cái gì đang bảo vệ mình:
+
+- **Không tin header `X-Forwarded-For` theo mặc định.** Mọi giới hạn chống dò mật khẩu đếm theo `req.ip`; tin bừa header do người gọi đặt là mở toang: đổi header một cái là có "IP" mới. Đặt sau reverse proxy thì khai đúng số tầng bằng `FINMATE_TRUST_PROXY=1` (fly.toml đã có sẵn) — khai sai thành `true` là quay lại chỗ hổng cũ.
+- **Khoá theo cả tài khoản, không chỉ theo IP.** Người dò mật khẩu có sẵn hàng nghìn IP. Một tài khoản chỉ chịu 8 lần đoán trong 5 phút; ngưỡng theo IP rộng hơn (24) để cả nhà chung một wifi không khoá nhầm nhau.
+- **Token phiên lưu dạng băm** trong sổ danh bạ, như mật khẩu và vé đặt lại. Một bản sao lưu lọt ra ngoài không kéo theo mọi phiên đang mở.
+- **Bỏ `qs` khỏi đường đi của request** (`query parser: simple`) — express 4 chưa nhận bản vá cho hai lỗi của thư viện này, mà app chỉ dùng tham số phẳng nên không cần tới nó.
+- **Header chắn cơ bản**: `X-Frame-Options: DENY` + `frame-ancestors 'none'` (không cho nhúng app vào iframe trang khác), `nosniff`, `Referrer-Policy: no-referrer` (địa chỉ trang có thể chứa vé đặt lại mật khẩu).
+- **So khớp token webhook theo kiểu hằng thời gian**, và **bản xuất dữ liệu không kèm token webhook** (trước đây có: gửi bản xuất cho ai là người đó đẩy được giao dịch giả vào sổ bạn).
+- Sao lưu của mỗi người nằm trong thư mục riêng — trước đây dồn chung một chỗ, tên file chỉ có ngày, nên bản của người này ghi đè bản người kia.
+
+Còn lại, hai điều bạn nên tự làm: đặt `FINMATE_SIGNUP_CODE` (mã mời) và giữ `FINMATE_INGEST_TOKEN` cho riêng mình.
+
 ### Biến môi trường
 
 Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động. Sửa xong phải **khởi động lại** — biến môi trường chỉ đọc một lần lúc chạy.
@@ -570,6 +584,8 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_SESSION_DAYS` | `30` | Phiên đăng nhập sống bao lâu |
 | `FINMATE_MAX_OPEN_LEDGERS` | `200` | Số sổ giữ mở cùng lúc trong bộ nhớ |
 | `FINMATE_SHUTDOWN_MS` | `8000` | Chờ request đang dở bao lâu khi nhận SIGTERM trước khi đóng sổ |
+| `FINMATE_TRUST_PROXY` | – (không tin) | Số tầng reverse proxy đứng trước app (Fly/Caddy/nginx: `1`). Sai số này là hỏng chống dò mật khẩu |
+| `FINMATE_MAX_FAILS_IP` | `24` | Số lần sai mật khẩu từ một IP trước khi khoá 5 phút (tài khoản: 8 lần) |
 | `FINMATE_MAIL_KEY` | – | Khoá dịch vụ gửi thư (Resend `re_...`). Có thì bật được “quên mật khẩu” qua email |
 | `FINMATE_MAIL_FROM` | `FinMate <onboarding@resend.dev>` | Địa chỉ người gửi. Tên miền phải đã xác minh với nhà cung cấp |
 | `FINMATE_MAIL_URL` | `https://api.resend.com/emails` | Đổi khi dùng dịch vụ khác có cùng dạng API |

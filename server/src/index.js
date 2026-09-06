@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { router, runAutomation } from './routes/api.js';
 import { setting, closeMainDb } from './db.js';
 import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
+import crypto from 'node:crypto';
 import { requireAccount } from './services/account_auth.js';
 import { closeAll, withLedger } from './services/ledgers.js';
 import { deviceOwned } from './services/sync.js';
@@ -22,7 +23,46 @@ const HOST = process.env.FINMATE_HOST || '127.0.0.1';
 const app = express();
 
 app.disable('x-powered-by');
-app.set('trust proxy', true);
+
+/**
+ * Dùng bộ phân tích query đơn giản của Node thay cho thư viện `qs`.
+ *
+ * `qs` đang có hai lỗi mức trung bình (GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g)
+ * mà express 4 chưa nhận được bản vá; cả hai đều nằm ở đường phân tích query.
+ * App này chỉ dùng tham số phẳng (?token=…&base_rev=…) nên bỏ hẳn `qs` khỏi
+ * đường đi của request là xong, không phải chờ ai vá.
+ */
+app.set('query parser', 'simple');
+
+// Vài header rẻ tiền mà chặn được những trò phổ biến nhất.
+app.use((req, res, next) => {
+  // Nhúng app tài chính vào iframe của trang khác rồi lừa người dùng bấm nút:
+  // không có lý do gì để cho phép.
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  // Đừng đoán kiểu tệp: bản xuất JSON hay file .db không được trình duyệt
+  // "đoán" thành HTML rồi chạy.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Đừng rỉ địa chỉ trang (có thể kèm vé đặt lại mật khẩu) sang nơi khác.
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+/**
+ * TIN header X-Forwarded-For tới mức nào.
+ *
+ * Mặc định KHÔNG tin. Tin bừa là mở toang chống dò mật khẩu: mọi giới hạn đều
+ * đếm theo req.ip, mà req.ip lúc đó lấy từ header do chính người gọi đặt — đổi
+ * header một cái là có IP mới, khoá 5 phút sau 8 lần sai thành vô nghĩa (đã
+ * dựng lại đúng cảnh này: 10 lần sai với 10 IP giả, không lần nào bị khoá).
+ *
+ * Đặt sau reverse proxy thì khai đúng SỐ TẦNG proxy (Fly, Caddy, nginx: 1) —
+ * express khi đó bỏ qua đúng bấy nhiêu tầng cuối và lấy IP mà tầng gần nhất
+ * nhìn thấy, tức IP thật.
+ */
+const tinProxy = process.env.FINMATE_TRUST_PROXY;
+app.set('trust proxy', tinProxy === undefined || tinProxy === ''
+  ? false
+  : (/^\d+$/.test(tinProxy) ? Number(tinProxy) : tinProxy));
 
 // Chỉ cho phép giao diện của chính app gọi API. Trình duyệt sẽ chặn mọi trang web
 // lạ đọc dữ liệu tài chính ở localhost.
@@ -54,13 +94,20 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.text({ type: 'text/plain', limit: '2mb' }));
 
+/** So khớp token theo kiểu hằng thời gian (độ dài khác nhau thì thôi khỏi so). */
+const bangNhau = (a, b) => {
+  const x = Buffer.from(String(a ?? ''));
+  const y = Buffer.from(String(b ?? ''));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+
 // Cửa webhook: kiểm tra token trước mọi thứ khác.
 app.use('/api', (req, res, next) => {
   // POST /api/ingest là cửa duy nhất mở ra ngoài (iOS Shortcuts gọi vào), nên
   // nó luôn phải kèm token bí mật — kể cả khi người dùng chưa đặt mã PIN.
   if (/^\/ingest\/?$/.test(req.path)) {
     const given = req.get('x-finmate-token') || req.query.token;
-    if (given !== ingestToken() && !(pinIsSet() && sessionOk(req))) {
+    if (!bangNhau(given, ingestToken()) && !(pinIsSet() && sessionOk(req))) {
       return res.status(401).json({ ok: false, error: 'token không hợp lệ' });
     }
   }

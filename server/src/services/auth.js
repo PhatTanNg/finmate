@@ -12,6 +12,8 @@ import { setting } from '../db.js';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 ngày
 const MAX_FAILS = 8;
+/** Ngưỡng cho một địa chỉ IP: rộng hơn, vì cả nhà có thể chung một IP. */
+export const MAX_FAILS_IP = Number(process.env.FINMATE_MAX_FAILS_IP) || 24;
 const LOCK_MS = 5 * 60 * 1000;
 
 /** token phiên -> hạn dùng (mất khi restart, người dùng chỉ cần nhập lại PIN) */
@@ -82,11 +84,20 @@ export function lockedFor(ip) {
   return left;
 }
 
-export function noteFail(ip) {
-  const f = fails.get(ip) || { count: 0, until: 0 };
+/**
+ * @param {string} khoa thứ bị đếm: một địa chỉ IP, hoặc một tài khoản.
+ * @param {number} max số lần sai trước khi khoá.
+ *
+ * Ngưỡng cho IP rộng hơn ngưỡng cho tài khoản, và đó là chủ ý: cả nhà cùng một
+ * wifi thì mọi người chung một IP, để ngưỡng chặt thì một người gõ nhầm mật
+ * khẩu vài lần là khoá luôn cả nhà. Còn ngưỡng theo TÀI KHOẢN mới là thứ chặn
+ * người dò mật khẩu, và nó chặt.
+ */
+export function noteFail(khoa, max = MAX_FAILS) {
+  const f = fails.get(khoa) || { count: 0, until: 0 };
   f.count += 1;
-  if (f.count >= MAX_FAILS) f.until = Date.now() + LOCK_MS;
-  fails.set(ip, f);
+  if (f.count >= max) f.until = Date.now() + LOCK_MS;
+  fails.set(khoa, f);
 }
 
 export const noteSuccess = (ip) => fails.delete(ip);

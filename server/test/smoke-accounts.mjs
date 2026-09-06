@@ -152,6 +152,38 @@ const qua = await POST('/account/register', { email: 'nguoithu4@example.com', pa
 ok('chạm trần số tài khoản thì dừng nhận thêm', qua.status !== 200 && /đủ số tài khoản/i.test(qua.error || ''), JSON.stringify(qua).slice(0, 100));
 delete process.env.FINMATE_MAX_USERS;
 
+head('Chống dò mật khẩu');
+// Khoá theo IP thôi là chưa đủ: người dò mật khẩu có sẵn hàng nghìn IP. Phải
+// khoá theo cả tài khoản bị nhắm, nếu không mỗi IP thử vài lần là qua mặt.
+const nan = { email: 'binh@example.com', password: 'doan-bua' };
+let daKhoa = null;
+for (let i = 0; i < 9 && !daKhoa; i += 1) {
+  const r = await POST('/account/login', nan);
+  if (r.status === 429) daKhoa = r;
+}
+ok('sai nhiều lần thì bị khoá tạm', Boolean(daKhoa), 'không lần nào bị khoá');
+ok('nói rõ chờ bao nhiêu GIÂY, không phải mili-giây',
+  /thử lại sau (\d+) giây/.test(daKhoa?.error || '') && Number(/thử lại sau (\d+) giây/.exec(daKhoa.error)[1]) <= 600,
+  daKhoa?.error);
+ok('đang bị khoá thì mật khẩu ĐÚNG cũng phải chờ',
+  (await POST('/account/login', { email: 'binh@example.com', password: 'matkhau-cua-binh' })).status === 429);
+// Ngưỡng theo IP rộng hơn hẳn ngưỡng theo tài khoản, nên một người gõ nhầm
+// mật khẩu của mình không khoá luôn cả nhà cùng wifi.
+const anVao = await POST('/account/login', { email: 'an@example.com', password: 'matkhau-moi-cua-an' });
+ok('người khác cùng mạng vẫn đăng nhập được', anVao.status === 200, JSON.stringify(anVao).slice(0, 120));
+
+head('Phiên đăng nhập lưu trong sổ danh bạ dạng băm');
+// Ai đọc trộm được sổ danh bạ (một bản sao lưu lọt ra ngoài chẳng hạn) mà lấy
+// luôn được token đang dùng thì vào thẳng sổ tài chính, không cần mật khẩu.
+const phien = await POST('/account/login', { email: 'an@example.com', password: 'matkhau-moi-cua-an' });
+const soDanhBa = new (await import('node:sqlite')).DatabaseSync(path.join(dir, 'finmate-accounts.db'), { readOnly: true });
+const hang = soDanhBa.prepare('SELECT token FROM sessions').all().map((r) => r.token);
+soDanhBa.close();
+ok('token thật KHÔNG nằm nguyên văn trong sổ', !hang.includes(phien.token), `${hang.length} phiên`);
+ok('thứ lưu lại là băm sha256 (64 ký tự hex)', hang.every((t) => /^[0-9a-f]{64}$/.test(t)), hang[0]?.slice(0, 20));
+ok('token vẫn dùng được bình thường', (await GET('/accounts', phien.token)).status === 200);
+ok('đăng xuất vẫn huỷ đúng phiên đó', (await POST('/account/logout', {}, phien.token)) && (await GET('/accounts', phien.token)).status === 401);
+
 head('Quên mật khẩu: gửi thư');
 // Máy chủ thư giả: bắt lại đúng lá thư app định gửi, để soi nội dung thật chứ
 // không phải soi ý định gửi.

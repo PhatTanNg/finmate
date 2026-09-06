@@ -137,6 +137,26 @@ const la = await rawPost('/account/login', { email: 'lan@example.com', password:
   { Host: 'finmate.fly.dev', Origin: 'https://ke-gian.example' });
 ok('trang web lạ vẫn bị chặn', la.status === 403, `${la.status} ${la.body.slice(0, 80)}`);
 
+head('Vài lớp chắn rẻ tiền');
+const hd = await fetch(`${BASE}/health`);
+ok('không cho nhúng app vào iframe trang khác', hd.headers.get('x-frame-options') === 'DENY' && /frame-ancestors 'none'/.test(hd.headers.get('content-security-policy') || ''));
+ok('không cho trình duyệt đoán kiểu tệp', hd.headers.get('x-content-type-options') === 'nosniff');
+ok('không rỉ địa chỉ trang sang nơi khác (vé đặt lại mật khẩu nằm trong đó)', hd.headers.get('referrer-policy') === 'no-referrer');
+ok('không khoe tên máy chủ', !hd.headers.get('x-powered-by'));
+
+head('Không tin bừa header X-Forwarded-For');
+// Mọi giới hạn chống dò mật khẩu đều đếm theo req.ip. Nếu app tin header do
+// chính người gọi đặt thì đổi header một cái là có "IP" mới — khoá 8 lần sai
+// thành vô nghĩa. Đây là bộ kiểm giữ cho mặc định luôn là KHÔNG TIN.
+await call('POST', '/account/register', { email: 'nan@example.com', password: 'mat-khau-that-dai' });
+let biKhoa = 0;
+for (let i = 0; i < 12; i += 1) {
+  const r = await rawPost('/account/login', { email: 'nan@example.com', password: 'doan-bua' },
+    { 'X-Forwarded-For': `9.9.9.${i}` });
+  if (r.status === 429) biKhoa += 1;
+}
+ok('đổi IP giả liên tục vẫn bị khoá', biKhoa > 0, 'thử 12 lần với 12 IP giả mà không lần nào bị chặn');
+
 head('Tắt êm bằng SIGTERM');
 const t0 = Date.now();
 srv.kill('SIGTERM');

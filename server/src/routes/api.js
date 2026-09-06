@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'node:fs';
 import { all, get, insert, update, remove, run, setting } from '../db.js';
-import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken } from '../services/auth.js';
+import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken, MAX_FAILS_IP } from '../services/auth.js';
 import * as tk from '../services/accounts.js';
 import { mailEnabled, sendMail, resetMail } from '../services/mailer.js';
 import { rev as syncRev, syncInfo, checkLedgerBytes, backupBeforeReplace, replaceLedger } from '../services/sync.js';
@@ -128,7 +128,7 @@ router.post('/account/register', wrap(async (req, res) => {
   if (!tk.multiUser()) return needMulti(res);
   const ip = ipOf(req);
   const cho = lockedFor(ip);
-  if (cho) return res.status(429).json({ ok: false, error: `Sai nhiều lần, thử lại sau ${cho}s` });
+  if (cho) return res.status(429).json({ ok: false, error: choLau(cho) });
   if (recentSignups(ip).length >= SIGNUP_MAX) {
     return res.status(429).json({ ok: false, error: 'Tạo quá nhiều tài khoản từ máy này, thử lại sau một giờ' });
   }
@@ -138,7 +138,7 @@ router.post('/account/register', wrap(async (req, res) => {
   } catch (e) {
     // Dò mã mời thì bị khoá tạm như dò mật khẩu. Các lỗi khác (email sai định
     // dạng, mật khẩu ngắn, email đã có) là người dùng thật gõ nhầm — không phạt.
-    if (/mã mời/i.test(e.message)) noteFail(ip);
+    if (/mã mời/i.test(e.message)) noteFail(ip, MAX_FAILS_IP);
     throw e;
   }
   noteSignup(ip);
@@ -147,14 +147,34 @@ router.post('/account/register', wrap(async (req, res) => {
   ok(res, { user: u, ...s });
 }));
 
+/**
+ * Đếm số lần sai theo CẢ HAI phía: máy gọi và tài khoản bị nhắm.
+ *
+ * Chỉ đếm theo IP là chưa đủ cho một máy chủ đặt ngoài Internet: người dò mật
+ * khẩu ngày nay có sẵn hàng nghìn IP, mỗi IP thử vài lần là không bao giờ chạm
+ * ngưỡng. Khoá thêm theo email thì dù đến từ bao nhiêu máy, một tài khoản vẫn
+ * chỉ chịu 8 lần đoán trong 5 phút.
+ *
+ * Đổi lại, người khác có thể cố tình làm bạn bị khoá 5 phút. Với một app tài
+ * chính thì 5 phút chờ là cái giá rẻ hơn nhiều so với việc để mật khẩu bị dò.
+ */
+const khoaTaiKhoan = (email) => `tk:${String(email ?? '').trim().toLowerCase()}`;
+const choLau = (ms) => `Sai nhiều lần, thử lại sau ${Math.ceil(ms / 1000)} giây`;
+
 router.post('/account/login', wrap(async (req, res) => {
   if (!tk.multiUser()) return needMulti(res);
   const ip = ipOf(req);
-  const cho = lockedFor(ip);
-  if (cho) return res.status(429).json({ ok: false, error: `Sai nhiều lần, thử lại sau ${cho}s` });
+  const ai = khoaTaiKhoan(req.body?.email);
+  const cho = Math.max(lockedFor(ip), lockedFor(ai));
+  if (cho) return res.status(429).json({ ok: false, error: choLau(cho) });
   const u = tk.verify(req.body || {});
-  if (!u) { noteFail(ip); return res.status(401).json({ ok: false, error: 'Email hoặc mật khẩu không đúng' }); }
+  if (!u) {
+    noteFail(ip, MAX_FAILS_IP);   // rộng tay với IP: cả nhà có thể chung một wifi
+    noteFail(ai);                 // chặt với tài khoản: đây mới là thứ đang bị dò
+    return res.status(401).json({ ok: false, error: 'Email hoặc mật khẩu không đúng' });
+  }
   noteSuccess(ip);
+  noteSuccess(ai);
   ok(res, { user: u, ...tk.startSession(u.id, req.get('user-agent')) });
 }));
 

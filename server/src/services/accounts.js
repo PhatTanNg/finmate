@@ -135,12 +135,22 @@ export function verify({ email, password }) {
   return checkPass(password, u.pass) ? publicUser(u) : null;
 }
 
+/**
+ * Phiên đăng nhập cũng chỉ lưu BĂM, như mật khẩu và vé đặt lại.
+ *
+ * Token phiên là thứ dùng được ngay: ai cầm được nó thì vào thẳng sổ, không
+ * cần mật khẩu. Lưu nguyên văn nghĩa là một bản sao lưu sổ danh bạ lọt ra
+ * ngoài (hoặc một lỗi nào đó đọc được bảng này) là mọi phiên đang mở của mọi
+ * người đều bị chiếm. Băm thì bảng đó vô dụng với người đọc trộm.
+ */
+const bamToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+
 export function startSession(userId, device = null) {
   const token = crypto.randomBytes(32).toString('base64url');
   const exp = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
   const c = control();
   c.prepare('INSERT INTO sessions (token, user_id, expires_at, device) VALUES (?,?,?,?)')
-    .run(token, Number(userId), exp, device ? String(device).slice(0, 120) : null);
+    .run(bamToken(token), Number(userId), exp, device ? String(device).slice(0, 120) : null);
   c.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(Number(userId));
   return { token, expires_at: exp };
 }
@@ -149,10 +159,10 @@ export function startSession(userId, device = null) {
 export function userForToken(token) {
   if (!token) return null;
   const c = control();
-  const s = c.prepare('SELECT * FROM sessions WHERE token = ?').get(String(token));
+  const s = c.prepare('SELECT * FROM sessions WHERE token = ?').get(bamToken(token));
   if (!s) return null;
   if (Date.parse(s.expires_at) < Date.now()) {
-    c.prepare('DELETE FROM sessions WHERE token = ?').run(String(token));
+    c.prepare('DELETE FROM sessions WHERE token = ?').run(bamToken(token));
     return null;
   }
   return publicUser(c.prepare('SELECT * FROM users WHERE id = ?').get(s.user_id));
@@ -160,7 +170,7 @@ export function userForToken(token) {
 
 export function endSession(token) {
   if (!token) return false;
-  return control().prepare('DELETE FROM sessions WHERE token = ?').run(String(token)).changes > 0;
+  return control().prepare('DELETE FROM sessions WHERE token = ?').run(bamToken(token)).changes > 0;
 }
 
 /** Đăng xuất khỏi MỌI thiết bị — dùng khi nghi lộ mật khẩu. */

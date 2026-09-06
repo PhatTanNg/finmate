@@ -47,6 +47,10 @@ primary_region = 'sin'     # Singapore — gần Việt Nam nhất. 'fra' nếu 
   # Trần số tài khoản: volume 3GB, mỗi sổ vài MB. Đặt trần để một ngày nào đó
   # cửa đăng ký bị dò ra thì đĩa không bị lấp đầy.
   FINMATE_MAX_USERS = '50'
+  # Fly đặt một tầng proxy trước app. Khai đúng một tầng thì các giới hạn chống
+  # dò mật khẩu đếm theo IP THẬT; không khai (mặc định) thì app bỏ qua header và
+  # đếm theo IP của proxy — mọi người dùng chung một hạn mức.
+  FINMATE_TRUST_PROXY = '1'
   # Đường dẫn trong thư đặt lại mật khẩu phải trỏ về tên miền thật. Suy từ
   # request cũng ra đúng, nhưng khai rõ thì không sợ proxy nào ở giữa làm lệch.
   # Đổi thành tên miền của bạn (hoặc xoá dòng này).
