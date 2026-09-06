@@ -65,12 +65,26 @@ jobs:
           # Chỉ cắt hai đầu: token Fly có dạng "FlyV1 fm2_..." — dấu cách Ở GIỮA
           # là một phần của token, đụng vào là hỏng.
           CLEAN=$(printf '%s' "$RAW" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+          # Ô hiện token trên trang Fly ngắt dòng cho vừa màn hình. Chọn tay trên
+          # điện thoại thì mỗi chỗ ngắt có thể thành một KHOẢNG TRẮNG nằm giữa
+          # thân token — cắt hai đầu không đụng tới nó, và token vẫn hỏng.
+          # Phần sau "FlyV1 " là base64url, không bao giờ chứa khoảng trắng, nên
+          # bỏ sạch khoảng trắng bên trong là an toàn. Giữ nguyên đúng một dấu
+          # cách sau FlyV1 vì nó là một phần của token.
+          case "$CLEAN" in
+            "FlyV1 "*) CLEAN="FlyV1 $(printf '%s' "${CLEAN#FlyV1 }" | tr -d '[:space:]')" ;;
+            *)         CLEAN=$(printf '%s' "$CLEAN" | tr -d '[:space:]') ;;
+          esac
           echo "::add-mask::$CLEAN"
           echo "FLY_API_TOKEN=$CLEAN" >> "$GITHUB_ENV"
-          if [ "$CLEAN" != "$RAW" ]; then
-            echo "Đã cắt bỏ khoảng trắng/xuống dòng thừa quanh token (${#RAW} ký tự -> ${#CLEAN})."
-          else
-            echo "Token sạch sẵn, không phải cắt gì."
+
+          echo "Độ dài: ${#RAW} ký tự khi dán vào -> ${#CLEAN} sau khi dọn."
+          [ "${#RAW}" -ne "${#CLEAN}" ] && echo "  (đã bỏ $(( ${#RAW} - ${#CLEAN} )) ký tự trắng/xuống dòng)"
+          # Ký tự lạ là dấu hiệu copy dính thêm thứ khác (dấu ngoặc, chữ trong
+          # giao diện, dấu ... của phần bị cắt ngắn).
+          LA=$(printf '%s' "${CLEAN#FlyV1 }" | tr -d 'A-Za-z0-9_,=-' | wc -c)
+          if [ "$LA" -gt 1 ]; then
+            echo "::warning::Trong token có $((LA - 1)) ký tự không thuộc bảng chữ của token Fly — nhiều khả năng lúc copy đã dính thêm thứ gì đó."
           fi
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
@@ -81,10 +95,13 @@ jobs:
           # gốc của flyctl khi token hỏng ("You must be authenticated to view
           # this") không nói được token sai ở đâu — mà người dán token thì không
           # nhìn thấy nó nữa để tự soi.
+          # CẢNH BÁO chứ không chặn: token kiểu "deploy token" của một app vẫn
+          # deploy được nhưng không có danh tính người dùng, nên whoami luôn
+          # hỏng. Để bước tạo app phán quyết, đừng chặn oan ở đây.
           if flyctl auth whoami; then
             echo "Token hợp lệ."
           else
-            echo "::error::Fly không nhận token này."
+            echo "::warning::Fly chưa nhận ra người dùng của token này."
             # Soi ĐỊNH DẠNG chứ không in giá trị. Ba lỗi hay gặp, theo thứ tự:
             case "$FLY_API_TOKEN" in
               FlyV1*) echo "  · Định dạng FlyV1 — đúng kiểu. Vậy nhiều khả năng token đã bị thu hồi, hết hạn, hoặc tài khoản Fly chưa xác minh xong (vào https://fly.io/dashboard xem có đòi thêm bước nào không)." ;;
@@ -93,8 +110,7 @@ jobs:
               *)      echo "  · Không phải định dạng token của Fly. Có thể bạn dán nhầm thứ khác, hoặc chỉ copy được một phần." ;;
             esac
             echo "  · Độ dài chuỗi đã dán: ${#FLY_API_TOKEN} ký tự (token Fly thường dài hơn 80)."
-            echo "  · Lấy token mới ở https://fly.io/user/personal_access_tokens — chọn loại token của TÀI KHOẢN, không phải 'deploy token' của một app (loại đó không tạo được app mới)."
-            exit 1
+            echo "  · Nếu bước tạo app phía dưới cũng hỏng: tạo token MỚI ở https://fly.io/user/personal_access_tokens (token của TÀI KHOẢN, không phải deploy token của một app), và dán bằng nút copy của trang thay vì bôi đen bằng tay."
           fi
 
       - name: Tạo app nếu chưa có
