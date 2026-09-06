@@ -468,7 +468,19 @@ Khi bật:
 - Tự động hoá (giao dịch định kỳ, tính lãi, sao lưu, cảnh báo) chạy **trên từng sổ**, mỗi giờ một lượt.
 - Mật khẩu băm bằng scrypt có muối; sai nhiều lần thì khoá tạm 5 phút. Đổi mật khẩu sẽ đăng xuất mọi thiết bị khác.
 
-Deploy lên **Fly.io** (đã có sẵn `fly.toml` với đầy đủ chú thích từng dòng):
+**Cách 1 — bấm từ trình duyệt, không cần máy tính.** Dành cho lúc trong tay chỉ có điện thoại: mọi lệnh `flyctl` chạy trên máy Linux của GitHub Actions.
+
+1. Tạo tài khoản tại [fly.io/app/sign-up](https://fly.io/app/sign-up) (cần thẻ để xác minh).
+2. Lấy token ở [fly.io/user/personal_access_tokens](https://fly.io/user/personal_access_tokens) → **Create token**.
+3. Repo → **Settings → Secrets and variables → Actions → New repository secret**:
+   - `FLY_API_TOKEN` — token vừa lấy *(bắt buộc)*
+   - `FINMATE_SIGNUP_CODE` — mã mời tự đặt *(nên có: không thì ai biết địa chỉ cũng đăng ký được)*
+   - `FINMATE_MAIL_KEY`, `FINMATE_LLM_KEY` — tuỳ chọn
+4. Tab **Actions → Dựng máy chủ (Fly.io) → Run workflow**, điền tên app và vùng (`sin` gần Việt Nam nhất).
+
+Workflow tự tạo app, tạo ổ đĩa **chỉ khi chưa có**, đặt bí mật (chỉ đặt cái nào chưa có, nên token webhook giữ nguyên qua các lần deploy), deploy đúng **một** máy, rồi gọi thử `/api/health` và in địa chỉ app ra trang tóm tắt. Chạy lại bất cứ lúc nào để cập nhật — dữ liệu nằm trên ổ đĩa riêng nên không mất.
+
+**Cách 2 — từ máy tính có terminal** (`fly.toml` đã có sẵn, chú thích từng dòng):
 
 ```bash
 curl -L https://fly.io/install.sh | sh          # 1. cài flyctl
