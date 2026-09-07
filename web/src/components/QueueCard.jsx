@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { EMBEDDED, guiHangChoNgay } from '../lib/api.js';
-import { danhSach, theoDoi, boViec, boHet, nhan, chu } from '../lib/queue.js';
+import { danhSach, theoDoi, boViec, boHet, nhan, chu, so as soDangMo } from '../lib/queue.js';
 import { Card } from './ui.jsx';
 
 const gio = (s) => (s ? new Date(s).toLocaleString('vi-VN') : '');
@@ -47,8 +47,13 @@ export default function QueueCard() {
         {ds.map((v) => (
           <div key={v.id} className="row" style={{ justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
             <div>
-              <div><b>{nhan(v)}</b>{tomTat(v) ? <span className="muted"> — {tomTat(v)}</span> : null}</div>
-              <div className="mini muted">{gio(v.at)}{v.loi ? ` · máy chủ từ chối: ${v.loi}` : ''}</div>
+              <div>
+                <b>{nhan(v)}</b>{tomTat(v) ? <span className="muted"> — {tomTat(v)}</span> : null}
+                {/* Việc thuộc sổ KHÁC sổ đang mở: không nói ra thì người dùng
+                    nhìn thấy một khoản chi lạ hoắc và tưởng app ghi bậy. */}
+                {(v.so ?? null) !== soDangMo() && <span className="tag" style={{ marginLeft: 6 }}>{v.so?.startsWith('g') ? 'sổ chung' : 'sổ riêng'}</span>}
+              </div>
+              <div className="mini muted">{gio(v.at)}{v.loi ? ` · ${v.loi}` : ''}</div>
             </div>
             <button className="btn sm ghost" onClick={() => { if (confirm(`Bỏ việc “${nhan(v)}”? Việc này sẽ không được ghi vào sổ.`)) boViec(v.id); }}>Bỏ</button>
           </div>
@@ -61,7 +66,8 @@ export default function QueueCard() {
       )}
       {hong.length > 0 && (
         <p className="mini" style={{ color: 'var(--bad, #dc2626)' }}>
-          {hong.length} việc bị máy chủ từ chối — gửi lại bao nhiêu lần cũng vậy. Xem lý do ở trên rồi bỏ đi và làm lại cho đúng.
+          {hong.length} việc bị từ chối — gửi lại bao nhiêu lần cũng vậy. Xem lý do ở trên rồi bỏ đi và làm lại cho đúng.
+          {hong.some((v) => v.so?.startsWith('g')) ? ' Trong sổ chung, lý do thường gặp nhất là người nhà đã sửa hoặc xoá mục đó trước bạn.' : ''}
         </p>
       )}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 10 }}>

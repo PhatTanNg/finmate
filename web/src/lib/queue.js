@@ -31,6 +31,34 @@ let chuHienTai = 'local';
 export const datChu = (v) => { chuHienTai = v || 'local'; };
 export const chu = () => chuHienTai;
 
+/**
+ * Và việc đó thuộc về SỔ NÀO.
+ *
+ * Gắn theo người thôi là chưa đủ từ khi một người mở được nhiều sổ. Ghi một
+ * khoản ngoài chợ vào sổ NHÀ lúc mất mạng, về nhà đổi sang sổ RIÊNG rồi mới
+ * có sóng — nếu việc trong hàng chờ không tự khai sổ của nó thì khoản đó rơi
+ * vào sổ riêng, im lặng, và không ai phát hiện ra cho tới lúc đối chiếu số dư.
+ *
+ * Sổ được gửi kèm trong header từng request (x-finmate-ledger), nên máy chủ
+ * ghi đúng chỗ bất kể lúc đó phiên đang mở sổ nào.
+ */
+let soHienTai = null;
+export const datSo = (v) => { soHienTai = v || null; };
+export const so = () => soHienTai;
+
+/**
+ * Khoá một trang trong kho đệm GET.
+ *
+ * Ở chung chỗ với hàng chờ vì cả hai trả lời đúng một câu: "cái này thuộc sổ
+ * nào". Tách ra hai nơi là sớm muộn một bên được sửa còn bên kia thì không.
+ *
+ * Không có phần sổ trong khoá thì: mở /transactions ở sổ nhà, đổi về sổ riêng,
+ * mất mạng — và giao dịch của cả nhà hiện ra như sổ riêng của mình. Chiều
+ * ngược lại tệ hơn: khoản riêng tư hiện giữa màn hình sổ chung, trước mặt
+ * người nhà. Cách ly vật lý ở máy chủ mà rò ở kho đệm trên máy thì vẫn là rò.
+ */
+export const khoaKho = (p) => `${soHienTai || '-'}|${p}`;
+
 const doc = () => {
   try { return JSON.parse(localStorage.getItem(KHOA) || '[]') || []; } catch { return []; }
 };
@@ -57,7 +85,17 @@ export const xepDuoc = (method, p) =>
   method !== 'GET' && method !== 'HEAD' && !KHONG_XEP.some((re) => re.test(p));
 
 export const danhSach = () => doc();
-export const soViec = () => doc().filter((v) => !v.loi && (v.chu || 'local') === chuHienTai).length;
+/**
+ * Đếm việc đang chờ của SỔ ĐANG MỞ.
+ *
+ * Chỉ đếm sổ đang mở chứ không đếm tất: băng "3 việc đang chờ gửi" mà ba việc
+ * đó thuộc một cuốn sổ khác thì vừa vô nghĩa vừa làm người ta hoảng.
+ */
+export const soViec = () => doc().filter(hopLe).length;
+const hopLe = (v) => !v.loi && (v.chu || 'local') === chuHienTai && (v.so ?? null) === soHienTai;
+
+/** Việc đang chờ của MỌI sổ, để chỗ nào cần thì nói "còn sổ khác cũng đang chờ". */
+export const soViecTatCa = () => doc().filter((v) => !v.loi && (v.chu || 'local') === chuHienTai).length;
 export const theoDoi = (fn) => { nghe.add(fn); return () => nghe.delete(fn); };
 
 const maMoi = () => (globalThis.crypto?.randomUUID?.() || `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
@@ -81,9 +119,10 @@ export function xepHang(method, path, body) {
   // việc trùng khít trong vài phút gần đây được coi là chính nó.
   const than = JSON.stringify(body ?? null);
   const trung = ds.find((v) => v.method === method && v.path === path && JSON.stringify(v.body ?? null) === than
+    && (v.so ?? null) === soHienTai
     && Date.now() - new Date(v.at).getTime() < 5 * 60_000);
   if (trung) return trung;
-  ds.push({ id: maMoi(), method, path, body: body ?? null, at: new Date().toISOString(), chu: chuHienTai });
+  ds.push({ id: maMoi(), method, path, body: body ?? null, at: new Date().toISOString(), chu: chuHienTai, so: soHienTai });
   ghi(ds);
   return ds[ds.length - 1];
 }
@@ -103,6 +142,10 @@ export async function guiHangCho(gui) {
     if (v.loi) continue;                 // việc máy chủ đã từ chối: chờ người dùng xử lý
     // Việc của tài khoản khác: để yên tới khi chính người đó đăng nhập lại.
     if ((v.chu || 'local') !== chuHienTai) continue;
+    // Nhưng việc của SỔ khác thì vẫn gửi — trông như thiếu sót, thật ra là cố
+    // ý: mỗi việc tự khai sổ đích trong header, nên nó về đúng chỗ dù người
+    // dùng đang mở sổ nào. Bắt phải mở đúng sổ mới gửi được thì một khoản ghi
+    // ở sổ nhà có thể nằm kẹt hàng tuần chỉ vì người ta đang dùng sổ riêng.
     try {
       await gui(v);
       ghi(doc().filter((x) => x.id !== v.id));

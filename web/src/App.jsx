@@ -1,5 +1,5 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { api, getKey, setKey, setLockHandler, EMBEDDED, guiHangChoNgay, xoaKhoGet } from './lib/api.js';
+import { api, getKey, setKey, setLockHandler, EMBEDDED, guiHangChoNgay, xoaKhoGet, setLedger } from './lib/api.js';
 import { soViec, theoDoi, datChu } from './lib/queue.js';
 import { short, setBaseCurrency } from './lib/format.js';
 import { applyTheme, readTheme, watchSystemTheme, NEXT_THEME, THEME_ICON, THEME_LABEL } from './lib/theme.js';
@@ -123,6 +123,9 @@ export default function App() {
       // Việc xếp hàng lúc mất mạng phải biết nó thuộc tài khoản nào, để máy dùng
       // chung không gửi việc của người này vào sổ người kia.
       datChu(h?.user?.email || 'local');
+      // Và biết nó thuộc SỔ nào: một người mở được nhiều sổ, nên gắn theo
+      // người thôi là chưa đủ để việc xếp hàng về đúng chỗ.
+      setLedger(h?.ledger?.key || '');
       if (h?.multi_user) {
         setAuth({ multi: true, user: h.user || null, unlocked: Boolean(h.user), canMoi: Boolean(h.signup_code_required), coEmail: Boolean(h.mail_enabled) });
         return;
@@ -277,6 +280,7 @@ export default function App() {
     // nguyên: nó mang tên chủ và chỉ gửi khi đúng người đó quay lại.)
     xoaKhoGet();
     datChu('local');
+    setLedger('');
     setAuth((a) => ({ ...a, user: null, unlocked: false }));
   };
 

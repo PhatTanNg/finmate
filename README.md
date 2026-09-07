@@ -502,7 +502,11 @@ Vài điều quyết định app sống hay chết trên máy chủ:
 
   Quyền chặn ở tầng đường dẫn (`services/family_guard.js`) chứ không lọc trong 651 câu truy vấn — một bảng luật đọc hết trong một màn hình thì soi lại được, 651 chỗ thì không. Nói thẳng giới hạn của cách này: nó chặn theo cửa, không theo từng dòng. Con không mở được trang thu nhập, nhưng những khoản chi con đọc được vẫn để lộ ít nhiều. Đây là ranh giới cho lứa tuổi, không phải bức tường chống một đứa 16 tuổi biết mở tab Network.
 
-  **Sổ chung chưa dùng offline được, và đó là cố ý.** Bộ đồng bộ hiện tại thay TOÀN BỘ file sổ. Với sổ riêng thì hợp lý (chỉ một người giữ sổ); với sổ chung thì đó là mất dữ liệu — vợ ghi sáu khoản lúc mất mạng ngoài chợ, về nhà bấm "giữ bản trên máy này", và mọi thứ chồng ghi trong ngày biến mất, không cảnh báo, không lấy lại được. Nên đường gửi cả cuốn sổ bị khoá thẳng trên sổ chung, kèm lời giải thích. Đồng bộ theo từng dòng là việc của đợt sau; tới lúc đó, thà nói chưa làm được còn hơn làm hỏng sổ của cả nhà.
+  **Mất mạng vẫn ghi vào sổ chung được.** Khoản nhập lúc không có sóng nằm lại trong máy và tự gửi khi có mạng — theo TỪNG VIỆC, mỗi việc mang một mã riêng nên gửi lại không thành hai khoản. Mỗi việc cũng tự khai sổ đích trong header `x-finmate-ledger`, nên nó về đúng sổ kể cả khi trong lúc chờ người dùng đã chuyển sang sổ khác. Suy sổ đích từ phiên đăng nhập là chỗ mất dữ liệu im lặng: ghi ngoài chợ vào sổ nhà, về nhà đổi sang sổ riêng, có sóng lại — và khoản đó rơi vào sổ riêng.
+
+  Kho đệm đọc offline cũng khoá theo sổ (`sổ|đường-dẫn`). Không có phần đó thì đổi sổ rồi mất mạng là thấy giao dịch của nhà hiện ra như sổ riêng — hoặc tệ hơn, khoản riêng tư hiện giữa màn hình sổ chung. Cách ly vật lý ở máy chủ mà rò ở kho đệm trên máy thì vẫn là rò. `web/test/queue.mjs` canh cả hai.
+
+  **Cái vẫn KHÔNG làm được là gửi cả cuốn sổ lên đè**, và đó là cố ý. Đường đó thay toàn bộ file: hợp lý khi một người giữ sổ, nhưng với sổ chung thì một lần "giữ bản trên máy này" là xoá sạch những gì người nhà vừa ghi. Nên nó bị khoá riêng cho sổ chung, kèm lời giải thích. Tải sổ chung *về* làm bản lưu thì vẫn được.
 
 - **Quên mật khẩu.** Người dùng bấm “Quên mật khẩu?” ở màn đăng nhập, nhận một đường dẫn qua email, tự đặt mật khẩu mới. Đường dẫn **dùng một lần**, hết hạn sau 60 phút, và đặt lại xong thì mọi thiết bị đều bị đăng xuất — nếu ai đó đã lén vào được tài khoản thì việc chủ tài khoản đặt lại mật khẩu phải đá được kẻ đó ra. Sổ sách không mất gì: mật khẩu chỉ là cửa vào, không phải chìa khoá mã hoá.
 

@@ -1,4 +1,4 @@
-import { xepHang, xepDuoc, guiHangCho, nhan } from './queue.js';
+import { xepHang, xepDuoc, guiHangCho, nhan, datSo, khoaKho } from './queue.js';
 
 const KEY_STORE = 'finmate_key';
 
@@ -18,9 +18,29 @@ export const setKey = (k) => (k ? store.setItem(KEY_STORE, k) : store.removeItem
 let onLocked = () => {};
 export const setLockHandler = (fn) => (onLocked = fn);
 
+const KEY_SO = 'finmate_ledger';
+
+/**
+ * Sổ đang mở, nhớ ngay trên máy này.
+ *
+ * Máy chủ cũng nhớ sổ đang mở của từng phiên, nhưng client phải giữ một bản
+ * của riêng mình vì hai việc cần nó lúc KHÔNG có máy chủ để hỏi: chọn đúng
+ * ngăn kho đệm để đọc offline, và đóng dấu sổ lên việc xếp vào hàng chờ.
+ */
+export const getLedger = () => store.getItem(KEY_SO) || '';
+export const setLedger = (k) => {
+  if (k) store.setItem(KEY_SO, k); else store.removeItem(KEY_SO);
+  datSo(k || null);
+};
+datSo(getLedger() || null);
+
 const headers = (extra = {}) => {
   const k = getKey();
-  return { ...extra, ...(k ? { 'x-finmate-key': k } : {}) };
+  const l = getLedger();
+  // Khai sổ đích trên TỪNG request. Máy chủ có thể suy từ phiên, nhưng phiên
+  // đổi được trong lúc một việc còn nằm chờ trong hàng — và lúc đó nó sẽ ghi
+  // vào nhầm sổ.
+  return { ...extra, ...(k ? { 'x-finmate-key': k } : {}), ...(l ? { 'x-finmate-ledger': l } : {}) };
 };
 
 const handle = (status, data) => {
@@ -28,7 +48,13 @@ const handle = (status, data) => {
     setKey('');
     onLocked();
   }
-  if (status >= 400 || data?.ok === false) throw new Error(data?.error || `Lỗi ${status}`);
+  if (status >= 400 || data?.ok === false) {
+    const e = new Error(data?.error || `Lỗi ${status}`);
+    e.status = status;
+    if (data?.conflict) e.conflict = true;
+    if (data?.wrong_ledger) e.wrong_ledger = true;
+    throw e;
+  }
   return data;
 };
 
@@ -83,7 +109,7 @@ const luuKho = (p, data) => {
     const chuoi = JSON.stringify(data);
     if (chuoi.length > TRAN_MOI_TRANG) return;
     const kho = docKho();
-    kho[p] = { at: Date.now(), data };
+    kho[khoaKho(p)] = { at: Date.now(), data };
     const khoa = Object.keys(kho);
     if (khoa.length > TRAN_SO_TRANG) {
       // Bỏ những trang lâu không xem nhất.
@@ -93,7 +119,7 @@ const luuKho = (p, data) => {
   } catch { /* hết chỗ hoặc chế độ riêng tư: bỏ qua, chỉ mất khả năng xem offline */ }
 };
 
-const layKho = (p) => docKho()[p]?.data ?? null;
+const layKho = (p) => docKho()[khoaKho(p)]?.data ?? null;
 
 /**
  * Mất mạng (không phải máy chủ trả lỗi).
@@ -153,7 +179,12 @@ export const guiHangChoNgay = () => guiHangCho(async (v) => {
     res = await fetch(`/api${v.path}`, {
       method: v.method,
       // Mã chống trùng: máy chủ đã ghi rồi thì trả lại câu trả lời cũ chứ không ghi thêm.
-      headers: headers({ ...(v.body === undefined || v.body === null ? {} : json), 'x-finmate-op': v.id }),
+      // Sổ đích lấy từ CHÍNH việc đó, đè lên sổ đang mở: người dùng có thể đã
+      // đổi sổ trong lúc việc này nằm chờ.
+      headers: {
+        ...headers({ ...(v.body === undefined || v.body === null ? {} : json), 'x-finmate-op': v.id }),
+        ...(v.so ? { 'x-finmate-ledger': v.so } : {}),
+      },
       ...(v.body === undefined || v.body === null ? {} : { body: JSON.stringify(v.body) }),
     });
   } catch (e) {
@@ -161,7 +192,21 @@ export const guiHangChoNgay = () => guiHangCho(async (v) => {
     err.mat_mang = true;
     throw err;
   }
-  return j(res);
+  try {
+    return await j(res);
+  } catch (e) {
+    // Dịch lỗi máy chủ sang câu người đọc hiểu, và nói đúng nguyên nhân hay
+    // gặp nhất trong sổ chung. "Lỗi 404" không giúp ai quyết định gì; "người
+    // nhà đã xoá mục này trước bạn" thì có.
+    if (e.status === 404 && v.so?.startsWith('g')) {
+      e.message = 'Người nhà đã xoá mục này trước bạn, nên không sửa được nữa.';
+    } else if (e.status === 403 && e.wrong_ledger) {
+      e.message = 'Bạn không còn quyền ghi vào sổ đó nữa.';
+    } else if (e.status === 403) {
+      e.message = `Vai của bạn trong sổ đó không cho làm việc này. (${e.message})`;
+    }
+    throw e;
+  }
 });
 
 export const api = {

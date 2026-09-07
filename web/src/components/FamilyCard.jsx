@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../lib/api.js';
+import { api, setLedger } from '../lib/api.js';
 import { Card, Empty } from './ui.jsx';
 
 const TEN_VAI = {
@@ -58,6 +58,10 @@ export default function FamilyCard() {
   // vì đi vá từng chỗ — vừa chắc chắn vừa khỏi có trang nào quên làm mới.
   const doiSo = (key) => chay('doi', async () => {
     await api.post('/account/switch', { key });
+    // Đặt sổ ở phía máy TRƯỚC khi tải lại: từ đây trở đi mọi request mang
+    // header sổ mới, và kho đệm đọc đúng ngăn của sổ mới. Chỉ đổi ở máy chủ
+    // thì lần mất mạng đầu tiên sau đó sẽ đọc nhầm ngăn.
+    setLedger(key);
     location.reload();
   });
 
@@ -66,6 +70,7 @@ export default function FamilyCard() {
     const d = await api.post('/account/ledgers', { name: tenMoi.trim() });
     setTenMoi('');
     await api.post('/account/switch', { key: d.ledger.key });
+    setLedger(d.ledger.key);
     location.reload();
   });
 
@@ -79,6 +84,7 @@ export default function FamilyCard() {
     const d = await api.post('/account/families/join', { code: nhapMa.trim() });
     setNhapMa('');
     await api.post('/account/switch', { key: d.ledger.key });
+    setLedger(d.ledger.key);
     location.reload();
   });
 
@@ -200,9 +206,10 @@ export default function FamilyCard() {
           )}
 
           <div className="note-warn" style={{ marginTop: 14 }}>
-            <b>Sổ chung chưa dùng offline được.</b> Ghi khi mất mạng rồi gửi cả cuốn sổ lên sẽ
-            ghi đè mất những gì người khác trong nhà vừa ghi, nên đường đó bị khoá. Sổ riêng
-            của bạn thì vẫn đồng bộ offline như cũ.
+            <b>Mất mạng vẫn ghi được.</b> Khoản bạn nhập lúc không có sóng được giữ lại trong
+            máy và tự gửi vào đúng sổ này khi có mạng — kể cả khi lúc đó bạn đã chuyển sang
+            sổ khác. Cái không làm được là <b>gửi cả cuốn sổ lên đè</b>: làm vậy sẽ xoá mất
+            những gì người nhà vừa ghi, nên đường đó bị khoá riêng cho sổ chung.
           </div>
         </>
       )}

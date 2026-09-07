@@ -41,18 +41,27 @@ app.use('/api', router);
 const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
 const base = `http://127.0.0.1:${srv.address().port}/api`;
 
-const call = async (method, p, body, token) => {
+/**
+ * `so` là sổ đích khai trong header — đúng thứ mà app thật gửi kèm mỗi request.
+ * Bỏ trống thì máy chủ dùng sổ mà phiên đang mở, y như client cũ.
+ */
+const call = async (method, p, body, token, so = null, them = {}) => {
   const r = await fetch(base + p, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { 'x-finmate-key': token } : {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'x-finmate-key': token } : {}),
+      ...(so ? { 'x-finmate-ledger': so } : {}),
+      ...them,
+    },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   return { status: r.status, ...(await r.json().catch(() => ({}))) };
 };
-const GET = (p, t) => call('GET', p, null, t);
-const POST = (p, b, t) => call('POST', p, b, t);
-const PATCH = (p, b, t) => call('PATCH', p, b, t);
-const DEL = (p, t) => call('DELETE', p, null, t);
+const GET = (p, t, so) => call('GET', p, null, t, so);
+const POST = (p, b, t, so) => call('POST', p, b, t, so);
+const PATCH = (p, b, t, so) => call('PATCH', p, b, t, so);
+const DEL = (p, t, so) => call('DELETE', p, null, t, so);
 
 const dangKy = async (email, name) =>
   (await POST('/account/register', { email, password: `matkhau-${name}`, name })).token;
@@ -240,6 +249,71 @@ head('Chủ sổ không tự gỡ mình, sổ không bao giờ mất chủ');
   ok('chủ sổ không gỡ được chính mình', r.status !== 200, JSON.stringify(r).slice(0, 120));
   const r2 = await POST('/account/families/role', { user_id: idNam, role: 'child' }, nam);
   ok('và cũng không tự hạ vai mình xuống', r2.status !== 200, JSON.stringify(r2).slice(0, 120));
+}
+
+head('Đợt 2: mỗi việc ghi tự khai sổ đích, không dựa vào sổ phiên đang mở');
+{
+  // Đây là kịch bản mất dữ liệu thật của đợt 1: ghi ngoài chợ vào SỔ NHÀ lúc
+  // mất mạng, về nhà đổi sang SỔ RIÊNG rồi mới có sóng. Nếu sổ đích lấy từ
+  // phiên thì khoản đó rơi vào sổ riêng, im lặng.
+  const dsNam = await GET('/account/ledgers', nam);
+  const riengNam = dsNam.ledgers.find((l) => l.kind === 'personal').key;
+  await POST('/account/switch', { key: riengNam }, nam);   // phiên đang ở SỔ RIÊNG
+
+  const tkNha = (await GET('/accounts', nam, khoaNha)).accounts.find((a) => a.name === 'Tiền mặt nhà');
+  const ghi = await POST('/transactions',
+    { amount: 88_000, type: 'expense', merchant: 'rau ngoài chợ', account_id: tkNha.id, date: '2026-09-05' },
+    nam, khoaNha);
+  ok('ghi được vào sổ nhà dù phiên đang mở sổ riêng', ghi.status === 200, JSON.stringify(ghi).slice(0, 120));
+
+  const nha = await GET('/transactions?limit=50', nam, khoaNha);
+  ok('khoản nằm ĐÚNG trong sổ nhà', nha.transactions.some((t) => t.merchant === 'rau ngoài chợ'));
+  const rieng = await GET('/transactions?limit=50', nam);
+  ok('và KHÔNG lọt vào sổ riêng', !rieng.transactions.some((t) => t.merchant === 'rau ngoài chợ'),
+    JSON.stringify(rieng.transactions.map((t) => t.merchant)));
+  ok('vợ thấy khoản đó trong sổ nhà', (await GET('/transactions?limit=50', thu, khoaNha)).transactions.some((t) => t.merchant === 'rau ngoài chợ'));
+}
+
+head('Gửi lại việc đã gửi thì không ghi thành hai khoản');
+{
+  const tkNha = (await GET('/accounts', thu, khoaNha)).accounts.find((a) => a.name === 'Tiền mặt nhà');
+  const opId = 'op-thu-mat-song-giua-chung';
+  const than = { amount: 45_000, type: 'expense', merchant: 'bánh mì', account_id: tkNha.id, date: '2026-09-06' };
+  const lan1 = await call('POST', '/transactions', than, thu, khoaNha, { 'x-finmate-op': opId });
+  const lan2 = await call('POST', '/transactions', than, thu, khoaNha, { 'x-finmate-op': opId });
+  ok('cả hai lần đều trả lời thành công', lan1.status === 200 && lan2.status === 200);
+  const ds = (await GET('/transactions?limit=50', thu, khoaNha)).transactions.filter((t) => t.merchant === 'bánh mì');
+  ok('nhưng sổ chỉ có MỘT khoản', ds.length === 1, `thấy ${ds.length}`);
+
+  // Chống trùng phải nằm trong TỪNG sổ. Chung một bảng thì cùng một mã việc
+  // gửi sang sổ khác sẽ bị nuốt và không ghi gì cả — người dùng bấm lưu, máy
+  // chủ trả lời "xong", mà sổ thì trống.
+  const dsThu = await GET('/account/ledgers', thu);
+  const riengThu = dsThu.ledgers.find((l) => l.kind === 'personal').key;
+  const tkRieng = await POST('/accounts', { name: 'Ví Thu', type: 'cash', balance: 200_000 }, thu, riengThu);
+  const rieng = await call('POST', '/transactions',
+    { ...than, account_id: tkRieng.account.id }, thu, riengThu, { 'x-finmate-op': opId });
+  ok('cùng mã việc nhưng sổ khác thì vẫn được ghi', rieng.status === 200, JSON.stringify(rieng).slice(0, 140));
+  ok('và không bị trả lại câu trả lời cũ của sổ kia',
+    (await GET('/transactions?limit=50', thu, riengThu)).transactions.filter((t) => t.merchant === 'bánh mì').length === 1);
+  ok('sổ nhà vẫn chỉ có đúng một khoản đó',
+    (await GET('/transactions?limit=50', thu, khoaNha)).transactions.filter((t) => t.merchant === 'bánh mì').length === 1);
+}
+
+head('Khai sổ mình không có quyền thì bị chặn, không âm thầm ghi chỗ khác');
+{
+  const tkNha = (await GET('/accounts', nam, khoaNha)).accounts[0];
+  const r = await POST('/transactions',
+    { amount: 10_000, type: 'expense', merchant: 'trộm ghi', account_id: tkNha?.id, date: '2026-09-07' },
+    laNguoiDung, khoaNha);
+  ok('người ngoài khai sổ nhà người ta thì bị từ chối', r.status === 403, JSON.stringify(r).slice(0, 120));
+  ok('và được đánh dấu là sai sổ, để hàng chờ nói đúng lý do', r.wrong_ledger === true, JSON.stringify(r).slice(0, 120));
+
+  const nha = await GET('/transactions?limit=50', nam, khoaNha);
+  ok('sổ nhà không hề có khoản đó', !nha.transactions.some((t) => t.merchant === 'trộm ghi'));
+  const cuaLa = await GET('/transactions?limit=50', laNguoiDung);
+  ok('và nó cũng KHÔNG rơi vào sổ riêng của chính người gửi', !cuaLa.transactions.some((t) => t.merchant === 'trộm ghi'),
+    JSON.stringify(cuaLa.transactions.map((t) => t.merchant)));
 }
 
 head('File sổ nằm đúng chỗ, không lẫn vào nhau');

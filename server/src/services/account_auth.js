@@ -68,8 +68,13 @@ export function requireAccount(req, res, next) {
     const phienMo = sessionForToken(tokenOf(req));
     if (phienMo) {
       req.user = phienMo.user;
-      const vaiMo = vaiTrongSo(phienMo.ledgerKey, phienMo.user.id);
-      const keyMo = vaiMo ? phienMo.ledgerKey : khoaCaNhan(phienMo.user.id);
+      // Tôn trọng header ở đây nữa: giao diện hỏi /health để biết đang ở sổ
+      // nào và vai gì. Trả lời theo sổ của phiên trong khi client đang thao
+      // tác trên sổ khác là vẽ sai cả màn hình.
+      const xinMo = req.get?.('x-finmate-ledger') || null;
+      const key0 = xinMo && vaiTrongSo(xinMo, phienMo.user.id) ? xinMo : phienMo.ledgerKey;
+      const vaiMo = vaiTrongSo(key0, phienMo.user.id);
+      const keyMo = vaiMo ? key0 : khoaCaNhan(phienMo.user.id);
       req.ledger = { key: keyMo, kind: keyMo.startsWith('g') ? 'family' : 'personal', role: vaiMo || 'owner' };
     }
     return next();
@@ -82,12 +87,33 @@ export function requireAccount(req, res, next) {
   const { user } = phien;
   req.user = user;
 
-  // Sổ đang mở của phiên này. Kiểm tư cách thành viên ở MỖI request, không chỉ
-  // lúc đổi sổ: người vừa bị gỡ khỏi sổ nhà mà vẫn giữ phiên cũ thì phải mất
-  // quyền ngay, chứ không phải chờ tới khi họ đăng nhập lại.
-  let vai = vaiTrongSo(phien.ledgerKey, user.id);
-  const key = vai ? phien.ledgerKey : khoaCaNhan(user.id);
-  if (!vai) vai = 'owner';   // rơi về sổ riêng, nơi ai cũng là chủ của chính mình
+  // Sổ đích của CHÍNH request này.
+  //
+  // Ưu tiên header x-finmate-ledger hơn sổ đang mở của phiên, và đây không
+  // phải chuyện tiện tay. Một việc ghi lúc mất mạng nằm trong hàng chờ hàng
+  // giờ; trong lúc đó người dùng có thể đã đổi sang sổ khác. Nếu sổ đích lấy
+  // từ phiên thì lúc có sóng lại, khoản chi ghi ngoài chợ cho sổ NHÀ sẽ lặng
+  // lẽ rơi vào sổ RIÊNG. Bắt mỗi việc tự khai sổ của nó thì không còn khoảng
+  // hở đó — và hai tab mở hai sổ khác nhau cũng hết đá nhau.
+  //
+  // Vẫn kiểm tư cách thành viên ở MỖI request: người vừa bị gỡ khỏi sổ nhà mà
+  // còn giữ phiên cũ phải mất quyền ngay, không đợi tới khi đăng nhập lại.
+  const xin = req.get?.('x-finmate-ledger') || null;
+  let vai = xin ? vaiTrongSo(xin, user.id) : null;
+  let key = vai ? xin : null;
+  if (!key) {
+    // Header sai/không có quyền thì KHÔNG âm thầm ghi vào sổ khác. Chỉ khi
+    // không có header mới rơi về sổ của phiên.
+    if (xin) {
+      return res.status(403).json({
+        ok: false, forbidden: true, wrong_ledger: true,
+        error: 'Bạn không còn quyền ghi vào sổ này.',
+      });
+    }
+    vai = vaiTrongSo(phien.ledgerKey, user.id);
+    key = vai ? phien.ledgerKey : khoaCaNhan(user.id);
+    if (!vai) vai = 'owner';   // rơi về sổ riêng, nơi ai cũng là chủ của chính mình
+  }
   const ctx0 = ledgerFor(key);
   const ctx = { ...ctx0, actorId: user.id };
   req.ledger = { key, kind: key.startsWith('g') ? 'family' : 'personal', role: vai };
