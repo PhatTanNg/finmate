@@ -10,6 +10,7 @@ import { setting, closeMainDb } from './db.js';
 import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
 import crypto from 'node:crypto';
 import { requireAccount } from './services/account_auth.js';
+import { requireRole } from './services/family_guard.js';
 import { closeAll, withLedger } from './services/ledgers.js';
 import { deviceOwned } from './services/sync.js';
 import { multiUser, closeControl, allUserIds, pruneResets } from './services/accounts.js';
@@ -138,6 +139,10 @@ app.use('/api', (req, res, next) => {
 // chính người đó. Một sổ: giữ nguyên khoá PIN như trước — bản chạy trên điện
 // thoại và người dùng cá nhân không bị ép phải có tài khoản.
 app.use('/api', multiUser() ? requireAccount : requireAuth);
+// Gác vai trong sổ chung. Đặt ngay sau requireAccount vì nó cần req.ledger, và
+// trước router để không route nào tự lo lấy phần quyền của mình — mỗi route tự
+// lo là kiểu gì cũng có route quên.
+if (multiUser()) app.use('/api', requireRole);
 app.use('/api', router);
 
 const dist = path.join(__dirname, '../../web/dist');

@@ -5,6 +5,7 @@ import { InstallCard } from '../components/Install.jsx';
 import SyncCard from '../components/SyncCard.jsx';
 import QueueCard from '../components/QueueCard.jsx';
 import AiKeyCard from '../components/AiKeyCard.jsx';
+import FamilyCard from '../components/FamilyCard.jsx';
 import { fmt, pct, toMinor, baseCurrency } from '../lib/format.js';
 
 /** Che key nhưng vẫn cho thấy đuôi, để biết đang cầm đúng key nào. */
@@ -27,6 +28,7 @@ export default function Settings({ onRefresh }) {
   const [oldPin, setOldPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [llm, setLlm] = useState(null);
+  const [nhieuNguoi, setNhieuNguoi] = useState(false);
   const [auto, setAuto] = useState(null);
   const [dedupe, setDedupe] = useState(null);   // kết quả xem trước gộp trùng
   const [wipe, setWipe] = useState(false);
@@ -55,7 +57,7 @@ export default function Settings({ onRefresh }) {
     loadRules();
     loadAuth();
     loadBackups();
-    api.get('/health').then((d) => setLlm(d.llm)).catch(() => setLlm(null));
+    api.get('/health').then((d) => { setLlm(d.llm); setNhieuNguoi(Boolean(d.multi_user)); }).catch(() => setLlm(null));
     loadAuto();
     if (EMBEDDED) import('../native/boot.js').then((m) => setEnv(m.readEnv()));
   }, []);
@@ -182,6 +184,10 @@ export default function Settings({ onRefresh }) {
       </div>
 
       <div id="cai-app"><InstallCard /></div>
+
+      {/* Sổ chung chỉ có nghĩa khi máy chủ chạy chế độ nhiều người dùng — bản
+          chạy một mình trên máy hay trên điện thoại thì không có ai để chung. */}
+      {nhieuNguoi && <FamilyCard />}
 
       {!EMBEDDED && <AiKeyCard />}
 

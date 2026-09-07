@@ -486,6 +486,13 @@ activeDb().exec(SCHEMA);
 
 /** Danh sách cột cần có thêm, an toàn khi chạy lại nhiều lần. */
 const ADD_COLUMNS = [
+  // Sổ chung của một nhà: ai ghi khoản này. Sổ riêng thì thừa (chỉ một người),
+  // nhưng cột vẫn có ở mọi sổ để hai bên không lệch schema — sổ riêng hôm nay
+  // có thể được nhập vào sổ chung ngày mai.
+  //
+  // Phải thêm NGAY từ đầu chứ không đợi lúc thật sự có sổ chung: gắn tên vào
+  // những khoản đã ghi từ mấy tháng trước là chuyện không làm được.
+  ['transactions', 'created_by', 'INTEGER'],
   // Đa tiền tệ: số tiền quy đổi về đồng tiền gốc tại thời điểm phát sinh
   ['transactions', 'base_amount', 'INTEGER'],
   ['transactions', 'base_currency', 'TEXT'],
@@ -761,9 +768,21 @@ export function abortAudit() { setAudit(null); run('DELETE FROM ai_audit_state')
 
 export function auditing() { return auditOf() != null; }
 
+/**
+ * Những bảng đóng dấu người ghi. Đóng ở ĐÂY, một chỗ duy nhất, chứ không rải
+ * vào 74 công cụ AI và mấy chục route — rải ra thì chỉ cần một chỗ quên là có
+ * khoản chi không biết của ai, và trong sổ chung của một nhà thì đó đúng là
+ * câu hỏi người ta muốn hỏi nhất.
+ */
+const DONG_DAU_NGUOI_GHI = new Set(['transactions']);
+
 /** Insert helper: insert(table, {col: val}) -> row id */
 export function insert(table, raw) {
   const data = applyAliases(table, raw);
+  // Người đang thao tác, không phải chủ sổ: trong sổ chung hai thứ đó khác nhau.
+  // Giá trị do người gọi truyền vào thì tôn trọng (nhập dữ liệu cũ, đồng bộ).
+  const ai = currentCtx()?.actorId;
+  if (ai && DONG_DAU_NGUOI_GHI.has(table) && data.created_by == null) data.created_by = ai;
   const cols = pickColumns(table, data);
   warnDropped(table, data, cols);
   if (!cols.length) throw new Error('Không có trường hợp lệ nào để lưu.');

@@ -9,7 +9,9 @@
  * chạy y như cũ, một sổ, khoá bằng PIN, dùng được offline trên điện thoại.
  */
 import { runInCtx } from '../db_context.js';
-import { multiUser, userForToken, userByIngestToken } from './accounts.js';
+import {
+  multiUser, userForToken, userByIngestToken, sessionForToken, vaiTrongSo, khoaCaNhan,
+} from './accounts.js';
 import { ledgerFor } from './ledgers.js';
 import { bumpRev } from './sync.js';
 
@@ -43,7 +45,12 @@ export function requireAccount(req, res, next) {
     const chu = userByIngestToken(tokenIngest(req));
     if (chu) {
       req.user = chu;
-      return runInCtx(ledgerFor(chu.id), () => next());
+      // Tin nhắn ngân hàng luôn đổ vào sổ RIÊNG của chủ token, kể cả khi họ
+      // đang mở sổ nhà trên điện thoại. Token gắn với người, không gắn với sổ
+      // đang xem — và một cái webhook thì không có "đang xem" nào cả.
+      const ctxIngest = ledgerFor(khoaCaNhan(chu.id));
+      req.ledger = { key: ctxIngest.key, kind: 'personal', role: 'owner' };
+      return runInCtx({ ...ctxIngest, actorId: chu.id }, () => next());
     }
     // Không có token đúng thì vẫn cho phiên đăng nhập bình thường đi tiếp
     // (giao diện tự thử nhập liệu qua đường này), nhưng không mở tự do.
@@ -54,17 +61,36 @@ export function requireAccount(req, res, next) {
     // Giao diện hỏi /health lúc mở trang để biết còn đăng nhập hay không —
     // không trả lời câu đó thì mỗi lần tải lại trang là bị đá về màn đăng nhập
     // dù token trong máy vẫn còn tốt.
-    const ai = userForToken(tokenOf(req));
-    if (ai) req.user = ai;
+    //
+    // Và phải trả lời cả câu "đang mở SỔ NÀO": giao diện vẽ nút đổi sổ, ẩn
+    // phần mà vai này không mở được, và gắn tên người ghi lên từng giao dịch
+    // — cả ba đều dựa vào câu trả lời này ngay từ lượt tải trang đầu tiên.
+    const phienMo = sessionForToken(tokenOf(req));
+    if (phienMo) {
+      req.user = phienMo.user;
+      const vaiMo = vaiTrongSo(phienMo.ledgerKey, phienMo.user.id);
+      const keyMo = vaiMo ? phienMo.ledgerKey : khoaCaNhan(phienMo.user.id);
+      req.ledger = { key: keyMo, kind: keyMo.startsWith('g') ? 'family' : 'personal', role: vaiMo || 'owner' };
+    }
     return next();
   }
 
-  const user = userForToken(tokenOf(req));
-  if (!user) {
+  const phien = sessionForToken(tokenOf(req));
+  if (!phien) {
     return res.status(401).json({ ok: false, error: 'Cần đăng nhập', locked: true, need_login: true });
   }
+  const { user } = phien;
   req.user = user;
-  const ctx = ledgerFor(user.id);
+
+  // Sổ đang mở của phiên này. Kiểm tư cách thành viên ở MỖI request, không chỉ
+  // lúc đổi sổ: người vừa bị gỡ khỏi sổ nhà mà vẫn giữ phiên cũ thì phải mất
+  // quyền ngay, chứ không phải chờ tới khi họ đăng nhập lại.
+  let vai = vaiTrongSo(phien.ledgerKey, user.id);
+  const key = vai ? phien.ledgerKey : khoaCaNhan(user.id);
+  if (!vai) vai = 'owner';   // rơi về sổ riêng, nơi ai cũng là chủ của chính mình
+  const ctx0 = ledgerFor(key);
+  const ctx = { ...ctx0, actorId: user.id };
+  req.ledger = { key, kind: key.startsWith('g') ? 'family' : 'personal', role: vai };
 
   // Mỗi lần sổ đổi thì nhích số hiệu bản lên một. Thiết bị đang giữ sổ nhờ số
   // này mà biết máy chủ đã đổi kể từ lần mình tải về — không có nó thì lần gửi

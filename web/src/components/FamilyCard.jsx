@@ -1,0 +1,213 @@
+import React, { useEffect, useState } from 'react';
+import { api } from '../lib/api.js';
+import { Card, Empty } from './ui.jsx';
+
+const TEN_VAI = {
+  owner: 'Chủ sổ',
+  adult: 'Người lớn',
+  child: 'Con',
+  viewer: 'Chỉ xem',
+};
+
+const TA_VAI = {
+  adult: 'Đọc, ghi, xoá mọi thứ trong sổ — ngang quyền với bạn.',
+  child: 'Ghi được khoản chi, xem chi tiêu và ngân sách. Không xoá được gì, không xem được thu nhập, nợ, đầu tư hay cài đặt.',
+  viewer: 'Chỉ xem, không ghi gì.',
+};
+
+/**
+ * Sổ chung của một nhà: tạo, mời người vào, đổi vai, và chuyển qua lại giữa
+ * sổ riêng với sổ chung.
+ *
+ * Một điều được nói thẳng trên mặt giao diện chứ không giấu trong tài liệu:
+ * sổ riêng KHÔNG biến mất và không bị gộp vào đâu cả. Người ta chỉ giao phần
+ * tiền chung của gia đình cho app khi biết chắc phần riêng vẫn còn nguyên.
+ */
+export default function FamilyCard() {
+  const [ds, setDs] = useState(null);        // các sổ mở được
+  const [hienTai, setHienTai] = useState(null);
+  const [vai, setVai] = useState(null);
+  const [tv, setTv] = useState(null);        // thành viên của sổ chung đang mở
+  const [toi, setToi] = useState(null);
+  const [ban, setBan] = useState(null);
+  const [err, setErr] = useState(null);
+  const [ma, setMa] = useState(null);        // mã mời vừa tạo (chỉ hiện một lần)
+  const [nhapMa, setNhapMa] = useState('');
+  const [tenMoi, setTenMoi] = useState('');
+
+  const laChung = String(hienTai || '').startsWith('g');
+
+  async function lamMoi() {
+    try {
+      const d = await api.get('/account/ledgers');
+      setDs(d.ledgers); setHienTai(d.current); setVai(d.role); setErr(null);
+      if (String(d.current || '').startsWith('g')) {
+        const m = await api.get('/account/families/members');
+        setTv(m.members); setToi(m.me);
+      } else { setTv(null); }
+    } catch (e) { setErr(e.message); setDs([]); }
+  }
+  useEffect(() => { lamMoi(); }, []);
+
+  const chay = async (ten, fn) => {
+    setBan(ten); setErr(null);
+    try { await fn(); await lamMoi(); } catch (e) { setErr(e.message); } finally { setBan(null); }
+  };
+
+  // Đổi sổ là đổi toàn bộ dữ liệu mọi trang đang hiện, nên tải lại cả app thay
+  // vì đi vá từng chỗ — vừa chắc chắn vừa khỏi có trang nào quên làm mới.
+  const doiSo = (key) => chay('doi', async () => {
+    await api.post('/account/switch', { key });
+    location.reload();
+  });
+
+  const taoSo = () => chay('tao', async () => {
+    if (!tenMoi.trim()) throw new Error('Đặt cho sổ chung một cái tên đã.');
+    const d = await api.post('/account/ledgers', { name: tenMoi.trim() });
+    setTenMoi('');
+    await api.post('/account/switch', { key: d.ledger.key });
+    location.reload();
+  });
+
+  const moi = (role) => chay('moi', async () => {
+    const d = await api.post('/account/families/invite', { role });
+    setMa(d.invite);
+  });
+
+  const vao = () => chay('vao', async () => {
+    if (!nhapMa.trim()) throw new Error('Dán mã mời vào đã.');
+    const d = await api.post('/account/families/join', { code: nhapMa.trim() });
+    setNhapMa('');
+    await api.post('/account/switch', { key: d.ledger.key });
+    location.reload();
+  });
+
+  if (ds === null) return <Card title="Gia đình"><Empty>Đang xem…</Empty></Card>;
+
+  return (
+    <Card title="Gia đình">
+      <p className="dim" style={{ fontSize: 13, lineHeight: 1.6, marginTop: 0 }}>
+        Sổ chung để cả nhà cùng ghi và cùng nhìn một bức tranh tiền bạc.
+        <b> Sổ riêng của bạn vẫn còn nguyên</b> và không ai trong nhà thấy được — bạn chuyển
+        qua lại bất cứ lúc nào.
+      </p>
+
+      <div className="ledger-list">
+        {ds.map((l) => (
+          <button
+            key={l.key}
+            className={`ledger-row ${l.key === hienTai ? 'on' : ''}`}
+            onClick={() => l.key !== hienTai && doiSo(l.key)}
+            disabled={Boolean(ban)}
+          >
+            <span className="ic">{l.kind === 'family' ? '👨‍👩‍👧' : '🔒'}</span>
+            <span className="nd">
+              <b>{l.name}</b>
+              <small>
+                {l.kind === 'family'
+                  ? `${l.members} người · bạn là ${TEN_VAI[l.role] || l.role}`
+                  : 'Chỉ mình bạn thấy'}
+              </small>
+            </span>
+            {l.key === hienTai && <span className="tick">Đang mở</span>}
+          </button>
+        ))}
+      </div>
+
+      {!laChung && (
+        <>
+          <div className="row" style={{ marginTop: 14 }}>
+            <input
+              className="inp-line"
+              placeholder="Tên sổ chung, ví dụ: Nhà mình"
+              value={tenMoi}
+              maxLength={60}
+              onChange={(e) => setTenMoi(e.target.value)}
+            />
+            <button className="btn" onClick={taoSo} disabled={ban === 'tao'}>Tạo sổ chung</button>
+          </div>
+          <div className="row" style={{ marginTop: 8 }}>
+            <input
+              className="inp-line"
+              placeholder="Hoặc dán mã mời của người nhà"
+              value={nhapMa}
+              onChange={(e) => setNhapMa(e.target.value)}
+            />
+            <button className="btn ghost" onClick={vao} disabled={ban === 'vao'}>Vào sổ</button>
+          </div>
+        </>
+      )}
+
+      {laChung && tv && (
+        <>
+          <h4 style={{ margin: '16px 0 8px', fontSize: 13.5 }}>Thành viên</h4>
+          <div className="member-list">
+            {tv.map((m) => (
+              <div className="member" key={m.id}>
+                <span className="nd">
+                  <b>{m.name || m.email}{m.id === toi ? ' (bạn)' : ''}</b>
+                  <small>{TEN_VAI[m.role] || m.role}</small>
+                </span>
+                {vai === 'owner' && m.role !== 'owner' && (
+                  <button
+                    className="btn ghost sm"
+                    onClick={() => chay('go', () => api.post('/account/families/remove', { user_id: m.id }))}
+                    disabled={Boolean(ban)}
+                  >Gỡ</button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {vai === 'owner' && (
+            <>
+              <h4 style={{ margin: '16px 0 6px', fontSize: 13.5 }}>Mời thêm người</h4>
+              <div className="row wrap">
+                {['adult', 'child', 'viewer'].map((r) => (
+                  <button key={r} className="btn ghost sm" onClick={() => moi(r)} disabled={Boolean(ban)}>
+                    Mời làm {TEN_VAI[r].toLowerCase()}
+                  </button>
+                ))}
+              </div>
+              <p className="dim" style={{ fontSize: 12, lineHeight: 1.6 }}>{TA_VAI.child}</p>
+              {ma && (
+                <div className="invite-code">
+                  <b>{ma.code}</b>
+                  <p>
+                    Gửi mã này cho người bạn muốn mời — họ dán vào ô “Vào sổ”.
+                    Dùng được <b>một lần</b>, và <b>chỉ hiện đúng lần này</b>: đóng đi là không xem lại được,
+                    phải tạo mã mới.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="row" style={{ marginTop: 14 }}>
+            <button
+              className="btn ghost sm"
+              onClick={() => {
+                if (!confirm('Rời khỏi sổ chung này? Những gì bạn đã ghi vẫn ở lại trong sổ.')) return;
+                chay('roi', async () => { await api.post('/account/families/leave'); location.reload(); });
+              }}
+              disabled={Boolean(ban) || vai === 'owner'}
+            >Rời sổ này</button>
+          </div>
+          {vai === 'owner' && (
+            <p className="dim" style={{ fontSize: 12 }}>
+              Bạn là chủ sổ nên không rời được — hãy chuyển vai chủ hoặc xoá sổ nếu muốn dừng hẳn.
+            </p>
+          )}
+
+          <div className="note-warn" style={{ marginTop: 14 }}>
+            <b>Sổ chung chưa dùng offline được.</b> Ghi khi mất mạng rồi gửi cả cuốn sổ lên sẽ
+            ghi đè mất những gì người khác trong nhà vừa ghi, nên đường đó bị khoá. Sổ riêng
+            của bạn thì vẫn đồng bộ offline như cũ.
+          </div>
+        </>
+      )}
+
+      {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+    </Card>
+  );
+}

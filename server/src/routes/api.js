@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { all, get, insert, update, remove, run, setting } from '../db.js';
 import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken, MAX_FAILS_IP } from '../services/auth.js';
 import * as tk from '../services/accounts.js';
+import { laChuSo } from '../services/family_guard.js';
 import { mailEnabled, sendMail, resetMail } from '../services/mailer.js';
 import { rev as syncRev, syncInfo, checkLedgerBytes, backupBeforeReplace, replaceLedger } from '../services/sync.js';
 import { backupDir, listBackups, createBackup, snapshotToTemp, exportAll, autoBackup } from '../services/backup.js';
@@ -263,6 +264,10 @@ const GIOI_HAN_SO = process.env.FINMATE_LEDGER_LIMIT || '100mb';
 router.get('/account/ledger', wrap(async (req, res) => {
   if (!tk.multiUser()) return needMulti(res);
   if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  // Tải VỀ thì cho, kể cả sổ chung: đó là bản sao lưu, không ghi đè gì. Chỉ
+  // đường GỬI LÊN mới nguy hiểm. Nhưng phải nói rõ đây là bản chụp một lúc,
+  // để không ai tưởng tải về rồi sửa rồi gửi lại là được.
+  if (req.ledger?.kind === 'family') res.setHeader('x-finmate-readonly-copy', '1');
   const file = snapshotToTemp();   // VACUUM INTO: bản nhất quán kể cả khi đang có người ghi
   res.setHeader('x-finmate-rev', String(syncRev()));
   res.setHeader('x-finmate-sync-at', syncInfo().at || '');
@@ -282,6 +287,25 @@ router.get('/account/ledger/info', wrap(async (req, res) => {
 router.put('/account/ledger', express.raw({ type: () => true, limit: GIOI_HAN_SO }), wrap(async (req, res) => {
   if (!tk.multiUser()) return needMulti(res);
   if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  // SỔ CHUNG KHÔNG NHẬN CẢ CUỐN. Đây là chỗ nguy hiểm nhất của tính năng sổ
+  // gia đình, nên nó bị chặn thẳng chứ không được "cố gắng xử lý cho khéo".
+  //
+  // Bộ đồng bộ này thay TOÀN BỘ file, và "giữ bản trên máy này" là một lựa
+  // chọn hợp lý khi chỉ một người giữ sổ. Với sổ chung thì nó là mất dữ liệu:
+  // vợ ghi sáu khoản lúc mất mạng ngoài chợ, về nhà bấm giữ bản của mình, và
+  // mọi thứ chồng ghi trong ngày biến mất — không cảnh báo, không khôi phục
+  // được từ phía người dùng. Cơ chế 409 cũng không cứu được, vì nó bắt chọn ở
+  // mức CẢ CUỐN SỔ.
+  //
+  // Đồng bộ theo từng dòng cho sổ chung là việc của đợt sau. Tới lúc đó, thà
+  // nói thẳng là chưa làm được còn hơn làm hỏng sổ của cả nhà.
+  if (req.ledger?.kind === 'family') {
+    return res.status(409).json({
+      ok: false,
+      shared_ledger: true,
+      error: 'Sổ chung chưa gửi cả cuốn lên được. Gửi cả cuốn sẽ ghi đè mất những gì người khác trong nhà vừa ghi. Hãy đổi về sổ riêng để đồng bộ, hoặc dùng sổ chung khi có mạng.',
+    });
+  }
   const buf = Buffer.isBuffer(req.body) ? req.body : null;
   if (!buf) return res.status(400).json({ ok: false, error: 'Cần gửi nguyên file .db (application/octet-stream)' });
 
@@ -306,6 +330,103 @@ router.put('/account/ledger', express.raw({ type: () => true, limit: GIOI_HAN_SO
   const kq = replaceLedger(req.user.id, buf, { device: req.get('user-agent') });
   console.info(`[finmate] người dùng #${req.user.id} gửi sổ lên: ${soi.transactions} giao dịch, bản ${kq.rev}`);
   ok(res, { rev: kq.rev, transactions: soi.transactions, backup: saoLuu, forced: ep });
+}));
+
+// ── Sổ chung của một nhà ───────────────────────────────────────────────────
+//
+// Mọi đường ở đây thao tác trên SỔ DANH BẠ, không phải nội dung sổ tài chính,
+// nên chúng đọc req.user chứ không đụng tới truy vấn trong ngữ cảnh sổ.
+
+const tokenCuaReq = (req) =>
+  req.get('x-finmate-key') || (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+
+/** Sổ chung đang mở và người gọi có phải chủ không — dùng cho mọi thao tác quản lý. */
+function soChungDangMo(req, res, { doiChuSo = false } = {}) {
+  if (req.ledger?.kind !== 'family') {
+    res.status(400).json({ ok: false, error: 'Bạn đang không mở sổ chung nào.' });
+    return null;
+  }
+  if (doiChuSo && !laChuSo(req)) {
+    res.status(403).json({ ok: false, error: 'Chỉ chủ sổ làm được việc này.', forbidden: true });
+    return null;
+  }
+  return Number(req.ledger.key.slice(1));
+}
+
+router.get('/account/ledgers', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  ok(res, { ledgers: tk.soCuaNguoi(req.user.id), current: req.ledger?.key || null, role: req.ledger?.role || null });
+}));
+
+router.post('/account/ledgers', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  ok(res, { ledger: tk.taoSoChung(req.user.id, req.body?.name) });
+}));
+
+router.post('/account/switch', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  tk.doiSoDangMo(tokenCuaReq(req), String(req.body?.key || ''), req.user.id);
+  ok(res, { key: String(req.body?.key || ''), ledgers: tk.soCuaNguoi(req.user.id) });
+}));
+
+router.get('/account/families/members', wrap(async (req, res) => {
+  const id = soChungDangMo(req, res);
+  if (id == null) return undefined;
+  return ok(res, { members: tk.thanhVien(id), me: req.user.id, role: req.ledger.role });
+}));
+
+router.post('/account/families/invite', wrap(async (req, res) => {
+  const id = soChungDangMo(req, res, { doiChuSo: true });
+  if (id == null) return undefined;
+  // Mã hiện đúng MỘT lần ở đây rồi chỉ còn băm trong sổ danh bạ — nói rõ điều
+  // đó ra, không thì người ta đóng hộp thoại rồi quay lại tìm mã.
+  return ok(res, { invite: tk.taoLoiMoi(id, req.user.id, req.body?.role || 'adult'), chi_hien_mot_lan: true });
+}));
+
+router.post('/account/families/join', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  ok(res, { ledger: tk.vaoSoBangMa(req.user.id, req.body?.code), ledgers: tk.soCuaNguoi(req.user.id) });
+}));
+
+router.post('/account/families/role', wrap(async (req, res) => {
+  const id = soChungDangMo(req, res, { doiChuSo: true });
+  if (id == null) return undefined;
+  tk.doiVai(id, Number(req.body?.user_id), String(req.body?.role || ''));
+  return ok(res, { members: tk.thanhVien(id) });
+}));
+
+router.post('/account/families/remove', wrap(async (req, res) => {
+  const id = soChungDangMo(req, res, { doiChuSo: true });
+  if (id == null) return undefined;
+  tk.goThanhVien(id, Number(req.body?.user_id));
+  return ok(res, { members: tk.thanhVien(id) });
+}));
+
+router.post('/account/families/leave', wrap(async (req, res) => {
+  const id = soChungDangMo(req, res);
+  if (id == null) return undefined;
+  tk.goThanhVien(id, req.user.id);
+  return ok(res, { left: true, ledgers: tk.soCuaNguoi(req.user.id) });
+}));
+
+router.patch('/account/families', wrap(async (req, res) => {
+  const id = soChungDangMo(req, res, { doiChuSo: true });
+  if (id == null) return undefined;
+  tk.doiTenSo(id, req.body?.name);
+  return ok(res, { ledgers: tk.soCuaNguoi(req.user.id) });
+}));
+
+router.delete('/account/families', wrap(async (req, res) => {
+  const id = soChungDangMo(req, res, { doiChuSo: true });
+  if (id == null) return undefined;
+  // Chỉ gỡ sổ khỏi danh bạ; FILE vẫn nằm nguyên trên đĩa. Xoá sổ là thao tác
+  // một người bấm mà cả nhà mất dữ liệu — không bao giờ xoá thật ngay.
+  tk.xoaSoChung(id);
+  return ok(res, { deleted: true, file_giu_lai: true, ledgers: tk.soCuaNguoi(req.user.id) });
 }));
 
 router.post('/account/logout', wrap(async (req, res) => {
@@ -355,6 +476,10 @@ router.get('/health', wrap(async (req, res) => ok(res, {
   // dùng chờ thư, hay bảo họ liên hệ chủ máy chủ.
   mail_enabled: tk.multiUser() && mailEnabled(),
   user: req.user || null,
+  // Sổ đang mở và vai trong đó. Giao diện cần cả hai ngay từ lúc tải trang:
+  // vẽ nút đổi sổ, và ẩn những phần vai này không mở được thay vì để người ta
+  // bấm vào rồi ăn 403.
+  ledger: req.ledger || null,
 })));
 
 // ---- khoá ứng dụng bằng PIN ----------------------------------------------

@@ -496,6 +496,14 @@ Vài điều quyết định app sống hay chết trên máy chủ:
 - **`FINMATE_DATA_DIR` phải trỏ vào volume.** Dockerfile đã đặt sẵn `/data`. Quên biến này là lỗi nguy hiểm nhất: `finmate.db` vẫn nằm đúng chỗ nên nhìn qua tưởng ổn, còn sổ của mọi người dùng thì bay sạch sau mỗi lần deploy. `test/smoke-deploy.mjs` canh đúng chuyện này.
 - **Chỉ chạy một máy.** SQLite cho một tiến trình ghi. Cần khoẻ hơn thì tăng CPU/RAM, đừng tăng số máy (`fly scale count 1`).
 - **Luôn đặt `FINMATE_SIGNUP_CODE`.** Cửa đăng ký là cửa duy nhất ai cũng gọi được; không có mã mời thì người lạ tạo tài khoản đến khi đầy đĩa. Kèm theo còn có trần `FINMATE_MAX_USERS` và giới hạn số lần đăng ký mỗi giờ theo IP.
+- **Sổ chung của một nhà.** Trong **Cài đặt → Gia đình**, một người tạo sổ chung rồi phát mã mời; người nhà dán mã vào là vào. **Sổ riêng của mỗi người vẫn còn nguyên và không ai khác thấy được** — sổ chung nằm cạnh, không gộp, đổi qua lại bằng một cú bấm. Mỗi giao dịch mang tên người đã ghi nó, nên câu "ai tiêu khoản này" trả lời được.
+
+  Bốn vai: **chủ sổ** (mời, gỡ, đổi vai, xoá sổ), **người lớn** (đọc ghi xoá mọi thứ — vợ chồng ngang quyền), **con** (ghi được khoản chi, xem chi tiêu và ngân sách; không xoá được gì, không mở được phần thu nhập, nợ, đầu tư, báo cáo, cài đặt), **chỉ xem**.
+
+  Quyền chặn ở tầng đường dẫn (`services/family_guard.js`) chứ không lọc trong 651 câu truy vấn — một bảng luật đọc hết trong một màn hình thì soi lại được, 651 chỗ thì không. Nói thẳng giới hạn của cách này: nó chặn theo cửa, không theo từng dòng. Con không mở được trang thu nhập, nhưng những khoản chi con đọc được vẫn để lộ ít nhiều. Đây là ranh giới cho lứa tuổi, không phải bức tường chống một đứa 16 tuổi biết mở tab Network.
+
+  **Sổ chung chưa dùng offline được, và đó là cố ý.** Bộ đồng bộ hiện tại thay TOÀN BỘ file sổ. Với sổ riêng thì hợp lý (chỉ một người giữ sổ); với sổ chung thì đó là mất dữ liệu — vợ ghi sáu khoản lúc mất mạng ngoài chợ, về nhà bấm "giữ bản trên máy này", và mọi thứ chồng ghi trong ngày biến mất, không cảnh báo, không lấy lại được. Nên đường gửi cả cuốn sổ bị khoá thẳng trên sổ chung, kèm lời giải thích. Đồng bộ theo từng dòng là việc của đợt sau; tới lúc đó, thà nói chưa làm được còn hơn làm hỏng sổ của cả nhà.
+
 - **Quên mật khẩu.** Người dùng bấm “Quên mật khẩu?” ở màn đăng nhập, nhận một đường dẫn qua email, tự đặt mật khẩu mới. Đường dẫn **dùng một lần**, hết hạn sau 60 phút, và đặt lại xong thì mọi thiết bị đều bị đăng xuất — nếu ai đó đã lén vào được tài khoản thì việc chủ tài khoản đặt lại mật khẩu phải đá được kẻ đó ra. Sổ sách không mất gì: mật khẩu chỉ là cửa vào, không phải chìa khoá mã hoá.
 
   Bật gửi thư (Resend, miễn phí 3.000 thư/tháng):
@@ -597,6 +605,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_MAX_IMAGES` | `10` | Trần số ảnh gửi kèm một lượt chat. Mỗi ảnh ~2.500 token thị giác, nên đây là trần tiền chứ không phải trần kỹ thuật |
 | `FINMATE_AGENT` | – | Đặt `off` để tắt agent dù đã có key |
 | `FINMATE_MULTIUSER` | – | `1` để bật chế độ nhiều người dùng (đăng nhập bằng tài khoản, mỗi người một sổ) |
+| `FINMATE_INVITE_MINUTES` | `10080` (7 ngày) | Mã mời vào sổ chung sống bao lâu |
 | `FINMATE_DATA_DIR` | `server/data` | Thư mục dữ liệu: danh bạ tài khoản, sổ riêng từng người. Phải là volume khi chạy Docker |
 | `FINMATE_SIGNUP_CODE` | – | Mã mời bắt buộc khi đăng ký. Máy chủ chạm được từ Internet thì luôn nên đặt |
 | `FINMATE_MAX_USERS` | – | Trần số tài khoản (0/trống = không giới hạn) |

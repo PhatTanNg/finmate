@@ -23,6 +23,8 @@ export default function Transactions({ onRefresh }) {
   const [review, setReview] = useState(false);
   const [edit, setEdit] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [nguoi, setNguoi] = useState(null);   // id -> tên, chỉ có khi đang mở sổ chung
+  const [toi, setToi] = useState(null);
 
   const load = () => {
     const p = new URLSearchParams({ limit: '300' });
@@ -34,6 +36,15 @@ export default function Transactions({ onRefresh }) {
   useEffect(() => {
     api.get('/categories').then((d) => setCats(d.categories));
     api.get('/accounts').then((d) => setAccounts(d.accounts));
+    // Trong sổ chung, "ai ghi khoản này" là câu hỏi hay được hỏi nhất. Cột
+    // created_by chỉ có id, mà tên người thì nằm ở sổ danh bạ — lấy một lần
+    // rồi tra tại chỗ, không gọi thêm gì cho mỗi dòng.
+    api.get('/health').then((h) => {
+      if (h?.ledger?.kind !== 'family') return;
+      setToi(h.user?.id ?? null);
+      return api.get('/account/families/members')
+        .then((m) => setNguoi(Object.fromEntries(m.members.map((x) => [x.id, x.name || x.email]))));
+    }).catch(() => { /* sổ riêng, hoặc chạy một mình: không có ai để ghi tên */ });
   }, []);
 
   const rows = useMemo(() => (data || []).filter((t) => !review || t.needs_review), [data, review]);
@@ -115,7 +126,15 @@ export default function Transactions({ onRefresh }) {
                   <div className="ic">{t.category_icon || (t.type === 'income' ? '💰' : t.type === 'transfer' ? '🔁' : '💸')}</div>
                   <div style={{ minWidth: 0 }}>
                     <div className="t">{t.merchant || t.note || t.category_name || 'Giao dịch'}{t.needs_review ? <span className="tag warn" style={{ marginLeft: 6 }}>cần xem</span> : null}</div>
-                    <div className="s">{t.category_name || (t.type === 'transfer' ? 'Chuyển khoản' : 'Chưa phân loại')}{t.account_name ? ` · ${t.account_name}` : ''}{t.source && t.source !== 'manual' ? ` · ${t.source}` : ''}</div>
+                    <div className="s">
+                      {t.category_name || (t.type === 'transfer' ? 'Chuyển khoản' : 'Chưa phân loại')}
+                      {t.account_name ? ` · ${t.account_name}` : ''}
+                      {t.source && t.source !== 'manual' ? ` · ${t.source}` : ''}
+                      {/* Chỉ ghi tên người KHÁC. Gắn "bạn" vào mọi dòng của chính
+                          mình thì màn hình đầy chữ thừa mà không thêm tin gì. */}
+                      {nguoi && t.created_by && t.created_by !== toi
+                        ? ` · ${nguoi[t.created_by] || 'người khác'}` : ''}
+                    </div>
                   </div>
                   <div className="amt">
                     <Money v={t.type === 'income' ? t.amount : t.type === 'transfer' ? 0 : -t.amount} sign />
