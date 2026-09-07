@@ -215,24 +215,68 @@ export function validImage(image) {
 }
 
 /**
+ * Trần số ảnh một lượt. Đọc lúc gọi chứ không lúc nạp module, để đổi biến môi
+ * trường là có hiệu lực ngay mà không phải khởi động lại.
+ *
+ * Vì sao 10 chứ không phải trần của API: Claude nhận tới 100 ảnh mỗi request
+ * (600 với model cửa sổ 1 triệu token), nhưng ba thứ khác chạm trần trước.
+ *  - Tiền: mỗi ảnh 1600px tốn khoảng 2.500 token thị giác. Mười ảnh là 25.000
+ *    token đầu vào cho MỘT câu hỏi — người dùng trả bằng khoá API của chính họ.
+ *  - Kích thước request: trần 32MB cho cả lượt, mà lịch sử hội thoại và mô tả
+ *    công cụ cũng nằm trong đó.
+ *  - Việc thật: xấp hoá đơn một buổi đi chợ hiếm khi quá mười tờ.
+ */
+const maxImages = () => Math.max(1, Number(process.env.FINMATE_MAX_IMAGES) || 10);
+
+/** Tổng dung lượng ảnh một lượt. Dưới trần 32MB của API, chừa chỗ cho lịch sử. */
+const TONG_ANH_TOI_DA = 20_000_000;
+
+/**
+ * Nhiều ảnh một lượt: một xấp hoá đơn, sao kê chụp làm mấy trang.
+ *
+ * Nhận cả `image` lẻ (đường cũ, vẫn còn client cũ gọi) lẫn `images` mảng, và
+ * luôn trả về mảng — chỗ gọi không phải phân biệt hai dạng nữa.
+ */
+export function validImages(images, image = null) {
+  const raw = [...(Array.isArray(images) ? images : []), ...(image ? [image] : [])]
+    .map((x) => (x == null ? '' : String(x)))
+    .filter(Boolean);
+  if (!raw.length) return [];
+  const tran = maxImages();
+  if (raw.length > tran) {
+    throw new Error(`Nhiều ảnh quá — mỗi lượt gửi tối đa ${tran} ảnh. Hãy gửi làm vài lượt.`);
+  }
+  const ok = raw.map(validImage);
+  const tong = ok.reduce((n, x) => n + x.length, 0);
+  if (tong > TONG_ANH_TOI_DA) {
+    throw new Error('Tổng dung lượng ảnh quá lớn. Hãy bớt vài ảnh rồi gửi lại.');
+  }
+  return ok;
+}
+
+/**
  * @param {string} text
- * @param {{image?: string|null, onEvent?: (ev: object) => void}} [opts]
- *   image   ảnh kèm theo (data URL) — hoá đơn, biên lai, màn hình ngân hàng.
+ * @param {{image?: string|null, images?: string[], onEvent?: (ev: object) => void}} [opts]
+ *   image   một ảnh kèm theo (data URL) — đường cũ, client cũ vẫn gọi.
+ *   images  nhiều ảnh một lượt: xấp hoá đơn, sao kê chụp làm mấy trang.
  *   onEvent nhận tiến trình từng bước (đang suy nghĩ, đang gọi công cụ nào) để
  *           giao diện hiện theo thời gian thực thay vì ba chấm chờ đợi.
  */
-export async function chat(text, { image = null, onEvent = null, offline = false } = {}) {
+export async function chat(text, { image = null, images = null, onEvent = null, offline = false } = {}) {
   const message = String(text || '').trim();
-  const img = validImage(image);
-  if (!message && !img) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
-  // Không lưu ảnh vào lịch sử (nặng và không cần thiết), chỉ ghi dấu là có ảnh.
-  saveMessage('user', img ? `${message || 'Ghi giúp mình giao dịch trong ảnh này.'}\n📷 [đã gửi kèm ảnh]` : message, null, img ? { image: true } : {});
+  const imgs = validImages(images, image);
+  if (!message && !imgs.length) return { reply: 'Bạn muốn hỏi gì nào?', quick: [] };
+  // Không lưu ảnh vào lịch sử (nặng và không cần thiết), chỉ ghi dấu là có ảnh
+  // và có mấy tấm — để đọc lại lịch sử còn hiểu lượt đó dựa trên những gì.
+  const dauAnh = imgs.length > 1 ? `\n📷 [đã gửi kèm ${imgs.length} ảnh]` : '\n📷 [đã gửi kèm ảnh]';
+  const loiMacDinh = imgs.length > 1 ? 'Ghi giúp mình các giao dịch trong những ảnh này.' : 'Ghi giúp mình giao dịch trong ảnh này.';
+  saveMessage('user', imgs.length ? `${message || loiMacDinh}${dauAnh}` : message, null, imgs.length ? { image: true, images: imgs.length } : {});
 
   const p = get('SELECT * FROM profile WHERE id = 1') || {};
   const isOnboarding = !p.onboarded && !alreadySetUp();
 
   // Gật/lắc cho đề xuất đang chờ: làm ngay, không cần model.
-  const ans = !img ? answersProposal(message) : null;
+  const ans = !imgs.length ? answersProposal(message) : null;
   if (ans) {
     if (ans.yes) {
       const r = acceptProposal(ans.proposal.id, { source: 'proposal' });
@@ -260,7 +304,7 @@ export async function chat(text, { image = null, onEvent = null, offline = false
     fallback = { nguon: 'rules', ly_do: 'mất kết nối tới máy chủ AI, tạm dùng bộ luật', offline: true };
   } else if (agentEnabled()) {
     const prior = recent(30).slice(0, -1); // bỏ chính câu vừa lưu
-    const res = await runAgent(message, prior, { onboarding: isOnboarding, image: img, onEvent });
+    const res = await runAgent(message, prior, { onboarding: isOnboarding, images: imgs, onEvent });
     if (res) {
       if (res.mutated) generateInsights();
       saveMessage('assistant', res.reply, isOnboarding ? 'onboarding' : 'agent', { tools: res.calls, batch: res.batch, mutated: res.mutated });
@@ -280,7 +324,7 @@ export async function chat(text, { image = null, onEvent = null, offline = false
     fallback = { nguon: 'rules', ly_do: llmStatus().loi_gan_nhat || 'model không trả lời được', ...(llmPaused() ? { offline: true } : {}) };
   }
 
-  if (img && !agentEnabled()) {
+  if (imgs.length && !agentEnabled()) {
     const reply = 'Mình nhận được ảnh rồi, nhưng đọc hoá đơn cần bật cố vấn AI (điền FINMATE_LLM_KEY trong Cài đặt). Hiện tại bạn nhắn cho mình số tiền và nơi chi, mình ghi ngay.';
     saveMessage('assistant', reply, 'no_vision');
     return { reply, intent: 'no_vision', quick: quickFor(isOnboarding) };

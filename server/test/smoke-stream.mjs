@@ -47,7 +47,7 @@ process.env.FINMATE_LLM_MODEL = 'mock';
 
 const { bootstrap } = await import('../src/bootstrap.js');
 bootstrap();
-const { chat, validImage } = await import('../src/services/chat/index.js');
+const { chat, validImage, validImages } = await import('../src/services/chat/index.js');
 const { router } = await import('../src/routes/api.js');
 const { all, update } = await import('../src/db.js');
 update('profile', 1, { onboarded: 1, onboarding_step: 'done' });
@@ -59,6 +59,28 @@ ok('ảnh PNG data URL hợp lệ đi qua', validImage(PNG) === PNG);
 ok('không có ảnh thì trả null', validImage(null) === null && validImage('') === null);
 ok('chuỗi không phải ảnh bị chặn', (() => { try { validImage('data:text/plain;base64,aGVsbG8='); return false; } catch (e) { return /không hợp lệ/.test(e.message); } })());
 ok('ảnh quá lớn bị chặn', (() => { try { validImage(`data:image/jpeg;base64,${'A'.repeat(6_100_000)}`); return false; } catch (e) { return /quá lớn/.test(e.message); } })());
+
+head('Nhiều ảnh một lượt');
+ok('mảng ảnh hợp lệ đi qua nguyên vẹn', (() => { const r = validImages([PNG, PNG, PNG]); return r.length === 3 && r.every((x) => x === PNG); })());
+ok('không ảnh nào thì trả mảng rỗng', validImages(null).length === 0 && validImages([]).length === 0);
+// Client cũ chỉ biết gửi `image` lẻ. Bỏ nhánh này là bản cài trên màn hình
+// chính của người dùng gửi ảnh xong không thấy gì xảy ra.
+ok('vẫn nhận đường cũ: một ảnh ở tham số image', (() => { const r = validImages(null, PNG); return r.length === 1 && r[0] === PNG; })());
+ok('gộp được cả hai đường', validImages([PNG], PNG).length === 2);
+ok('một ảnh hỏng trong xấp là chặn cả xấp', (() => { try { validImages([PNG, 'data:text/plain;base64,aGk=']); return false; } catch (e) { return /không hợp lệ/.test(e.message); } })());
+ok('quá trần số ảnh bị chặn, và nói rõ trần là bao nhiêu', (() => { try { validImages(Array(11).fill(PNG)); return false; } catch (e) { return /tối đa 10 ảnh/.test(e.message); } })());
+ok('trần đọc lúc gọi nên đổi biến môi trường là có hiệu lực ngay', (() => {
+  process.env.FINMATE_MAX_IMAGES = '2';
+  try { validImages([PNG, PNG, PNG]); return false; }
+  catch (e) { return /tối đa 2 ảnh/.test(e.message); }
+  finally { delete process.env.FINMATE_MAX_IMAGES; }
+})());
+// Trần đếm không đủ: mười ảnh 4MB vẫn vượt trần 32MB của một request, và lỗi
+// nhận về từ API là một câu khó hiểu chứ không phải "ảnh nặng quá".
+ok('tổng dung lượng vượt trần bị chặn dù số ảnh vẫn trong hạn', (() => {
+  const nang = `data:image/jpeg;base64,${'A'.repeat(5_000_000)}`;
+  try { validImages(Array(5).fill(nang)); return false; } catch (e) { return /Tổng dung lượng/.test(e.message); }
+})());
 
 head('chat() phát sự kiện từng bước');
 {
@@ -100,7 +122,44 @@ head('Ảnh đi tới model đúng hình dạng');
   ok('ảnh màn hình số dư -> cập nhật số dư, KHÔNG phải giao dịch', /capnhat_so_du/.test(sys) && /KHÔNG phải giao dịch/.test(sys));
   ok('ảnh danh mục chứng khoán -> thêm/cập nhật đầu tư', /them_dau_tu/.test(sys) && /cap_nhat_gia/.test(sys));
   ok('dặn đọc đúng đồng tiền trên ảnh', /đồng tiền/.test(sys));
+  ok('dạy xử lý từng tấm khi gửi nhiều ảnh', /Nhiều ảnh một lượt/.test(sys) && /từng tấm/.test(sys));
+  ok('dặn không gộp ba hoá đơn thành một khoản', /ba lần ghi_giao_dich/.test(sys));
+  ok('dặn nhận ra hai tấm chụp cùng một hoá đơn', /Trùng lặp/.test(sys));
   ok('đường OpenAI gộp hai message system thành một', req.messages.filter((m) => m.role === 'system').length === 1 && /TÌNH HÌNH/.test(req.messages[0].content));
+}
+
+head('Xấp ảnh: mỗi tấm có nhãn riêng, lịch sử ghi rõ mấy tấm');
+{
+  const A = PNG;
+  const B = PNG.replace('AAAB', 'AAAC');   // khác byte để phân biệt hai tấm
+  scenario = [
+    { tool_calls: [tc('c9', 'ghi_giao_dich', { so_tien: 65000, loai: 'expense', mo_ta: 'chợ' })] },
+    { content: 'Mình đọc ba hoá đơn và ghi xong.' },
+  ];
+  const before = seen.length;
+  const r = await chat('ghi hết giúp mình', { images: [A, B, A] });
+  ok('gửi ba ảnh một lượt vẫn chạy', Boolean(r.reply));
+  const user = seen[before].messages[seen[before].messages.length - 1];
+  const hinh = user.content.map((p2) => (p2.type === 'image_url' ? '<ảnh>' : p2.text));
+  ok('ba ảnh đều tới model', user.content.filter((p2) => p2.type === 'image_url').length === 3);
+  ok('mỗi tấm có nhãn đứng ngay trước nó',
+    hinh.join('|') === 'Ảnh 1:|<ảnh>|Ảnh 2:|<ảnh>|Ảnh 3:|<ảnh>|ghi hết giúp mình', hinh.join('|'));
+  ok('ảnh thứ hai đúng là tấm khác, không phải bản sao tấm đầu',
+    user.content.filter((p2) => p2.type === 'image_url')[1].image_url.url === B);
+  // Ảnh không lưu vào lịch sử (nặng), nên dòng ghi lại là thứ duy nhất còn nói
+  // được lượt đó dựa trên mấy tấm. Ghi "đã gửi kèm ảnh" cho cả xấp là mất tin.
+  const lich = all('SELECT content FROM chat_messages ORDER BY id DESC LIMIT 6').map((m) => m.content);
+  ok('lịch sử ghi rõ số ảnh của lượt', lich.some((c) => /đã gửi kèm 3 ảnh/.test(c)), lich.slice(0, 3).join(' // '));
+}
+
+head('Một ảnh: giữ nguyên đường cũ, không chèn nhãn thừa');
+{
+  scenario = [{ content: 'Xong.' }];
+  const before = seen.length;
+  await chat('cái này bao nhiêu', { images: [PNG] });
+  const user = seen[before].messages[seen[before].messages.length - 1];
+  ok('một ảnh thì không có nhãn "Ảnh 1:"', !user.content.some((p2) => p2.type === 'text' && /^Ảnh 1:$/.test(p2.text)), JSON.stringify(user.content.map((p2) => p2.type)));
+  ok('một ảnh vẫn đúng hai phần: chữ + ảnh', user.content.length === 2 && user.content.filter((p2) => p2.type === 'image_url').length === 1);
   const saved = all("SELECT content, data FROM chat_messages WHERE role='user' ORDER BY id DESC LIMIT 1")[0];
   ok('lịch sử không lưu ảnh, chỉ ghi dấu đã gửi ảnh', /đã gửi kèm ảnh/.test(saved.content) && !saved.content.includes('base64') && JSON.parse(saved.data).image === true);
 }

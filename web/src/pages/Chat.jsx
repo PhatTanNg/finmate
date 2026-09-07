@@ -77,6 +77,11 @@ const doing = (name, args = {}) => {
   return bits.length ? `${base}: ${bits.join(' · ')}` : base;
 };
 
+// Trần số ảnh một lượt — khớp với FINMATE_MAX_IMAGES mặc định ở máy chủ. Chặn
+// ngay trên máy để người dùng biết trước khi ngồi chờ thu nhỏ mười mấy tấm rồi
+// mới bị máy chủ từ chối.
+const MAX_SHOTS = 10;
+
 const THINKING = ['Đang đọc dữ liệu của bạn…', 'Đang tra số liệu…', 'Đang tính toán…', 'Sắp xong rồi…'];
 
 /** Thu nhỏ ảnh trước khi gửi: ảnh chụp điện thoại 4-8MB là thừa cho việc đọc số trên hoá đơn. */
@@ -107,7 +112,7 @@ export default function Chat({ onRefresh, offline = false }) {
   const [quick, setQuick] = useState(DEFAULT_QUICK);
   const [onboarding, setOnboarding] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [shot, setShot] = useState(null);   // ảnh chờ gửi (data URL)
+  const [shots, setShots] = useState([]);   // các ảnh chờ gửi (data URL)
   const [undone, setUndone] = useState({}); // batch -> true khi đã hoàn tác
   const [props, setProps] = useState({});   // id đề xuất -> đề xuất đang chờ
   const [decided, setDecided] = useState({}); // id đề xuất -> 'done' | 'skip' | 'busy'
@@ -150,11 +155,26 @@ export default function Chat({ onRefresh, offline = false }) {
   }
 
   async function pickImage(e) {
-    const file = e.target.files?.[0];
+    const files = [...(e.target.files || [])];
     e.target.value = '';
-    if (!file) return;
+    if (!files.length) return;
+    // Nối vào xấp đang có chứ không thay thế: chọn ảnh trên iOS mỗi lần chỉ
+    // được một album, nên "chọn thêm" là thao tác bình thường, không phải
+    // trường hợp hiếm. Thay thế thì mỗi lần bấm lại là mất công chọn từ đầu.
+    const conTrong = MAX_SHOTS - shots.length;
+    if (conTrong <= 0) {
+      setMessages((m) => [...m, { role: 'assistant', content: `⚠️ Mỗi lượt gửi tối đa ${MAX_SHOTS} ảnh. Gửi xấp này trước rồi chọn tiếp nhé.`, id: `e${Date.now()}` }]);
+      return;
+    }
+    const bo = files.slice(0, conTrong);
+    const du = files.length - bo.length;
     try {
-      setShot(await shrinkImage(file));
+      // Thu nhỏ song song: mười ảnh chụp điện thoại làm lần lượt là chờ thấy rõ.
+      const moi = await Promise.all(bo.map((f) => shrinkImage(f)));
+      setShots((cu) => [...cu, ...moi]);
+      if (du > 0) {
+        setMessages((m) => [...m, { role: 'assistant', content: `⚠️ Chỉ nhận ${MAX_SHOTS} ảnh mỗi lượt nên mình bỏ qua ${du} tấm cuối.`, id: `e${Date.now()}` }]);
+      }
       taRef.current?.focus();
     } catch (err) {
       setMessages((m) => [...m, { role: 'assistant', content: `⚠️ ${err.message}`, id: `e${Date.now()}` }]);
@@ -173,16 +193,17 @@ export default function Chat({ onRefresh, offline = false }) {
 
   async function send(msg) {
     const content = (msg ?? text).trim();
-    const image = msg == null ? shot : null;
-    if ((!content && !image) || busy) return;
+    const images = msg == null ? shots : [];
+    if ((!content && !images.length) || busy) return;
     setText('');
-    setShot(null);
+    setShots([]);
     if (taRef.current) taRef.current.style.height = 'auto';
-    setMessages((m) => [...m, { role: 'user', content: content || 'Ghi giúp mình giao dịch trong ảnh này.', image, id: `u${Date.now()}` }]);
+    const macDinh = images.length > 1 ? 'Ghi giúp mình các giao dịch trong những ảnh này.' : 'Ghi giúp mình giao dịch trong ảnh này.';
+    setMessages((m) => [...m, { role: 'user', content: content || macDinh, images, id: `u${Date.now()}` }]);
     setBusy(true);
     setSteps([]);
     try {
-      const body = { message: content, ...(image ? { image } : {}), ...(offline ? { offline: true } : {}) };
+      const body = { message: content, ...(images.length ? { images } : {}), ...(offline ? { offline: true } : {}) };
       let r;
       try {
         r = await api.chatStream(body, onEvent);
@@ -309,7 +330,13 @@ export default function Chat({ onRefresh, offline = false }) {
               <div className="av">{m.role === 'user' ? '' : 'F'}</div>
               <div className="bub-wrap">
                 <div className="bub">
-                  {m.image && <img className="shot" src={m.image} alt="ảnh đã gửi" />}
+                  {(m.images?.length || m.image) && (
+                    <div className={`shots${(m.images?.length || 1) > 1 ? ' many' : ''}`}>
+                      {(m.images?.length ? m.images : [m.image]).map((src, i) => (
+                        <img key={src.slice(-24) + i} className="shot" src={src} alt={m.images?.length > 1 ? `ảnh đã gửi ${i + 1}/${m.images.length}` : 'ảnh đã gửi'} />
+                      ))}
+                    </div>
+                  )}
                   <Md text={m.content} />
                 </div>
                 {(showButtons || decided[pid]) && (
@@ -376,11 +403,26 @@ export default function Chat({ onRefresh, offline = false }) {
             {quick.map((q) => <button key={q} onClick={() => send(q)}>{q}</button>)}
           </div>
         )}
-        {shot && (
+        {shots.length > 0 && (
           <div className="pending-shot">
-            <img src={shot} alt="ảnh sắp gửi" />
-            <span>Ảnh sẽ gửi kèm — nhắn thêm gì đó hoặc bấm gửi luôn.</span>
-            <button onClick={() => setShot(null)} aria-label="Bỏ ảnh">✕</button>
+            <div className="thumbs">
+              {shots.map((src, i) => (
+                <div className="thumb" key={src.slice(-24) + i}>
+                  <img src={src} alt={`ảnh sắp gửi ${i + 1}`} />
+                  {shots.length > 1 && <span className="n">{i + 1}</span>}
+                  <button
+                    className="x"
+                    onClick={() => setShots((cu) => cu.filter((_, j) => j !== i))}
+                    aria-label={`Bỏ ảnh ${i + 1}`}
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+            <span>
+              {shots.length > 1 ? `${shots.length} ảnh sẽ gửi kèm` : 'Ảnh sẽ gửi kèm'}
+              {' — nhắn thêm gì đó hoặc bấm gửi luôn.'}
+            </span>
+            <button onClick={() => setShots([])} aria-label="Bỏ hết ảnh">✕</button>
           </div>
         )}
         <div className="chat-in">
@@ -389,19 +431,27 @@ export default function Chat({ onRefresh, offline = false }) {
               có cách nào lấy ảnh có sẵn trong máy. Bỏ đi thì iOS hiện đủ
               "Thư viện ảnh / Chụp ảnh / Chọn tệp", vốn là thứ người ta cần
               nhất: ảnh chụp màn hình số dư, danh mục chứng khoán đã lưu sẵn. */}
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickImage} />
-          <button className={`attach ${shot ? 'on' : ''}`} onClick={() => fileRef.current?.click()} disabled={busy} title="Gửi ảnh: hoá đơn, sao kê, màn hình số dư, danh mục chứng khoán" aria-label="Gửi ảnh từ thư viện hoặc chụp mới">📷</button>
+          <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={pickImage} />
+          <button
+            className={`attach ${shots.length ? 'on' : ''}`}
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            title={`Gửi ảnh: hoá đơn, sao kê, màn hình số dư, danh mục chứng khoán. Chọn được nhiều tấm một lúc (tối đa ${MAX_SHOTS}).`}
+            aria-label="Gửi ảnh từ thư viện hoặc chụp mới — chọn được nhiều tấm"
+          >
+            📷{shots.length > 1 && <span className="badge">{shots.length}</span>}
+          </button>
           <textarea
             ref={taRef}
             className="inp"
             rows={1}
             enterKeyHint="send"
-            placeholder={shot ? 'Ghi chú thêm cho ảnh (không bắt buộc)…' : 'Nhắn cho cố vấn của bạn…'}
+            placeholder={shots.length ? `Ghi chú thêm cho ${shots.length > 1 ? `${shots.length} ảnh` : 'ảnh'} (không bắt buộc)…` : 'Nhắn cho cố vấn của bạn…'}
             value={text}
             onChange={(e) => { setText(e.target.value); grow(e.target); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
-          <button className="send" onClick={() => send()} disabled={busy || (!text.trim() && !shot)} aria-label="Gửi">
+          <button className="send" onClick={() => send()} disabled={busy || (!text.trim() && !shots.length)} aria-label="Gửi">
             {busy ? '…' : '➤'}
           </button>
         </div>

@@ -162,6 +162,26 @@ head('Dịch xuôi sang Messages API');
   ok('ảnh data URL dịch sang khối image base64, đặt trước chữ', c[0].type === 'image' && c[0].source.media_type === 'image/jpeg' && c[0].source.data === '/9j/AAAA' && c[1].type === 'text');
   ok('cấu hình thinking đi kèm khi được đặt', body.thinking?.type === 'adaptive');
 }
+{
+  // Nhiều ảnh: nhãn "Ảnh n:" phải nằm NGAY TRƯỚC tấm nó gọi tên. Bản trước dồn
+  // mọi ảnh lên đầu — đúng cho một tấm, nhưng với xấp ảnh thì mọi nhãn rơi
+  // xuống cuối thành một khối vô nghĩa và không ai chỉ được vào tấm nào nữa.
+  const anh = (n) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${n}` } });
+  const body = toAnthropicRequest([
+    { role: 'user', content: [
+      { type: 'text', text: 'Ảnh 1:' }, anh('AAA'),
+      { type: 'text', text: 'Ảnh 2:' }, anh('BBB'),
+      { type: 'text', text: 'Ảnh 3:' }, anh('CCC'),
+      { type: 'text', text: 'ghi hết giúp mình' },
+    ] },
+  ], null, { model: 'claude-opus-5' });
+  const c = body.messages[0].content;
+  ok('nhiều ảnh: đủ cả ba tấm', c.filter((b2) => b2.type === 'image').length === 3);
+  ok('nhiều ảnh: GIỮ NGUYÊN thứ tự, nhãn đứng ngay trước ảnh của nó',
+    c.map((b2) => (b2.type === 'image' ? `<${b2.source.data}>` : b2.text)).join('|')
+      === 'Ảnh 1:|<AAA>|Ảnh 2:|<BBB>|Ảnh 3:|<CCC>|ghi hết giúp mình');
+  ok('nhiều ảnh: câu hỏi nằm cuối, sau tất cả ảnh', c[c.length - 1].text === 'ghi hết giúp mình');
+}
 
 /* ---------- 2. Dịch ngược ---------- */
 head('Dịch ngược câu trả lời của Claude');

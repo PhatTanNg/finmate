@@ -86,28 +86,38 @@ const textOf = (c) => {
 
 /**
  * Nội dung user có thể là mảng phần (kiểu OpenAI): text + image_url. Ảnh dạng
- * data URL được dịch sang khối image base64 của Claude; ảnh đặt TRƯỚC chữ như
- * tài liệu khuyến nghị.
+ * data URL được dịch sang khối image base64 của Claude.
+ *
+ * Thứ tự khối phụ thuộc số ảnh, và đây không phải chuyện làm đẹp:
+ *
+ *  - MỘT ảnh: đẩy ảnh lên trước chữ. Tài liệu khuyến nghị vậy và nó cho kết
+ *    quả tốt hơn, giống như đặt tài liệu dài trước câu hỏi.
+ *  - NHIỀU ảnh: giữ NGUYÊN thứ tự người gọi dựng. Tầng trên xen "Ảnh 1:",
+ *    "Ảnh 2:" ngay trước từng tấm; dồn ảnh lên đầu là mọi nhãn rơi xuống cuối
+ *    thành một khối vô nghĩa, và không ai — model lẫn người dùng — còn nói về
+ *    một tấm cụ thể được nữa. Ảnh nằm sau chữ vẫn đọc tốt, mất nhãn thì không.
  */
 function userBlocks(content) {
   if (!Array.isArray(content)) {
     const t = textOf(content).trim();
     return t ? [{ type: 'text', text: t }] : [];
   }
-  const images = [];
-  const texts = [];
+  const blocks = [];
+  let soAnh = 0;
   for (const part of content) {
     if (!part) continue;
-    if (typeof part === 'string') { if (part.trim()) texts.push({ type: 'text', text: part }); continue; }
-    if (part.type === 'text' && part.text?.trim()) { texts.push({ type: 'text', text: part.text }); continue; }
+    if (typeof part === 'string') { if (part.trim()) blocks.push({ type: 'text', text: part }); continue; }
+    if (part.type === 'text' && part.text?.trim()) { blocks.push({ type: 'text', text: part.text }); continue; }
     if (part.type === 'image_url') {
       const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
       const m = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/s.exec(url || '');
-      if (m) images.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2].replace(/\s+/g, '') } });
-      else if (/^https?:\/\//.test(url || '')) images.push({ type: 'image', source: { type: 'url', url } });
+      if (m) { blocks.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2].replace(/\s+/g, '') } }); soAnh += 1; }
+      else if (/^https?:\/\//.test(url || '')) { blocks.push({ type: 'image', source: { type: 'url', url } }); soAnh += 1; }
     }
   }
-  return [...images, ...texts];
+  if (soAnh !== 1) return blocks;
+  const i = blocks.findIndex((b) => b.type === 'image');
+  return [blocks[i], ...blocks.slice(0, i), ...blocks.slice(i + 1)];
 }
 
 /**

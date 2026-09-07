@@ -178,6 +178,9 @@ QUẢN LÝ QUỸ THEO MỤC TIÊU VÀ THỜI HẠN- Mỗi quỹ tích luỹ nên
 - Đọc kỹ **đồng tiền** trên ảnh (€, £, $, đ) và ghi theo đúng đồng tiền đó, đừng quy về đồng tiền gốc.
 - Nói rõ bạn đọc được gì (số tiền, mã, số lượng, ngày) để họ soi lại; số mờ hay thiếu thì hỏi đúng một câu thay vì đoán bừa.
 - Ảnh không chứa số liệu tài chính nào đọc được thì nói thẳng là chưa đọc được, đừng bịa.
+- **Nhiều ảnh một lượt**: mỗi tấm được đánh nhãn "Ảnh 1:", "Ảnh 2:"… ngay trước nó. Xử lý **từng tấm một** và **gọi công cụ riêng cho từng tấm** — ba hoá đơn là ba lần ghi_giao_dich, không phải một khoản gộp. Mỗi tấm có thể thuộc loại khác nhau (tấm 1 hoá đơn, tấm 2 màn hình số dư): chọn công cụ theo từng tấm chứ đừng áp một loại cho cả xấp.
+- Trả lời theo đúng thứ tự nhãn và **gọi tên tấm** ("Ảnh 2: 120.000đ ở Circle K"), để họ soi lại đúng tấm nào sai. Tấm nào không đọc được thì nói riêng tấm đó, đừng bỏ qua im lặng cũng đừng vì một tấm mờ mà bỏ cả xấp.
+- Trùng lặp: cùng một hoá đơn chụp hai lần (hai tấm cùng số tiền, cùng nơi, cùng giờ) thì ghi **một** lần và nói rõ bạn thấy hai tấm giống nhau.
 
 CÁCH VIẾT SỐ TIỀN
 - Đồng tiền gốc và các đơn vị đã ghi trong TÌNH HÌNH. Khi gọi công cụ, truyền số theo **đơn vị thường ngày** (65000 đồng, 12.5 euro), công cụ tự quy đổi.
@@ -278,7 +281,7 @@ function summarizeArgs(args = {}) {
  *          null nghĩa là agent không dùng được -> tầng trên lùi về bộ luật.
  */
 export async function runAgent(message, history, {
-  onboarding = false, source = 'chat', allow = null, image = null, onEvent = null,
+  onboarding = false, source = 'chat', allow = null, image = null, images = null, onEvent = null,
 } = {}) {
   if (!agentEnabled()) return null;
   const emit = (ev) => { try { onEvent?.(ev); } catch { /* người nghe lỗi không được làm hỏng lượt chat */ } };
@@ -296,10 +299,22 @@ export async function runAgent(message, history, {
   const batch = `${source}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   // Lượt hiện tại có thể kèm ảnh (hoá đơn, màn hình ngân hàng): gửi theo hình
   // dạng nhiều phần của OpenAI; lớp Anthropic dịch sang khối image của Claude.
-  const text = String(message).slice(0, 4000) || (image ? 'Ghi giúp mình giao dịch trong ảnh này.' : '');
-  const userContent = image
-    ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: image } }]
-    : text;
+  const anh = (Array.isArray(images) ? images : []).concat(image ? [image] : []).filter(Boolean);
+  const text = String(message).slice(0, 4000)
+    || (anh.length > 1 ? 'Ghi giúp mình các giao dịch trong những ảnh này.' : anh.length ? 'Ghi giúp mình giao dịch trong ảnh này.' : '');
+  // Nhiều ảnh thì đánh số trước mỗi tấm. Không đánh số thì cả model lẫn người
+  // dùng đều không có cách nào nói về một tấm cụ thể ở lượt sau ("tấm thứ ba
+  // là hoá đơn hôm qua"), và câu trả lời gộp hết vào một đống không đối chiếu
+  // được với thứ người dùng nhìn thấy trên màn hình.
+  const userContent = !anh.length ? text
+    : anh.length === 1 ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: anh[0] } }]
+      : [
+        ...anh.flatMap((url, i) => [
+          { type: 'text', text: `Ảnh ${i + 1}:` },
+          { type: 'image_url', image_url: { url } },
+        ]),
+        { type: 'text', text },
+      ];
   const messages = [
     ...systemMessages(onboarding),
     ...toMessages(history),

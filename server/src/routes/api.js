@@ -506,7 +506,11 @@ router.get('/chat/history', wrap(async (req, res) => {
   });
 }));
 router.post('/chat', wrap(async (req, res) => {
-  const result = await chat(req.body?.message, { image: req.body?.image || null, offline: req.body?.offline === true });
+  const result = await chat(req.body?.message, {
+    image: req.body?.image || null,
+    images: req.body?.images || null,
+    offline: req.body?.offline === true,
+  });
   ok(res, result);
 }));
 
@@ -534,6 +538,7 @@ router.post('/chat/stream', async (req, res) => {
     send('start', { at: new Date().toISOString() });
     const result = await chat(req.body?.message, {
       image: req.body?.image || null,
+      images: req.body?.images || null,
       offline: req.body?.offline === true,
       onEvent: (ev) => send(ev.type, ev),
     });

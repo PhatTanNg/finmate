@@ -361,6 +361,10 @@ tbody tr:hover { background: var(--hover); }
 .act-chip.warn { color: var(--warn); background: var(--warn-soft); }
 .act-chip.dim { opacity: .65; }
 .bub .shot { display: block; max-width: 220px; max-height: 220px; border-radius: 12px; margin-bottom: 6px; object-fit: cover; }
+/* Nhiều ảnh trong một tin nhắn: lưới hai cột, thu nhỏ lại. Xếp dọc cỡ đầy đủ
+   thì một lượt mười hoá đơn chiếm trọn màn hình và đẩy câu trả lời ra ngoài. */
+.bub .shots.many { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-bottom: 6px; }
+.bub .shots.many .shot { max-width: 100%; width: 100%; height: 104px; margin-bottom: 0; }
 .chat-in .attach { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--card); box-shadow: var(--shadow-sm); color: var(--dim); font-size: 18px; cursor: pointer; display: grid; place-items: center; }
 [data-theme="dark"] .chat-in .attach { border: 1px solid var(--line-soft); }
 .chat-in .attach:hover { color: var(--txt); }
@@ -368,6 +372,20 @@ tbody tr:hover { background: var(--hover); }
 .pending-shot { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; font-size: 12.5px; color: var(--dim); }
 .pending-shot img { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; }
 .pending-shot button { background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 14px; }
+/* Xấp ảnh chờ gửi: cuộn NGANG chứ không xuống dòng — mười ảnh xuống dòng là
+   đẩy ô nhập ra khỏi màn hình điện thoại, đúng lúc người ta cần gõ ghi chú. */
+.pending-shot .thumbs { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0; scrollbar-width: none; }
+.pending-shot .thumbs::-webkit-scrollbar { display: none; }
+.pending-shot .thumb { position: relative; flex: 0 0 auto; }
+.pending-shot .thumb .n { position: absolute; left: 2px; bottom: 2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: rgba(0,0,0,.62); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 14px; text-align: center; }
+/* Nút bỏ nằm ĐÈ lên ảnh: xoá đúng tấm sai trong xấp mười tấm mà không phải bỏ
+   hết làm lại. Vùng chạm 22px cho vừa đầu ngón tay trên điện thoại. */
+.pending-shot .thumb .x { position: absolute; top: -5px; right: -5px; width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--card); box-shadow: var(--shadow-sm); color: var(--txt); font-size: 11px; line-height: 1; display: grid; place-items: center; }
+[data-theme="dark"] .pending-shot .thumb .x { border: 1px solid var(--line-soft); }
+/* Đếm số ảnh ngay trên nút kẹp ảnh, để lúc dải xem trước bị cuộn khuất vẫn
+   biết đang kèm mấy tấm. */
+.chat-in .attach { position: relative; }
+.chat-in .attach .badge { position: absolute; top: 1px; right: 1px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--acc); color: #fff; font-size: 10px; font-weight: 700; line-height: 17px; }
 .chat-empty { text-align: center; color: var(--dim); padding: 30px 18px; max-width: 400px; margin: auto; }
 .chat-empty-ic { font-size: 38px; margin-bottom: 8px; }
 .chat-empty b { display: block; color: var(--txt); font-size: 16px; margin-bottom: 6px; }

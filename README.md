@@ -594,6 +594,7 @@ Chép `.env.example` thành `.env`; app tự nạp file này lúc khởi động
 | `FINMATE_LLM_THINKING` | model tự quyết | `adaptive` bật, `off` tắt suy nghĩ trước khi trả lời (chỉ Claude) |
 | `FINMATE_LLM_MAX_TOKENS` | `16000` (Claude) / `4096` | Trần độ dài câu trả lời, tính cả phần suy nghĩ |
 | `FINMATE_LLM_TIMEOUT_MS` | `90000` | Chờ tối đa cho một lượt gọi model |
+| `FINMATE_MAX_IMAGES` | `10` | Trần số ảnh gửi kèm một lượt chat. Mỗi ảnh ~2.500 token thị giác, nên đây là trần tiền chứ không phải trần kỹ thuật |
 | `FINMATE_AGENT` | – | Đặt `off` để tắt agent dù đã có key |
 | `FINMATE_MULTIUSER` | – | `1` để bật chế độ nhiều người dùng (đăng nhập bằng tài khoản, mỗi người một sổ) |
 | `FINMATE_DATA_DIR` | `server/data` | Thư mục dữ liệu: danh bạ tài khoản, sổ riêng từng người. Phải là volume khi chạy Docker |
