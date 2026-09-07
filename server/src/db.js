@@ -493,6 +493,10 @@ const ADD_COLUMNS = [
   // Phải thêm NGAY từ đầu chứ không đợi lúc thật sự có sổ chung: gắn tên vào
   // những khoản đã ghi từ mấy tháng trước là chuyện không làm được.
   ['transactions', 'created_by', 'INTEGER'],
+  // Hạn mức riêng cho MỘT NGƯỜI trong sổ chung: "chồng 5 triệu ăn ngoài/tháng".
+  // NULL = hạn mức của cả nhà, và đó là toàn bộ những gì tồn tại trước đây.
+  // Tính theo created_by, nên nó chỉ có nghĩa khi nhiều người cùng một sổ.
+  ['budgets', 'user_id', 'INTEGER'],
   // Đa tiền tệ: số tiền quy đổi về đồng tiền gốc tại thời điểm phát sinh
   ['transactions', 'base_amount', 'INTEGER'],
   ['transactions', 'base_currency', 'TEXT'],

@@ -4,6 +4,7 @@ import { all, get, insert, update, remove, run, setting } from '../db.js';
 import { pinIsSet, setPin, clearPin, verifyPin, createSession, destroySession, lockedFor, noteFail, noteSuccess, ingestToken, rotateIngestToken, MAX_FAILS_IP } from '../services/auth.js';
 import * as tk from '../services/accounts.js';
 import { laChuSo } from '../services/family_guard.js';
+import { capMotLan, tinhHinhCon } from '../services/allowance.js';
 import { mailEnabled, sendMail, resetMail } from '../services/mailer.js';
 import { rev as syncRev, syncInfo, checkLedgerBytes, backupBeforeReplace, replaceLedger } from '../services/sync.js';
 import { backupDir, listBackups, createBackup, snapshotToTemp, exportAll, autoBackup } from '../services/backup.js';
@@ -427,6 +428,97 @@ router.delete('/account/families', wrap(async (req, res) => {
   // một người bấm mà cả nhà mất dữ liệu — không bao giờ xoá thật ngay.
   tk.xoaSoChung(id);
   return ok(res, { deleted: true, file_giu_lai: true, ledgers: tk.soCuaNguoi(req.user.id) });
+}));
+
+// ── Con cái: giám hộ và tiền tiêu vặt ──────────────────────────────────────
+//
+// Con KHÔNG ở trong sổ chung — con giữ sổ riêng của mình, bố mẹ mở sổ đó bằng
+// vai 'guardian'. Nên mọi đường ở đây thao tác giữa HAI sổ, và chúng đọc
+// req.user chứ không dựa vào sổ đang mở, trừ chỗ nói rõ là cần sổ nhà.
+
+/** Người gọi có đúng là người giám hộ đứa trẻ này không. */
+function laConCuaToi(req, res, childId) {
+  const con = tk.conCuaNguoi(req.user.id).find((c) => c.id === Number(childId));
+  if (!con) {
+    res.status(403).json({ ok: false, forbidden: true, error: 'Đây không phải con bạn giám hộ.' });
+    return null;
+  }
+  return con;
+}
+
+router.get('/account/children', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  const ds = tk.conCuaNguoi(req.user.id).map((c) => {
+    // Số liệu đọc từ CHÍNH sổ của con, không phải số dự kiến trên lịch: bố mẹ
+    // cần biết thực tế đã cấp và con đã tiêu tới đâu, không phải kế hoạch.
+    let th = null;
+    try { th = tinhHinhCon(c.id); } catch { /* sổ con có thể chưa mở được */ }
+    return { ...c, tieu_vat: tk.dsTieuVat({ childId: c.id })[0] || null, thang_nay: th };
+  });
+  return ok(res, { children: ds, guardians_of_me: tk.nguoiGiamHo(req.user.id) });
+}));
+
+/** Con xem ai đang giám hộ mình — không giấu chuyện bố mẹ xem được sổ. */
+router.get('/account/guardians', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  ok(res, { guardians: tk.nguoiGiamHo(req.user.id) });
+}));
+
+router.post('/account/children/allowance', wrap(async (req, res) => {
+  const con = laConCuaToi(req, res, req.body?.child_id);
+  if (!con) return undefined;
+  if (con.ledger_id == null) {
+    return res.status(400).json({ ok: false, error: 'Quan hệ giám hộ này chưa gắn với sổ chung nào để trừ tiền.' });
+  }
+  const id = tk.datTieuVat({
+    childId: con.id,
+    ledgerId: con.ledger_id,
+    amount: req.body?.amount,
+    dayOfMonth: req.body?.day_of_month,
+    note: req.body?.note ?? null,
+    sourceAccountId: req.body?.source_account_id ?? null,
+    active: req.body?.active !== false,
+  });
+  return ok(res, { id, allowance: tk.dsTieuVat({ childId: con.id })[0] || null });
+}));
+
+router.delete('/account/children/allowance/:id', wrap(async (req, res) => {
+  if (!tk.multiUser()) return needMulti(res);
+  if (!req.user) return res.status(401).json({ ok: false, error: 'Cần đăng nhập' });
+  const lich = tk.dsTieuVat().find((a) => a.id === Number(req.params.id));
+  if (!lich || !laConCuaToi(req, res, lich.child_id)) return undefined;
+  tk.xoaTieuVat(lich.id);
+  return ok(res, { deleted: true });
+}));
+
+/** Cấp ngay một khoản, ngoài lịch. */
+router.post('/account/children/pay', wrap(async (req, res) => {
+  const con = laConCuaToi(req, res, req.body?.child_id);
+  if (!con) return undefined;
+  if (con.ledger_id == null) {
+    return res.status(400).json({ ok: false, error: 'Quan hệ giám hộ này chưa gắn với sổ chung nào để trừ tiền.' });
+  }
+  const kq = capMotLan({
+    childId: con.id,
+    childName: con.name || con.email,
+    ledgerKey: `g${con.ledger_id}`,
+    amount: req.body?.amount,
+    sourceAccountId: req.body?.source_account_id ?? null,
+    note: req.body?.note ?? null,
+    actorId: req.user.id,
+  });
+  return ok(res, { ...kq, thang_nay: tinhHinhCon(con.id) });
+}));
+
+router.post('/account/children/unlink', wrap(async (req, res) => {
+  const con = laConCuaToi(req, res, req.body?.child_id);
+  if (!con) return undefined;
+  // Gỡ quan hệ, KHÔNG đụng vào sổ của đứa trẻ. Sổ đó là của nó, và nó vẫn
+  // đăng nhập vào xem như thường.
+  tk.goGiamHo(con.id, req.user.id);
+  return ok(res, { unlinked: true, so_cua_con_van_con: true, children: tk.conCuaNguoi(req.user.id) });
 }));
 
 router.post('/account/logout', wrap(async (req, res) => {

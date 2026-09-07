@@ -622,3 +622,11 @@ kbd { background: var(--soft2); border-radius: 5px; padding: 1px 6px; font: inhe
 .inp-line { flex: 1 1 auto; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-soft); background: var(--card); color: var(--txt); font: inherit; font-size: 13.5px; }
 .row.wrap { flex-wrap: wrap; }
 .btn.sm { padding: 6px 11px; font-size: 12.5px; }
+.child { padding: 11px 12px; border-radius: 12px; background: var(--soft2); }
+.child .nd { display: flex; flex-direction: column; min-width: 0; }
+.child .nd b { font-size: 13.5px; font-weight: 600; }
+.child .nd small { font-size: 11.5px; color: var(--dim); }
+/* Ba con số của con đứng cùng hàng: nhận — đã tiêu — còn lại. Xếp dọc thì mất
+   cái nhìn một phát ăn ngay, vốn là toàn bộ giá trị của dòng này. */
+.child-num { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--dim); }
+.child-num b { color: var(--txt); font-weight: 600; }

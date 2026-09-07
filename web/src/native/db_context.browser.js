@@ -5,3 +5,9 @@
  */
 export const currentCtx = () => null;
 export const runInCtx = (ctx, fn) => fn();
+
+// Chỉ một người dùng, và người đó là chủ của mọi thứ trong máy này: không có
+// "ai ghi khoản này" để mà hỏi, và không có vai nào để mà giới hạn.
+export const actorId = () => null;
+export const vaiHienTai = () => null;
+export const chiThayCuaMinh = () => false;

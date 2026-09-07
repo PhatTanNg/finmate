@@ -7,13 +7,16 @@ const TEN_VAI = {
   adult: 'Người lớn',
   child: 'Con',
   viewer: 'Chỉ xem',
+  guardian: 'Bạn giám hộ',
 };
 
 const TA_VAI = {
-  adult: 'Đọc, ghi, xoá mọi thứ trong sổ — ngang quyền với bạn.',
-  child: 'Ghi được khoản chi, xem chi tiêu và ngân sách. Không xoá được gì, không xem được thu nhập, nợ, đầu tư hay cài đặt.',
-  viewer: 'Chỉ xem, không ghi gì.',
+  adult: 'Đọc, ghi, xoá mọi thứ trong sổ chung — ngang quyền với bạn.',
+  child: 'Giữ sổ RIÊNG của mình, không thấy gì trong sổ chung. Bạn xem được sổ đó và cấp tiền tiêu vặt vào đấy.',
+  viewer: 'Chỉ xem sổ chung, không ghi gì.',
 };
+
+const tien = (n) => `${Number(n || 0).toLocaleString('vi-VN')}₫`;
 
 /**
  * Sổ chung của một nhà: tạo, mời người vào, đổi vai, và chuyển qua lại giữa
@@ -34,8 +37,15 @@ export default function FamilyCard() {
   const [ma, setMa] = useState(null);        // mã mời vừa tạo (chỉ hiện một lần)
   const [nhapMa, setNhapMa] = useState('');
   const [tenMoi, setTenMoi] = useState('');
+  const [con, setCon] = useState([]);          // con mình giám hộ
+  const [giamHo, setGiamHo] = useState([]);    // ai đang giám hộ MÌNH
+  const [capTien, setCapTien] = useState({});  // ô nhập số tiền cấp ngay, theo id con
 
   const laChung = String(hienTai || '').startsWith('g');
+  // Sổ đang mở là sổ của con (mình đang giám hộ): khoá cũng bắt đầu bằng 'u'
+  // như sổ riêng, nên phải tra danh sách chứ không đoán từ khoá.
+  const dangXemSoCon = (ds || []).find((l) => l.key === hienTai)?.kind === 'child';
+  const laRieng = !laChung && !dangXemSoCon;
 
   async function lamMoi() {
     try {
@@ -45,6 +55,9 @@ export default function FamilyCard() {
         const m = await api.get('/account/families/members');
         setTv(m.members); setToi(m.me);
       } else { setTv(null); }
+      const c = await api.get('/account/children').catch(() => null);
+      setCon(c?.children || []);
+      setGiamHo(c?.guardians_of_me || []);
     } catch (e) { setErr(e.message); setDs([]); }
   }
   useEffect(() => { lamMoi(); }, []);
@@ -106,13 +119,13 @@ export default function FamilyCard() {
             onClick={() => l.key !== hienTai && doiSo(l.key)}
             disabled={Boolean(ban)}
           >
-            <span className="ic">{l.kind === 'family' ? '👨‍👩‍👧' : '🔒'}</span>
+            <span className="ic">{l.kind === 'family' ? '👨‍👩‍👧' : l.kind === 'child' ? '🧒' : '🔒'}</span>
             <span className="nd">
               <b>{l.name}</b>
               <small>
-                {l.kind === 'family'
-                  ? `${l.members} người · bạn là ${TEN_VAI[l.role] || l.role}`
-                  : 'Chỉ mình bạn thấy'}
+                {l.kind === 'family' ? `${l.members} người · bạn là ${TEN_VAI[l.role] || l.role}`
+                  : l.kind === 'child' ? 'Bạn xem và cấp tiền, không xoá được gì'
+                    : 'Chỉ mình bạn thấy'}
               </small>
             </span>
             {l.key === hienTai && <span className="tick">Đang mở</span>}
@@ -120,7 +133,7 @@ export default function FamilyCard() {
         ))}
       </div>
 
-      {!laChung && (
+      {laRieng && (
         <>
           <div className="row" style={{ marginTop: 14 }}>
             <input
@@ -212,6 +225,100 @@ export default function FamilyCard() {
             những gì người nhà vừa ghi, nên đường đó bị khoá riêng cho sổ chung.
           </div>
         </>
+      )}
+
+      {/* ── Con cái ─────────────────────────────────────────────────────
+          Đặt sau phần sổ chung vì nó là chuyện khác hẳn: con KHÔNG ở trong sổ
+          chung. Nói rõ điều đó ra, không thì người ta tìm tên con trong danh
+          sách thành viên rồi tưởng lời mời hỏng. */}
+      {(laChung || con.length > 0) && (
+        <>
+          <h4 style={{ margin: '18px 0 6px', fontSize: 13.5 }}>Con cái</h4>
+          <p className="dim" style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 0 }}>
+            Con <b>giữ sổ riêng của mình</b> và không thấy gì trong sổ chung — không có lương,
+            nợ hay tài sản của bố mẹ. Bạn xem được sổ đó và cấp tiền tiêu vặt vào đấy.
+          </p>
+
+          {con.length === 0 && laChung && vai === 'owner' && (
+            <p className="dim" style={{ fontSize: 12.5 }}>
+              Chưa có con nào. Bấm <b>Mời làm con</b> ở trên rồi đưa mã cho con.
+            </p>
+          )}
+
+          <div className="member-list">
+            {con.map((c) => {
+              const th = c.thang_nay || {};
+              return (
+                <div className="child" key={c.id}>
+                  <div className="between">
+                    <span className="nd">
+                      <b>{c.name || c.email}</b>
+                      <small>
+                        {c.tieu_vat
+                          ? `Tiêu vặt ${tien(c.tieu_vat.amount)}/tháng, ngày ${c.tieu_vat.day_of_month}`
+                          : 'Chưa đặt tiền tiêu vặt định kỳ'}
+                      </small>
+                    </span>
+                    <button className="btn ghost sm" onClick={() => doiSo(c.key)} disabled={Boolean(ban)}>Mở sổ</button>
+                  </div>
+                  {th.nhan != null && (
+                    <div className="child-num">
+                      <span>Tháng này nhận <b>{tien(th.nhan)}</b></span>
+                      <span>đã tiêu <b>{tien(th.tieu)}</b></span>
+                      <span>còn <b>{tien(th.con_lai)}</b></span>
+                    </div>
+                  )}
+                  <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                    <input
+                      className="inp-line"
+                      inputMode="numeric"
+                      placeholder="Cấp ngay bao nhiêu?"
+                      value={capTien[c.id] || ''}
+                      onChange={(e) => setCapTien((o) => ({ ...o, [c.id]: e.target.value.replace(/[^\d]/g, '') }))}
+                    />
+                    <button
+                      className="btn sm"
+                      disabled={Boolean(ban) || !capTien[c.id]}
+                      onClick={() => chay('cap', async () => {
+                        await api.post('/account/children/pay', { child_id: c.id, amount: Number(capTien[c.id]) });
+                        setCapTien((o) => ({ ...o, [c.id]: '' }));
+                      })}
+                    >Cấp</button>
+                  </div>
+                  <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                    <input
+                      className="inp-line"
+                      inputMode="numeric"
+                      placeholder="Hằng tháng bao nhiêu?"
+                      defaultValue={c.tieu_vat?.amount || ''}
+                      onBlur={(e) => {
+                        const v = Number(String(e.target.value).replace(/[^\d]/g, ''));
+                        if (!v || v === c.tieu_vat?.amount) return;
+                        chay('lich', () => api.post('/account/children/allowance', { child_id: c.id, amount: v, day_of_month: c.tieu_vat?.day_of_month || 1 }));
+                      }}
+                    />
+                    {c.tieu_vat && (
+                      <button
+                        className="btn ghost sm"
+                        onClick={() => chay('bolich', () => api.del(`/account/children/allowance/${c.tieu_vat.id}`))}
+                        disabled={Boolean(ban)}
+                      >Bỏ lịch</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Con nhìn thấy phần này: ai đang xem được sổ của mình. Không nói ra là
+          không tử tế — đứa trẻ có quyền biết. */}
+      {giamHo.length > 0 && (
+        <div className="note-warn" style={{ marginTop: 14 }}>
+          <b>{giamHo.map((g) => g.name || g.email).join(' và ')}</b> xem được sổ này và cấp tiền tiêu vặt vào đây.
+          Sổ vẫn là của bạn — họ không xoá được gì trong đó.
+        </div>
       )}
 
       {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}

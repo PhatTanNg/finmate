@@ -115,7 +115,9 @@ export function requireAccount(req, res, next) {
     if (!vai) vai = 'owner';   // rơi về sổ riêng, nơi ai cũng là chủ của chính mình
   }
   const ctx0 = ledgerFor(key);
-  const ctx = { ...ctx0, actorId: user.id };
+  // Vai đi thẳng vào ngữ cảnh sổ, không chỉ nằm trên req: tầng truy vấn cần
+  // nó để lọc dữ liệu con được thấy, mà tầng đó không nhìn thấy req.
+  const ctx = { ...ctx0, actorId: user.id, role: vai };
   req.ledger = { key, kind: key.startsWith('g') ? 'family' : 'personal', role: vai };
 
   // Mỗi lần sổ đổi thì nhích số hiệu bản lên một. Thiết bị đang giữ sổ nhờ số

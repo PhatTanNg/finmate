@@ -498,9 +498,17 @@ Vài điều quyết định app sống hay chết trên máy chủ:
 - **Luôn đặt `FINMATE_SIGNUP_CODE`.** Cửa đăng ký là cửa duy nhất ai cũng gọi được; không có mã mời thì người lạ tạo tài khoản đến khi đầy đĩa. Kèm theo còn có trần `FINMATE_MAX_USERS` và giới hạn số lần đăng ký mỗi giờ theo IP.
 - **Sổ chung của một nhà.** Trong **Cài đặt → Gia đình**, một người tạo sổ chung rồi phát mã mời; người nhà dán mã vào là vào. **Sổ riêng của mỗi người vẫn còn nguyên và không ai khác thấy được** — sổ chung nằm cạnh, không gộp, đổi qua lại bằng một cú bấm. Mỗi giao dịch mang tên người đã ghi nó, nên câu "ai tiêu khoản này" trả lời được.
 
-  Bốn vai: **chủ sổ** (mời, gỡ, đổi vai, xoá sổ), **người lớn** (đọc ghi xoá mọi thứ — vợ chồng ngang quyền), **con** (ghi được khoản chi, xem chi tiêu và ngân sách; không xoá được gì, không mở được phần thu nhập, nợ, đầu tư, báo cáo, cài đặt), **chỉ xem**.
+  Ba vai trong sổ chung: **chủ sổ** (mời, gỡ, đổi vai, xoá sổ), **người lớn** (đọc ghi xoá mọi thứ — vợ chồng ngang quyền), **chỉ xem**. Quyền chặn ở tầng đường dẫn (`services/family_guard.js`), một bảng luật đọc hết trong một màn hình.
 
-  Quyền chặn ở tầng đường dẫn (`services/family_guard.js`) chứ không lọc trong 651 câu truy vấn — một bảng luật đọc hết trong một màn hình thì soi lại được, 651 chỗ thì không. Nói thẳng giới hạn của cách này: nó chặn theo cửa, không theo từng dòng. Con không mở được trang thu nhập, nhưng những khoản chi con đọc được vẫn để lộ ít nhiều. Đây là ranh giới cho lứa tuổi, không phải bức tường chống một đứa 16 tuổi biết mở tab Network.
+  **Ngân sách theo từng người.** Hạn mức có thể gắn cho một thành viên ("chồng 5 triệu ăn ngoài/tháng") thay vì cho cả nhà; phần đã tiêu tính theo `created_by`, nên khoản của chồng không trừ vào hạn mức của vợ.
+
+- **Con cái: giám hộ, không phải thành viên.** Con **giữ sổ riêng của mình** và không thấy gì trong sổ chung — không lương, không nợ, không tài sản của bố mẹ. Bố mẹ mở sổ đó bằng vai `guardian`: xem được, mở ví được, đặt hạn mức được, **không xoá được gì** và không đụng được vào khoá PIN hay khoá AI của đứa trẻ. App nói thẳng với con là bố mẹ xem được sổ này — giấu chuyện đó đi là không tử tế.
+
+  Bản đầu cho con làm thành viên sổ chung rồi chặn theo cửa, và tôi đã ghi rõ giới hạn của nó ngay lúc đó: **con vẫn đọc được mọi khoản chi của bố mẹ**, mà nhìn hết chi tiêu thì cũng gần như biết hết. Bịt bằng bộ lọc thì phải lọc trong `listTransactions`, `listAccounts`, `budgets`, `funds`, `goals`, `dashboard` **và cả 74 công cụ AI** (con vẫn chat được, mà công cụ đọc thẳng sổ); sót một chỗ là rò — đúng cái bẫy mà kiến trúc "mỗi sổ một file" sinh ra để tránh. Nên thiết kế đổi: cách ly quay lại là **vật lý**, không còn bộ lọc nào để mà sót.
+
+- **Tiền tiêu vặt.** Bố mẹ cấp ngay một khoản, hoặc đặt lịch hằng tháng. Một lần cấp là hai sự thật ở hai cuốn sổ: một khoản **chi** ở sổ nhà, một khoản **thu** ở sổ con. Hai file SQLite riêng nên không có giao dịch nào ôm được cả hai — mã ghi sổ con trước rồi mới ghi sổ nhà, và gỡ lại bên con nếu sổ nhà hỏng. Thứ tự đó là cố ý: nếu kẹt một nửa thì thà kẹt ở phía "chưa trừ tiền nhà" còn hơn "đã trừ mà con không nhận được". Cả bước gỡ cũng hỏng thì app kêu to kèm hướng dẫn sửa tay, chứ không nuốt.
+
+  Lịch cấp nằm ở sổ danh bạ chứ không trong sổ nào, vì nó là quan hệ *giữa* hai cuốn sổ. Mốc "tháng này cấp chưa" được ghi lại — không có nó thì mỗi lần khởi động lại máy chủ là con được cấp thêm một lần, và đó là tiền thật.
 
   **Mất mạng vẫn ghi vào sổ chung được.** Khoản nhập lúc không có sóng nằm lại trong máy và tự gửi khi có mạng — theo TỪNG VIỆC, mỗi việc mang một mã riêng nên gửi lại không thành hai khoản. Mỗi việc cũng tự khai sổ đích trong header `x-finmate-ledger`, nên nó về đúng sổ kể cả khi trong lúc chờ người dùng đã chuyển sang sổ khác. Suy sổ đích từ phiên đăng nhập là chỗ mất dữ liệu im lặng: ghi ngoài chợ vào sổ nhà, về nhà đổi sang sổ riêng, có sóng lại — và khoản đó rơi vào sổ riêng.
 

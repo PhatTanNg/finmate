@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { ensureBang as ensureBangTieuVat } from './allowance.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.FINMATE_DATA_DIR || path.resolve(here, '..', '..', 'data');
@@ -99,6 +100,28 @@ function control() {
       used_by INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_invites_ledger ON ledger_invites(ledger_id);
+
+    -- ── Giám hộ: bố mẹ mở được sổ RIÊNG của con ────────────────────────
+    --
+    -- Con KHÔNG phải thành viên của sổ chung, và đó là một quyết định có chủ ý.
+    -- Cho con vào sổ chung rồi chặn theo đường dẫn thì con vẫn đọc được mọi
+    -- khoản chi của bố mẹ; bịt bằng bộ lọc thì phải lọc trong listTransactions,
+    -- listAccounts, budgets, funds, goals, dashboard VÀ cả 74 công cụ AI (con
+    -- vẫn chat được, mà công cụ đọc thẳng sổ). Sót một chỗ là rò — đúng cái bẫy
+    -- mà kiến trúc "mỗi sổ một file" sinh ra để tránh.
+    --
+    -- Nên con giữ sổ riêng của chính mình, bố mẹ được cấp quyền mở sổ đó.
+    -- Cách ly trở lại là VẬT LÝ: không có bộ lọc nào để mà sót.
+    CREATE TABLE IF NOT EXISTS guardians (
+      child_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      guardian_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      -- Sổ chung mà quan hệ này gắn vào: dùng để hiện "con trong nhà nào", và
+      -- để nguồn tiền tiêu vặt biết trừ vào sổ nào.
+      ledger_id INTEGER REFERENCES ledgers(id) ON DELETE CASCADE,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (child_id, guardian_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_guardians_guardian ON guardians(guardian_id);
   `);
   // Băm token webhook của từng người, để một tin nhắn ngân hàng bắn vào
   // /api/ingest tìm được đúng sổ mà không cần mở lần lượt sổ của mọi người.
@@ -111,6 +134,7 @@ function control() {
   // cùng một sổ thì đổi bên này là bên kia nhảy theo giữa chừng.
   // Trống = sổ riêng, nên mọi phiên đang có sẵn vẫn đúng sau khi nâng cấp.
   try { ctl.exec('ALTER TABLE sessions ADD COLUMN ledger_key TEXT'); } catch { /* đã có */ }
+  ensureBangTieuVat(ctl);
   return ctl;
 }
 
@@ -384,8 +408,11 @@ export const allUserIds = () => control().prepare('SELECT id FROM users ORDER BY
 // Quyền chặn ở tầng ROUTE (xem family_guard.js) chứ không lọc trong 651 câu
 // truy vấn — lọc sâu như thế thì chỉ cần sót một mệnh đề WHERE là rò dữ liệu,
 // đúng cái bẫy mà kiến trúc "mỗi sổ một file" sinh ra để tránh.
-export const VAI = ['owner', 'adult', 'child', 'viewer'];
+export const VAI = ['owner', 'adult', 'viewer'];
 const vaiHopLe = (r) => VAI.includes(String(r));
+
+/** Vai trên sổ RIÊNG của người khác, có được nhờ quan hệ giám hộ. */
+export const VAI_GIAM_HO = 'guardian';
 
 export function taoSoChung(userId, name) {
   const ten = String(name ?? '').trim();
@@ -399,15 +426,61 @@ export function taoSoChung(userId, name) {
   return { id, key: khoaChung(id), name: ten, role: 'owner' };
 }
 
-/** Vai của một người trong một sổ, hoặc null nếu họ không phải thành viên. */
+/** Vai của một người trong một sổ, hoặc null nếu họ không mở được sổ đó. */
 export function vaiTrongSo(key, userId) {
   const k = String(key || '');
-  // Sổ riêng: chỉ chính chủ mở được, và luôn toàn quyền.
-  if (/^u\d+$/.test(k)) return soCuaKhoa(k) === Number(userId) ? 'owner' : null;
+  if (/^u\d+$/.test(k)) {
+    // Sổ riêng của chính mình: luôn toàn quyền.
+    if (soCuaKhoa(k) === Number(userId)) return 'owner';
+    // Sổ riêng của con: bố mẹ mở được với vai giám hộ. Đây là ĐƯỜNG DUY NHẤT
+    // để một người mở sổ riêng của người khác, và nó phải có một hàng trong
+    // bảng guardians — không suy ra từ quan hệ gì khác.
+    const g = control().prepare('SELECT 1 FROM guardians WHERE child_id = ? AND guardian_id = ?')
+      .get(soCuaKhoa(k), Number(userId));
+    return g ? VAI_GIAM_HO : null;
+  }
   if (!laKhoaChung(k)) return null;
   const r = control().prepare('SELECT role FROM ledger_members WHERE ledger_id = ? AND user_id = ?')
     .get(soCuaKhoa(k), Number(userId));
   return r ? r.role : null;
+}
+
+// ── Giám hộ ────────────────────────────────────────────────────────────────
+
+/** Những đứa con mà người này giám hộ. */
+export function conCuaNguoi(guardianId) {
+  return control().prepare(`
+    SELECT u.id, u.name, u.email, g.ledger_id, g.created_at
+      FROM guardians g JOIN users u ON u.id = g.child_id
+     WHERE g.guardian_id = ? ORDER BY u.id`).all(Number(guardianId))
+    .map((c) => ({
+      id: Number(c.id), name: c.name || null, email: c.email,
+      key: khoaCaNhan(c.id), ledger_id: c.ledger_id == null ? null : Number(c.ledger_id),
+      since: c.created_at,
+    }));
+}
+
+/** Ai đang giám hộ đứa trẻ này (để con biết bố mẹ xem được sổ của mình). */
+export const nguoiGiamHo = (childId) => control().prepare(`
+  SELECT u.id, u.name, u.email FROM guardians g JOIN users u ON u.id = g.guardian_id
+   WHERE g.child_id = ? ORDER BY u.id`).all(Number(childId))
+  .map((g) => ({ id: Number(g.id), name: g.name || null, email: g.email }));
+
+export function themGiamHo(childId, guardianId, ledgerId = null) {
+  if (Number(childId) === Number(guardianId)) throw new Error('Không tự giám hộ chính mình được');
+  control().prepare('INSERT OR IGNORE INTO guardians (child_id, guardian_id, ledger_id) VALUES (?,?,?)')
+    .run(Number(childId), Number(guardianId), ledgerId == null ? null : Number(ledgerId));
+  return true;
+}
+
+export function goGiamHo(childId, guardianId) {
+  const c = control();
+  const n = c.prepare('DELETE FROM guardians WHERE child_id = ? AND guardian_id = ?')
+    .run(Number(childId), Number(guardianId)).changes;
+  // Bố mẹ đang mở sổ con mà bị gỡ quyền thì đá về sổ của chính mình ngay.
+  if (n) c.prepare('UPDATE sessions SET ledger_key = NULL WHERE user_id = ? AND ledger_key = ?')
+    .run(Number(guardianId), khoaCaNhan(childId));
+  return n > 0;
 }
 
 /** Mọi sổ một người mở được: sổ riêng luôn đứng đầu, rồi tới các sổ chung. */
@@ -423,6 +496,10 @@ export function soCuaNguoi(userId) {
     ...chung.map((l) => ({
       key: khoaChung(l.id), kind: 'family', id: Number(l.id), name: l.name,
       role: l.role, members: Number(l.members), owner: Number(l.owner_id) === id,
+    })),
+    ...conCuaNguoi(id).map((c) => ({
+      key: c.key, kind: 'child', id: c.id, name: `Sổ của ${c.name || c.email}`,
+      role: VAI_GIAM_HO, members: 1,
     })),
   ];
 }
@@ -443,7 +520,10 @@ const INVITE_PHUT = () => Number(process.env.FINMATE_INVITE_MINUTES) || 60 * 24 
  * còn băm trong sổ danh bạ, nên không ai (kể cả người quản trị) đọc lại được.
  */
 export function taoLoiMoi(ledgerId, byUserId, role = 'adult') {
-  if (!vaiHopLe(role) || role === 'owner') throw new Error('Vai không hợp lệ');
+  // 'child' không phải một vai trong sổ chung mà là một LOẠI LỜI MỜI: nhận nó
+  // thì thành con được giám hộ, giữ nguyên sổ riêng của mình, và không đọc
+  // được gì trong sổ chung.
+  if (role !== 'child' && (!vaiHopLe(role) || role === 'owner')) throw new Error('Vai không hợp lệ');
   const code = crypto.randomBytes(9).toString('base64url');   // 12 ký tự, đủ để không đoán ra
   const exp = new Date(Date.now() + INVITE_PHUT() * 60000).toISOString();
   control().prepare('INSERT INTO ledger_invites (hash, ledger_id, role, created_by, expires_at) VALUES (?,?,?,?,?)')
@@ -464,6 +544,25 @@ export function vaoSoBangMa(userId, code) {
   const da = c.prepare('SELECT role FROM ledger_members WHERE ledger_id = ? AND user_id = ?')
     .get(inv.ledger_id, Number(userId));
   if (da) throw new Error('Bạn đã ở trong sổ này rồi');
+
+  if (inv.role === 'child') {
+    // Con KHÔNG vào sổ chung. Con giữ sổ riêng của mình, và MỌI người lớn
+    // trong nhà thành người giám hộ — chỉ một người thì đứa trẻ vô hình với
+    // người còn lại, mà bố mẹ thì thường cùng trông con.
+    const nguoiLon = c.prepare("SELECT user_id FROM ledger_members WHERE ledger_id = ? AND role IN ('owner','adult')")
+      .all(inv.ledger_id);
+    for (const m of nguoiLon) themGiamHo(userId, m.user_id, inv.ledger_id);
+    c.prepare("UPDATE ledger_invites SET used_at = datetime('now'), used_by = ? WHERE hash = ?")
+      .run(Number(userId), inv.hash);
+    return {
+      key: khoaCaNhan(userId), kind: 'child', name: l.name, role: 'child',
+      giam_ho: nguoiGiamHo(userId),
+      // Nói thẳng cho đứa trẻ biết chuyện gì vừa xảy ra: sổ của nó vẫn là của
+      // nó, nhưng bố mẹ xem được. Giấu chuyện đó đi là không tử tế.
+      ghi_chu: 'Bạn giữ sổ riêng của mình. Bố mẹ xem được sổ này và cấp tiền tiêu vặt vào đây. Bạn không thấy được sổ chung của nhà.',
+    };
+  }
+
   c.prepare('INSERT INTO ledger_members (ledger_id, user_id, role) VALUES (?,?,?)')
     .run(inv.ledger_id, Number(userId), inv.role);
   c.prepare("UPDATE ledger_invites SET used_at = datetime('now'), used_by = ? WHERE hash = ?")
@@ -513,6 +612,57 @@ export function doiSoDangMo(token, key, userId) {
   return control().prepare('UPDATE sessions SET ledger_key = ? WHERE token = ?')
     .run(luu, bamToken(token)).changes > 0;
 }
+
+// ── Lịch tiền tiêu vặt ─────────────────────────────────────────────────────
+//
+// Sống ở sổ danh bạ vì nó là quan hệ GIỮA hai cuốn sổ (nhà và con). Để trong
+// sổ nhà thì tầng tự động hoá của sổ nhà không với sang sổ con được.
+
+/** Handle sổ danh bạ, cho tầng tự động hoá chạy lịch cấp tiền. */
+export const soDanhBa = () => control();
+
+export function dsTieuVat({ childId = null, ledgerId = null } = {}) {
+  const dk = [];
+  const p = [];
+  if (childId != null) { dk.push('a.child_id = ?'); p.push(Number(childId)); }
+  if (ledgerId != null) { dk.push('a.ledger_id = ?'); p.push(Number(ledgerId)); }
+  return control().prepare(`
+    SELECT a.*, u.name, u.email FROM allowances a JOIN users u ON u.id = a.child_id
+    ${dk.length ? `WHERE ${dk.join(' AND ')}` : ''} ORDER BY a.id`).all(...p)
+    .map((a) => ({
+      id: Number(a.id), child_id: Number(a.child_id), child_name: a.name || a.email,
+      ledger_id: a.ledger_id == null ? null : Number(a.ledger_id),
+      amount: Number(a.amount), day_of_month: Number(a.day_of_month),
+      note: a.note || null, source_account_id: a.source_account_id == null ? null : Number(a.source_account_id),
+      active: Boolean(a.active), last_paid_on: a.last_paid_on || null,
+    }));
+}
+
+/** Đặt hoặc sửa lịch. Mỗi đứa trẻ mỗi nhà chỉ một lịch — nhiều lịch chồng nhau
+ *  là kiểu nhầm lẫn mà tới cuối tháng mới phát hiện ra. */
+export function datTieuVat({ childId, ledgerId, amount, dayOfMonth = 1, note = null, sourceAccountId = null, active = true }) {
+  const tien = Math.round(Number(amount));
+  if (!Number.isFinite(tien) || tien <= 0) throw new Error('Số tiền tiêu vặt phải lớn hơn 0');
+  const ngay = Math.min(31, Math.max(1, Math.round(Number(dayOfMonth) || 1)));
+  const c = control();
+  const co = c.prepare('SELECT id FROM allowances WHERE child_id = ? AND ledger_id = ?')
+    .get(Number(childId), Number(ledgerId));
+  if (co) {
+    c.prepare('UPDATE allowances SET amount = ?, day_of_month = ?, note = ?, source_account_id = ?, active = ? WHERE id = ?')
+      .run(tien, ngay, note, sourceAccountId == null ? null : Number(sourceAccountId), active ? 1 : 0, co.id);
+    return Number(co.id);
+  }
+  return Number(c.prepare(`INSERT INTO allowances (child_id, ledger_id, amount, day_of_month, note, source_account_id, active)
+    VALUES (?,?,?,?,?,?,?)`)
+    .run(Number(childId), Number(ledgerId), tien, ngay, note,
+      sourceAccountId == null ? null : Number(sourceAccountId), active ? 1 : 0).lastInsertRowid);
+}
+
+export const xoaTieuVat = (id) =>
+  control().prepare('DELETE FROM allowances WHERE id = ?').run(Number(id)).changes > 0;
+
+export const danhDauDaCap = (id, ngay) =>
+  control().prepare('UPDATE allowances SET last_paid_on = ? WHERE id = ?').run(ngay, Number(id)).changes > 0;
 
 export function closeControl() {
   try { ctl?.close(); } catch { /* đã đóng hoặc đang bận */ }

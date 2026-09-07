@@ -10,10 +10,11 @@ import { setting, closeMainDb } from './db.js';
 import { requireAuth, pinIsSet, ingestToken, sessionOk } from './services/auth.js';
 import crypto from 'node:crypto';
 import { requireAccount } from './services/account_auth.js';
+import { chayDenHan as chayTieuVatDenHan } from './services/allowance.js';
 import { requireRole } from './services/family_guard.js';
 import { closeAll, withLedger } from './services/ledgers.js';
 import { deviceOwned } from './services/sync.js';
-import { multiUser, closeControl, allUserIds, pruneResets } from './services/accounts.js';
+import { multiUser, closeControl, allUserIds, pruneResets, soDanhBa } from './services/accounts.js';
 import { ensureWelcome } from './services/chat/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -179,6 +180,13 @@ function tuDongHoa(nhan) {
   }
   // Vé đặt lại mật khẩu đã hết hạn thì dọn đi, đừng để tích trong sổ danh bạ.
   try { pruneResets(); } catch (e) { console.warn('[finmate] dọn vé đặt lại mật khẩu lỗi:', e.message); }
+  // Tiền tiêu vặt tới hạn. Chạy ở ĐÂY chứ không trong vòng lặp từng sổ bên
+  // dưới: một lần cấp chạm vào HAI sổ (nhà và con), nên nó không thuộc về sổ
+  // nào cả — đứng trong ngữ cảnh một sổ mà làm thì kiểu gì cũng ghi lệch.
+  try {
+    const tv = chayTieuVatDenHan(soDanhBa());
+    if (tv.cap || tv.loi) console.log(`[finmate] tiền tiêu vặt: cấp ${tv.cap} khoản${tv.loi ? `, ${tv.loi} khoản hỏng` : ''}`);
+  } catch (e) { console.warn('[finmate] cấp tiền tiêu vặt lỗi:', e.message); }
   let posted = 0; let interest = 0; let loi = 0; let boQua = 0;
   const ids = allUserIds();
   for (const id of ids) {

@@ -20,3 +20,22 @@ export const currentCtx = () => store.getStore() || null;
 
 /** Chạy `fn` với sổ của một người dùng cụ thể. */
 export const runInCtx = (ctx, fn) => store.run(ctx, fn);
+
+/**
+ * Người đang thao tác, và vai của họ trong sổ đang mở.
+ *
+ * Khác `currentCtx().userId` — cái đó là CHỦ sổ. Trong sổ chung của một nhà,
+ * chủ sổ và người đang gõ là hai người khác nhau.
+ */
+export const actorId = () => currentCtx()?.actorId ?? currentCtx()?.userId ?? null;
+export const vaiHienTai = () => currentCtx()?.role || null;
+
+/**
+ * Vai này chỉ được thấy phần của CHÍNH MÌNH trong sổ chung.
+ *
+ * Chỉ đúng với 'child'. Chặn theo đường dẫn (family_guard) giữ con khỏi mở
+ * trang thu nhập hay nợ, nhưng không ngăn được con đọc danh sách giao dịch
+ * chung — mà nhìn hết mọi khoản chi của bố mẹ thì cũng gần như biết hết. Nên
+ * chỗ này lọc thêm ở tầng truy vấn, và cố ý chỉ có ĐÚNG MỘT hàm quyết định.
+ */
+export const chiThayCuaMinh = () => currentCtx()?.role === 'child';

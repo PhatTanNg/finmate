@@ -29,3 +29,38 @@ export const userByIngestToken = () => null;
 export const closeControl = () => {};
 export const countUsers = () => 0;
 export const _resetForTests = () => {};
+
+// ── Sổ chung, giám hộ, tiêu vặt ───────────────────────────────────────────
+//
+// Không có gì trong nhóm này chạy trên bản để trong máy: cả ba đều cần một
+// máy chủ giữ danh bạ chung cho nhiều người. Vẫn phải khai đủ tên vì tầng
+// dùng chung import chúng — thiếu một cái là cả gói không build được.
+export const sessionForToken = () => null;
+export const khoaCaNhan = (id) => `u${Number(id)}`;
+export const khoaChung = (id) => `g${Number(id)}`;
+export const laKhoaChung = () => false;
+export const ledgerPathFor = khong;
+export const VAI = ['owner'];
+export const VAI_GIAM_HO = 'guardian';
+// Máy này chỉ có một sổ và chủ của nó toàn quyền — trả 'owner' để tầng gác
+// quyền đi thẳng qua, thay vì null (nghĩa là "không mở được sổ nào").
+export const vaiTrongSo = () => 'owner';
+export const soCuaNguoi = () => [];
+export const taoSoChung = khong;
+export const thanhVien = () => [];
+export const taoLoiMoi = khong;
+export const vaoSoBangMa = khong;
+export const doiVai = khong;
+export const goThanhVien = khong;
+export const xoaSoChung = khong;
+export const doiTenSo = khong;
+export const doiSoDangMo = khong;
+export const conCuaNguoi = () => [];
+export const nguoiGiamHo = () => [];
+export const themGiamHo = khong;
+export const goGiamHo = khong;
+export const soDanhBa = khong;
+export const dsTieuVat = () => [];
+export const datTieuVat = khong;
+export const xoaTieuVat = () => false;
+export const danhDauDaCap = () => false;
